@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors the Compose SashimiBackground token for the window/splash background. -->
+    <color name="sashimi_background">#121217</color>
+    <color name="sashimi_accent">#8C5CC7</color>
+</resources>

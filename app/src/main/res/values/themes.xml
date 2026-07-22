@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app/launch theme. The real UI is Compose (SashimiTheme); this only
+         styles the window background + system bars before Compose takes over,
+         and is dark to match the dark-only design. -->
+    <style name="Theme.Sashimi" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/sashimi_background</item>
+        <item name="android:statusBarColor">@color/sashimi_background</item>
+        <item name="android:navigationBarColor">@color/sashimi_background</item>
+    </style>
+</resources>
