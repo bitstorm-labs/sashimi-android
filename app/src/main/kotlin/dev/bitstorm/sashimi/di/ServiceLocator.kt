@@ -1,6 +1,12 @@
 package dev.bitstorm.sashimi.di
 
 import android.content.Context
+import androidx.room.Room
+import dev.bitstorm.sashimi.core.downloads.DownloadDatabase
+import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
+import dev.bitstorm.sashimi.core.downloads.DownloadManager
+import dev.bitstorm.sashimi.core.downloads.DownloadRepository
+import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
@@ -43,6 +49,15 @@ object ServiceLocator {
     lateinit var playbackEngine: PlaybackEngine
         private set
 
+    lateinit var networkMonitor: NetworkMonitor
+        private set
+
+    lateinit var downloadManager: DownloadManager
+        private set
+
+    lateinit var downloadFileManager: DownloadFileManager
+        private set
+
     private val appScope = CoroutineScope(SupervisorJob())
 
     fun init(context: Context) {
@@ -61,6 +76,22 @@ object ServiceLocator {
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
         playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities()))
+
+        networkMonitor = NetworkMonitor(app)
+        downloadFileManager = DownloadFileManager(app)
+        val db =
+            Room.databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")
+                .fallbackToDestructiveMigration()
+                .build()
+        downloadManager =
+            DownloadManager(
+                context = app,
+                repository = DownloadRepository(db.downloadDao()),
+                fileManager = downloadFileManager,
+                client = client,
+                networkMonitor = networkMonitor,
+                scope = appScope,
+            )
     }
 
     /** A UUID generated once per install and reused (mirrors the Swift deviceId). */

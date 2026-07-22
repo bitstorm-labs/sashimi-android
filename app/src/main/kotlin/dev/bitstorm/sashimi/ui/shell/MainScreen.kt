@@ -42,6 +42,8 @@ import dev.bitstorm.sashimi.ui.auth.AuthViewModel
 import dev.bitstorm.sashimi.ui.auth.AuthViewModelFactory
 import dev.bitstorm.sashimi.ui.components.LocalShowQualityBadges
 import dev.bitstorm.sashimi.ui.detail.DetailScreen
+import dev.bitstorm.sashimi.ui.downloads.DownloadsScreen
+import dev.bitstorm.sashimi.ui.downloads.OfflineHomeScreen
 import dev.bitstorm.sashimi.ui.home.HomeScreen
 import dev.bitstorm.sashimi.ui.home.RecentlyAddedGridScreen
 import dev.bitstorm.sashimi.ui.library.LibrariesScreen
@@ -119,6 +121,16 @@ private fun AppShell(
     val expanded = widthSizeClass != WindowWidthSizeClass.Compact
     val isCompact = widthSizeClass == WindowWidthSizeClass.Compact
 
+    // Offline mode: hide Libraries + Search (iPhone PhoneTabView parity) and swap
+    // Home for the local-only offline variant.
+    val isOnline by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val destinations =
+        if (isOnline) {
+            Destination.entries.toList()
+        } else {
+            listOf(Destination.HOME, Destination.DOWNLOADS, Destination.SETTINGS)
+        }
+
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
 
@@ -141,12 +153,19 @@ private fun AppShell(
             modifier = hostModifier,
         ) {
             composable<HomeRoute> {
-                HomeScreen(
-                    session = session,
-                    onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
-                    onSeeAll = { id, name, ct -> navController.navigate(RecentlyAddedRoute(id, name, ct)) },
-                    onAddServer = { showAddServer = true },
-                )
+                if (isOnline) {
+                    HomeScreen(
+                        session = session,
+                        onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
+                        onSeeAll = { id, name, ct -> navController.navigate(RecentlyAddedRoute(id, name, ct)) },
+                        onAddServer = { showAddServer = true },
+                    )
+                } else {
+                    OfflineHomeScreen(
+                        onPlay = { id -> navController.navigate(PlayerRoute(itemId = id)) },
+                        onOpenSeries = { id -> navController.navigate(DetailRoute(id)) },
+                    )
+                }
             }
             composable<LibrariesRoute> {
                 LibrariesScreen(
@@ -160,7 +179,7 @@ private fun AppShell(
                 )
             }
             composable<DownloadsRoute> {
-                ComingSoonScreen("Downloads", "M4")
+                DownloadsScreen()
             }
             composable<SettingsRoute> {
                 SettingsScreen(session = session, onAddServer = { showAddServer = true })
@@ -224,7 +243,7 @@ private fun AppShell(
     } else if (expanded) {
         Row(modifier = Modifier.fillMaxSize()) {
             NavigationRail {
-                Destination.entries.forEach { dest ->
+                destinations.forEach { dest ->
                     NavigationRailItem(
                         selected = currentDestination.isOnTab(dest),
                         onClick = { navigateToTab(dest) },
@@ -239,7 +258,7 @@ private fun AppShell(
         Scaffold(
             bottomBar = {
                 NavigationBar {
-                    Destination.entries.forEach { dest ->
+                    destinations.forEach { dest ->
                         NavigationBarItem(
                             selected = currentDestination.isOnTab(dest),
                             onClick = { navigateToTab(dest) },

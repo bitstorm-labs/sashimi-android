@@ -3,6 +3,9 @@ package dev.bitstorm.sashimi.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.downloads.DownloadManager
+import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
+import dev.bitstorm.sashimi.core.downloads.downloadItemType
 import dev.bitstorm.sashimi.core.home.NextUpSelector
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
@@ -47,6 +50,7 @@ data class DetailUiState(
  */
 class DetailViewModel(
     private val client: JellyfinClient,
+    private val downloads: DownloadManager,
     private val itemId: String,
 ) : ViewModel() {
     private val _state = MutableStateFlow(DetailUiState())
@@ -60,6 +64,8 @@ class DetailViewModel(
         viewModelScope.launch {
             val fresh = runCatching { client.getItem(itemId) }.getOrNull()
             if (fresh == null) {
+                // Offline (or unreachable server): rebuild from the download store.
+                if (loadOffline()) return@launch
                 _state.update { it.copy(isLoading = false, error = "Could not load item.") }
                 return@launch
             }
@@ -118,10 +124,70 @@ class DetailViewModel(
         item.seasonId?.let { loadEpisodesForSeason(seriesId, it) }
     }
 
+    /**
+     * Rebuilds detail from the local download store when the server is
+     * unreachable (Swift loadOfflineSeriesContent). Returns false when nothing is
+     * downloaded for this id, letting the caller surface the load error.
+     */
+    private suspend fun loadOffline(): Boolean {
+        val all = downloads.downloads.value
+        val entity = all.firstOrNull { it.itemId == itemId }
+
+        if (entity != null && entity.downloadItemType == ItemType.EPISODE) {
+            val item = OfflineReconstruction.asBaseItemDto(entity)
+            _state.update { it.copy(item = item, isLoading = false, hasProgress = item.progressPercent > 0) }
+            loadOfflineSeries(entity.seriesId ?: itemId, entity.seriesName, entity.seasonNumber)
+            return true
+        }
+        if (entity != null) {
+            // Movie (or other single downloadable item).
+            val item = OfflineReconstruction.asBaseItemDto(entity)
+            _state.update { it.copy(item = item, isLoading = false, hasProgress = item.progressPercent > 0) }
+            return true
+        }
+
+        // itemId is a series id: reconstruct from its downloaded episodes.
+        val episodes = OfflineReconstruction.episodesForSeries(all, itemId, null)
+        if (episodes.isEmpty()) return false
+        val seriesName = episodes.first().seriesName ?: ""
+        _state.update { it.copy(item = BaseItemDto(id = itemId, name = seriesName, type = ItemType.SERIES), isLoading = false) }
+        loadOfflineSeries(itemId, seriesName, null)
+        return true
+    }
+
+    private fun loadOfflineSeries(
+        seriesId: String,
+        seriesName: String?,
+        selectedSeasonNumber: Int?,
+    ) {
+        val all = downloads.downloads.value
+        val episodes = OfflineReconstruction.episodesForSeries(all, seriesId, seriesName)
+        val seasons = OfflineReconstruction.syntheticSeasons(episodes, seriesId)
+        val seasonNumber = selectedSeasonNumber ?: seasons.firstOrNull()?.indexNumber
+        val seasonEpisodes = episodes.filter { it.seasonNumber == seasonNumber }.map { OfflineReconstruction.asBaseItemDto(it) }
+        _state.update {
+            it.copy(
+                seasons = seasons,
+                selectedSeasonId = seasonNumber?.let { n -> "offline-season-$n" },
+                episodes = seasonEpisodes,
+            )
+        }
+    }
+
     fun selectSeason(seasonId: String) {
         val item = _state.value.item ?: return
-        val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
         _state.update { it.copy(selectedSeasonId = seasonId) }
+        if (seasonId.startsWith("offline-season-")) {
+            val num = seasonId.removePrefix("offline-season-").toIntOrNull()
+            val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
+            val eps =
+                OfflineReconstruction.episodesForSeries(downloads.downloads.value, seriesId, item.seriesName ?: item.name)
+                    .filter { it.seasonNumber == num }
+                    .map { OfflineReconstruction.asBaseItemDto(it) }
+            _state.update { it.copy(episodes = eps) }
+            return
+        }
+        val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
         viewModelScope.launch { loadEpisodesForSeason(seriesId, seasonId) }
     }
 
@@ -229,6 +295,7 @@ class DetailViewModel(
         private val itemId: String,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = DetailViewModel(ServiceLocator.client, itemId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            DetailViewModel(ServiceLocator.client, ServiceLocator.downloadManager, itemId) as T
     }
 }

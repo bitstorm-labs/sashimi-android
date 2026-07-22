@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
@@ -68,6 +69,7 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.cleanedYouTubeTitle
+import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.components.isYouTube
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -475,6 +477,11 @@ private fun ActionButtons(
                 modifier = Modifier.size(18.dp),
             )
         }
+
+        // Single-item download (movies + episodes). Series use the bulk season menu.
+        if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
+            dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item)
+        }
     }
 }
 
@@ -547,12 +554,19 @@ private fun SeasonsSection(
         if (state.isLoadingEpisodes) {
             Box(Modifier.fillMaxWidth().height(120.dp), Alignment.Center) { CircularProgressIndicator() }
         } else if (state.episodes.isNotEmpty()) {
-            Text(
-                if (state.isEpisode) "More Episodes" else "Episodes",
-                color = SashimiTextPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (state.isEpisode) "More Episodes" else "Episodes",
+                    color = SashimiTextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+                if (state.isSeries && online) {
+                    SeasonDownloadMenu(episodes = state.episodes)
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 state.episodes.forEach { episode ->
                     EpisodeRow(
@@ -562,6 +576,80 @@ private fun SeasonsSection(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Bulk season download menu (All / Unwatched / Custom N), ported from the Swift
+ * detail download menu. "Custom" downloads the first N unwatched episodes. The
+ * quality dialog gates Original off the first episode as a season proxy.
+ */
+@Composable
+private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var pendingEpisodes by remember { mutableStateOf<List<BaseItemDto>?>(null) }
+    var showCustom by remember { mutableStateOf(false) }
+    var customCount by remember { mutableStateOf("") }
+
+    val unwatched = episodes.filter { it.userData?.played != true }
+
+    IconButton(onClick = { menuOpen = true }) {
+        Icon(Icons.Filled.Download, contentDescription = "Download season", tint = SashimiAccent)
+    }
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(text = { Text("All Episodes") }, onClick = {
+            menuOpen = false
+            pendingEpisodes = episodes
+        })
+        DropdownMenuItem(text = { Text("Unwatched Only") }, onClick = {
+            menuOpen = false
+            if (unwatched.isNotEmpty()) pendingEpisodes = unwatched
+        })
+        DropdownMenuItem(text = { Text("Custom…") }, onClick = {
+            menuOpen = false
+            if (unwatched.isNotEmpty()) showCustom = true
+        })
+    }
+
+    if (showCustom) {
+        AlertDialog(
+            onDismissRequest = { showCustom = false },
+            title = { Text("Download Unwatched Episodes") },
+            text = {
+                Column {
+                    Text("How many unwatched episodes would you like to download?", color = SashimiTextSecondary)
+                    androidx.compose.material3.OutlinedTextField(
+                        value = customCount,
+                        onValueChange = { customCount = it.filter(Char::isDigit) },
+                        singleLine = true,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val n = customCount.toIntOrNull() ?: 0
+                    showCustom = false
+                    customCount = ""
+                    if (n > 0) pendingEpisodes = unwatched.take(n)
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showCustom = false }) { Text("Cancel") } },
+        )
+    }
+
+    pendingEpisodes?.let { eps ->
+        if (eps.isNotEmpty()) {
+            dev.bitstorm.sashimi.ui.downloads.QualityDialog(
+                item = eps.first(),
+                seasonProxyItemId = eps.first().id,
+                onDismiss = { pendingEpisodes = null },
+                onPick = { quality ->
+                    pendingEpisodes = null
+                    ServiceLocator.downloadManager.downloadSeason(eps, quality)
+                },
+            )
         }
     }
 }

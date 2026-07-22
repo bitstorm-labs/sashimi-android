@@ -63,6 +63,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
 
+    // Room DB is constructed in ServiceLocator; entities/DAO live in :core.
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.ui)

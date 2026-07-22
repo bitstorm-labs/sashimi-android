@@ -15,6 +15,8 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import dev.bitstorm.sashimi.core.downloads.DownloadManager
+import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
@@ -29,6 +31,7 @@ import dev.bitstorm.sashimi.core.playback.ProgressReporter
 import dev.bitstorm.sashimi.core.playback.QualityOption
 import dev.bitstorm.sashimi.core.playback.SegmentSkipTracker
 import dev.bitstorm.sashimi.core.playback.StreamInfo
+import dev.bitstorm.sashimi.core.playback.StreamMethod
 import dev.bitstorm.sashimi.core.playback.SubtitleTrack
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.di.ServiceLocator
@@ -80,6 +83,7 @@ class PlayerViewModel(
     private val client: JellyfinClient,
     private val engine: PlaybackEngine,
     private val settings: AppSettings,
+    private val downloads: DownloadManager,
     private val itemId: String,
     private val startFromBeginning: Boolean,
     private val trailerItemId: String?,
@@ -109,7 +113,11 @@ class PlayerViewModel(
 
     private var progressJob: Job? = null
     private var tickJob: Job? = null
+    private var watchdogJob: Job? = null
     private var isHandlingEnd = false
+
+    /** Set when playing a completed local download — drives local position save + skips server reporting. */
+    private var isLocalPlayback = false
 
     // Desired track selections, (re)applied whenever the player's track list
     // changes (tracks aren't known until after prepare).
@@ -148,9 +156,29 @@ class PlayerViewModel(
 
     private suspend fun loadInitial() {
         val playbackTargetId = trailerItemId ?: itemId
+        // Prefer a completed local download whenever one exists — even online
+        // (matches the Swift MobilePlayerView localFileURL gate). Trailers never
+        // play locally.
+        val localFile = if (trailerItemId == null) runCatching { downloads.localVideoFile(playbackTargetId) }.getOrNull() else null
+
+        if (localFile != null) {
+            prepareLocal(playbackTargetId, localFile)
+            return
+        }
+
+        // Online path: a 5s watchdog surfaces the offline hint if the server never
+        // answers (port of the Swift connect-timeout error).
+        startWatchdog()
         val fresh = runCatching { client.getItem(playbackTargetId) }.getOrNull()
         if (fresh == null) {
-            _state.update { it.copy(isLoading = false, error = "Could not load item.") }
+            watchdogJob?.cancel()
+            _state.update {
+                if (it.error != null) {
+                    it
+                } else {
+                    it.copy(isLoading = false, error = "Could not load item.")
+                }
+            }
             return
         }
         currentItem = fresh
@@ -159,6 +187,64 @@ class PlayerViewModel(
         // Apply the user's preferred-language defaults before the first negotiate.
         desiredAudioLanguage = settings.preferredAudioLanguage.value.takeIf { it.isNotEmpty() }
         prepare(fresh, resumeTicksFor(fresh, fromBeginning), QualityOption.AUTO, forceTranscode = false)
+        watchdogJob?.cancel()
+    }
+
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob =
+            viewModelScope.launch {
+                delay(CONNECT_WATCHDOG_MS)
+                if (_state.value.isLoading && currentSource == null) {
+                    _state.update {
+                        it.copy(isLoading = false, error = "Can't connect to server. Download this item to watch offline.")
+                    }
+                }
+            }
+    }
+
+    /**
+     * Plays a completed download from local storage: no negotiation, restore the
+     * locally-saved position (preferring it over the server's when larger), and
+     * defer all progress reporting to the offline sync path.
+     */
+    private suspend fun prepareLocal(
+        playbackItemId: String,
+        localFile: java.io.File,
+    ) {
+        isLocalPlayback = true
+        // Reconstruct the item from the server when reachable, else from the store.
+        val serverItem = runCatching { client.getItem(playbackItemId) }.getOrNull()
+        val item =
+            serverItem
+                ?: downloads.downloadedItem(playbackItemId)?.let { OfflineReconstruction.asBaseItemDto(it) }
+                ?: run {
+                    _state.update { it.copy(isLoading = false, error = "Could not load download.") }
+                    return
+                }
+        currentItem = item
+
+        val serverTicks = if (startFromBeginning) 0 else item.userData?.playbackPositionTicks ?: 0
+        val localTicks = downloads.offlinePlaybackPositionTicks(playbackItemId) ?: 0
+        val startTicks = if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
+
+        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(localFile)), startTicks / TICKS_PER_MS)
+        player.prepare()
+        player.playWhenReady = true
+
+        _state.update {
+            it.copy(
+                isLoading = false,
+                error = null,
+                title = titleFor(item),
+                subtitle = subtitleFor(item),
+                streamInfo = StreamInfo(StreamMethod.DIRECT_PLAY, "Downloaded", null),
+                audioTracks = emptyList(),
+                subtitleTracks = emptyList(),
+                selectedQuality = QualityOption.AUTO,
+            )
+        }
+        loadSegments(item)
     }
 
     /** Resume threshold: only auto-resume when saved position exceeds the setting. */
@@ -483,11 +569,17 @@ class PlayerViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        watchdogJob?.cancel()
+        val posTicks = player.currentPosition * TICKS_PER_MS
+        // Local playback: stash the position for later server sync (Swift
+        // savePlaybackPosition → syncPendingProgress). Trailers are never saved.
+        if (isLocalPlayback && trailerItemId == null) {
+            downloads.savePlaybackPosition(itemId, posTicks)
+        }
         // Fire the stopped report + transcode teardown on a detached scope so it
         // survives the ViewModel being cleared, then release the player.
         val r = reporter
         val source = currentSource
-        val posTicks = player.currentPosition * TICKS_PER_MS
         if (r != null) {
             teardownScope.launch {
                 runCatching { r.reportStopped(posTicks) }
@@ -511,6 +603,7 @@ class PlayerViewModel(
                 client = ServiceLocator.client,
                 engine = ServiceLocator.playbackEngine,
                 settings = ServiceLocator.appSettings,
+                downloads = ServiceLocator.downloadManager,
                 itemId = itemId,
                 startFromBeginning = startFromBeginning,
                 trailerItemId = trailerItemId,
@@ -521,6 +614,7 @@ class PlayerViewModel(
         private const val TICKS_PER_MS = 10_000L
         private const val TICKS_PER_SECOND = 10_000_000L
         private const val SEGMENT_POLL_MS = 500L
+        private const val CONNECT_WATCHDOG_MS = 5_000L
         private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         fun subtitleTrackId(index: Int): String = "sub-$index"
