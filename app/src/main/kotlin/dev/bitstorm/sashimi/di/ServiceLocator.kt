@@ -21,6 +21,9 @@ import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Minimal hand-rolled DI. M1 has no need for a framework; a single process-wide
@@ -59,6 +62,23 @@ object ServiceLocator {
         private set
 
     private val appScope = CoroutineScope(SupervisorJob())
+
+    /**
+     * A `sashimi://` deep link captured by [dev.bitstorm.sashimi.MainActivity]
+     * that hasn't been consumed yet. Stashed here (rather than routed straight
+     * into the NavHost) so a cold start while signed-out defers the link until
+     * after authentication — the port of the iOS ContentView `pendingDeepLink`.
+     */
+    private val _pendingDeepLink = MutableStateFlow<String?>(null)
+    val pendingDeepLink: StateFlow<String?> = _pendingDeepLink.asStateFlow()
+
+    fun setPendingDeepLink(uri: String?) {
+        _pendingDeepLink.value = uri
+    }
+
+    fun consumePendingDeepLink() {
+        _pendingDeepLink.value = null
+    }
 
     fun init(context: Context) {
         if (::client.isInitialized) return

@@ -107,6 +107,7 @@ fun DetailScreen(
 ) {
     val vm: DetailViewModel = viewModel(key = "detail-$itemId", factory = DetailViewModel.Factory(itemId))
     val state by vm.state.collectAsStateWithLifecycle()
+    val isOnline by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
@@ -146,7 +147,10 @@ fun DetailScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             BackTopBar(title = "", onBack = onBack) {
-                if (item != null) {
+                // The overflow actions (Favorite/File Info/Refresh/Delete) all hit
+                // the server, so hide the menu entirely when offline (M4 loose end:
+                // they silently failed before).
+                if (item != null && isOnline) {
                     DetailOverflowMenu(
                         isFavorite = item.userData?.isFavorite == true,
                         onToggleFavorite = vm::toggleFavorite,
@@ -469,13 +473,18 @@ private fun ActionButtons(
             }
         }
 
-        FilledTonalButton(onClick = vm::toggleWatched) {
-            Icon(
-                if (state.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                contentDescription = "Watched",
-                tint = if (state.isWatched) SashimiAccent else SashimiTextSecondary,
-                modifier = Modifier.size(18.dp),
-            )
+        // Watched state is a server call — only offer the toggle when online (M4
+        // loose end: it silently failed offline).
+        val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+        if (online) {
+            FilledTonalButton(onClick = vm::toggleWatched) {
+                Icon(
+                    if (state.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                    contentDescription = "Watched",
+                    tint = if (state.isWatched) SashimiAccent else SashimiTextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
 
         // Single-item download (movies + episodes). Series use the bulk season menu.

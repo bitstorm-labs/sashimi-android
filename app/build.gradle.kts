@@ -15,18 +15,46 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Upload signing, read from env vars (CI) or gradle properties (local). When
+    // absent — e.g. a contributor build or an un-secreted CI run — the release
+    // build falls back to unsigned so `assembleRelease` still succeeds.
+    val uploadStoreFile =
+        System.getenv("SASHIMI_UPLOAD_STORE_FILE") ?: (findProperty("SASHIMI_UPLOAD_STORE_FILE") as String?)
+    val uploadStorePassword =
+        System.getenv("SASHIMI_UPLOAD_STORE_PASSWORD") ?: (findProperty("SASHIMI_UPLOAD_STORE_PASSWORD") as String?)
+    val uploadKeyAlias =
+        System.getenv("SASHIMI_UPLOAD_KEY_ALIAS") ?: (findProperty("SASHIMI_UPLOAD_KEY_ALIAS") as String?) ?: "sashimi"
+    val uploadKeyPassword =
+        System.getenv("SASHIMI_UPLOAD_KEY_PASSWORD") ?: (findProperty("SASHIMI_UPLOAD_KEY_PASSWORD") as String?)
+            ?: uploadStorePassword
+    val hasUploadSigning =
+        uploadStoreFile != null && uploadStorePassword != null && file(uploadStoreFile).exists()
+
+    signingConfigs {
+        if (hasUploadSigning) {
+            create("upload") {
+                storeFile = file(uploadStoreFile!!)
+                storePassword = uploadStorePassword
+                keyAlias = uploadKeyAlias
+                keyPassword = uploadKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfig = if (hasUploadSigning) signingConfigs.getByName("upload") else null
         }
     }
 
@@ -66,6 +94,10 @@ dependencies {
     // Room DB is constructed in ServiceLocator; entities/DAO live in :core.
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+
+    // WorkManager: downloads run in :core, but the app needs the runtime on its
+    // direct classpath so the foreground-service manifest entry merges in.
+    implementation(libs.androidx.work.runtime)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)

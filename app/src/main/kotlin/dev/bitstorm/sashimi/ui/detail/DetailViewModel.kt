@@ -165,11 +165,19 @@ class DetailViewModel(
         val seasons = OfflineReconstruction.syntheticSeasons(episodes, seriesId)
         val seasonNumber = selectedSeasonNumber ?: seasons.firstOrNull()?.indexNumber
         val seasonEpisodes = episodes.filter { it.seasonNumber == seasonNumber }.map { OfflineReconstruction.asBaseItemDto(it) }
+
+        // Next-up for an offline series page (there is no server Next Up): the first
+        // downloaded episode with saved local progress, else the first episode. So
+        // Play/Resume works offline instead of no-op'ing (M4 loose end).
+        val nextEntity = episodes.firstOrNull { it.localPositionTicks > 0 } ?: episodes.firstOrNull()
+        val next = nextEntity?.let { OfflineReconstruction.asBaseItemDto(it) }
+
         _state.update {
             it.copy(
                 seasons = seasons,
                 selectedSeasonId = seasonNumber?.let { n -> "offline-season-$n" },
                 episodes = seasonEpisodes,
+                nextEpisode = next,
             )
         }
     }

@@ -228,8 +228,52 @@ class PlayerViewModel(
         val localTicks = downloads.offlinePlaybackPositionTicks(playbackItemId) ?: 0
         val startTicks = if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
 
-        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(localFile)), startTicks / TICKS_PER_MS)
+        // Side-load any subtitles that were downloaded alongside the video as
+        // local VTT tracks (Swift MobilePlayerView local subtitle configs).
+        val entity = downloads.downloadedItem(playbackItemId)
+        val subConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+        val subTracks = mutableListOf<SubtitleTrack>()
+        for (sub in entity?.subtitles.orEmpty()) {
+            val file = downloads.localSubtitleFile(playbackItemId, sub.fileName) ?: continue
+            subConfigs.add(
+                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(file))
+                    .setMimeType(MimeTypes.TEXT_VTT)
+                    .setLanguage(sub.language)
+                    .setId(subtitleTrackId(sub.subtitleIndex))
+                    .build(),
+            )
+            subTracks.add(
+                SubtitleTrack(
+                    index = sub.subtitleIndex,
+                    displayName = sub.displayTitle,
+                    languageCode = sub.language,
+                    isExternal = true,
+                ),
+            )
+        }
+
+        val mediaItem =
+            MediaItem.Builder()
+                .setUri(android.net.Uri.fromFile(localFile))
+                .setSubtitleConfigurations(subConfigs)
+                .build()
+        player.setMediaItem(mediaItem, startTicks / TICKS_PER_MS)
         player.prepare()
+
+        // Resolve the initial subtitle selection from the user's preferences.
+        desiredSubtitleIndex =
+            if (subTracks.isEmpty() || !settings.subtitlesEnabled.value) {
+                PlayerUiState.OFF_SUBTITLE
+            } else {
+                val pref = settings.preferredSubtitleLanguage.value
+                val match =
+                    pref.takeIf { it.isNotEmpty() }?.let {
+                            p ->
+                        subTracks.firstOrNull { LanguageMatcher.matches(it.languageCode, p) }
+                    }
+                (match ?: subTracks.first()).index
+            }
+        applyTrackSelections()
         player.playWhenReady = true
 
         _state.update {
@@ -240,7 +284,8 @@ class PlayerViewModel(
                 subtitle = subtitleFor(item),
                 streamInfo = StreamInfo(StreamMethod.DIRECT_PLAY, "Downloaded", null),
                 audioTracks = emptyList(),
-                subtitleTracks = emptyList(),
+                subtitleTracks = if (subTracks.isEmpty()) emptyList() else listOf(SubtitleTrack.OFF) + subTracks,
+                selectedSubtitleIndex = desiredSubtitleIndex,
                 selectedQuality = QualityOption.AUTO,
             )
         }

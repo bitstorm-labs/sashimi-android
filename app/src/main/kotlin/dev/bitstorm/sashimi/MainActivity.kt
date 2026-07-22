@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +16,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Stash any launch deep link; AppShell resolves it once authenticated.
+        stashDeepLink(intent)
         setContent {
             SashimiTheme {
                 val windowSizeClass = calculateWindowSizeClass(this)
@@ -24,5 +27,16 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        stashDeepLink(intent)
+    }
+
+    private fun stashDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "sashimi") ServiceLocator.setPendingDeepLink(data.toString())
     }
 }
