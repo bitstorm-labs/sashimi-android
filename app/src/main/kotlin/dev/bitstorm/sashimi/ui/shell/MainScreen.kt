@@ -162,10 +162,23 @@ private fun AppShell(
     val isPlayerRoute = currentDestination?.hierarchy?.any { it.hasRoute(PlayerRoute::class) } == true
 
     val navigateToTab: (Destination) -> Unit = { dest ->
-        navController.navigate(dest.route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+        // This is a flat NavHost: the tab roots and the pushed destinations
+        // (Detail/LibraryBrowse/…) are all top-level siblings on one shared back
+        // stack, so the "canonical" navigate(tabRoot){ popUpTo(start){ saveState }
+        // …; restoreState } pattern is broken here — restoreState immediately
+        // restores the detail that popUpTo(saveState) just saved, so tapping the
+        // current tab (e.g. Home while viewing a detail) does nothing.
+        //
+        // Correct single-stack behavior: pop back to the tab's root if it's
+        // already on the stack (clears any pushed detail, and pops to root on a
+        // re-tap); otherwise navigate to it, clearing down to the start
+        // destination. Selecting any destination therefore lands on its root.
+        val poppedToTabRoot = navController.popBackStack(dest.route, inclusive = false)
+        if (!poppedToTabRoot) {
+            navController.navigate(dest.route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
         }
     }
 
