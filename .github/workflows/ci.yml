@@ -92,3 +92,39 @@ jobs:
             app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/apk/release/app-release*.apk
           if-no-files-found: error
+
+      # Sideload distribution: attach the APK to a GitHub Release for the tag
+      # (pattern from sappho-android's build-release workflow).
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/app-release*.apk
+          generate_release_notes: true
+
+      # Play internal-testing deploy via fastlane (pipeline ported from
+      # sappho-android). Optional-guarded: skips cleanly until the
+      # PLAY_STORE_JSON_KEY secret (base64 service-account JSON) is added.
+      - name: Decode Play Store key
+        id: playkey
+        env:
+          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: |
+          if [ -n "$PLAY_STORE_JSON_KEY" ]; then
+            echo "$PLAY_STORE_JSON_KEY" | base64 --decode > "$RUNNER_TEMP/play-store-key.json"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No PLAY_STORE_JSON_KEY secret — skipping Play deploy."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Play internal testing
+        if: steps.playkey.outputs.present == 'true'
+        env:
+          PLAY_STORE_JSON_KEY_PATH: ${{ runner.temp }}/play-store-key.json
+        run: |
+          sudo gem install fastlane --no-document
+          fastlane internal
+
+      - name: Cleanup Play key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/play-store-key.json"
