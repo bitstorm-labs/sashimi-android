@@ -58,6 +58,19 @@ class HomeViewModel(
 
     val rows = homeRowSettings.rows
 
+    init {
+        // Reload when connectivity returns: content that loaded (or failed)
+        // while offline is stale, and the offline->online composable swap
+        // alone doesn't refetch reliably.
+        viewModelScope.launch {
+            var wasOnline = dev.bitstorm.sashimi.di.ServiceLocator.networkMonitor.isOnline.value
+            dev.bitstorm.sashimi.di.ServiceLocator.networkMonitor.isOnline.collect { online ->
+                if (online && !wasOnline) loadContent()
+                wasOnline = online
+            }
+        }
+    }
+
     fun loadContent() {
         _state.update { it.copy(isLoading = it.continueWatching.isEmpty()) }
         viewModelScope.launch { load() }
