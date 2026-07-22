@@ -1,6 +1,8 @@
 package dev.bitstorm.sashimi.ui.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -39,11 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.bitstorm.sashimi.R
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.ui.components.ContextMenuBox
@@ -166,20 +171,33 @@ private fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
+            // Logo + wordmark; tapping the whole thing opens the server switcher
+            // (port of PhoneHomeView's safeAreaInset header Menu).
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(4.dp),
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { menuOpen = true }
+                        .padding(4.dp),
             ) {
+                Image(
+                    painter = painterResource(R.drawable.sashimi_logo),
+                    contentDescription = "Sashimi",
+                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)),
+                )
+                Spacer(Modifier.width(8.dp))
                 Text(
                     "Sashimi",
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = SashimiTextPrimary,
-                    modifier = Modifier.padding(end = 4.dp),
                 )
-                TextButton(onClick = { menuOpen = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                    Icon(Icons.Filled.ExpandMore, contentDescription = "Switch server", tint = SashimiTextTertiary)
-                }
+                Icon(
+                    Icons.Filled.ExpandMore,
+                    contentDescription = "Switch server",
+                    tint = SashimiTextTertiary,
+                )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 servers.forEach { server ->
