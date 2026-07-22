@@ -18,7 +18,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.bitstorm.sashimi.core.model.BaseItemDto
-import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 
 /**
@@ -66,7 +65,7 @@ fun PosterGrid(
                             item = item,
                             width = metrics.cardWidth,
                             libraryName = libraryName,
-                            isCircular = isYouTube && item.type == ItemType.SERIES,
+                            isCircular = isYouTube,
                             badgeCount = badgeCounts[item.seriesId ?: item.id],
                         )
                     }
