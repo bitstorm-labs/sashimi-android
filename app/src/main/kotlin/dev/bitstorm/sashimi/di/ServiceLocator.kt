@@ -3,6 +3,9 @@ package dev.bitstorm.sashimi.di
 import android.content.Context
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
+import dev.bitstorm.sashimi.core.playback.DeviceProfileBuilder
+import dev.bitstorm.sashimi.core.playback.PlaybackEngine
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
@@ -37,6 +40,9 @@ object ServiceLocator {
     lateinit var appSettings: AppSettings
         private set
 
+    lateinit var playbackEngine: PlaybackEngine
+        private set
+
     private val appScope = CoroutineScope(SupervisorJob())
 
     fun init(context: Context) {
@@ -54,6 +60,7 @@ object ServiceLocator {
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
+        playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities()))
     }
 
     /** A UUID generated once per install and reused (mirrors the Swift deviceId). */

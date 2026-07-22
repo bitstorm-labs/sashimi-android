@@ -81,7 +81,6 @@ import dev.bitstorm.sashimi.ui.util.Formatting
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import kotlinx.coroutines.launch
 
-private const val PLAYBACK_STUB = "Playback coming in M3"
 private val WatchedGreen = Color(red = 0.29f, green = 0.73f, blue = 0.47f)
 
 /**
@@ -90,8 +89,9 @@ private val WatchedGreen = Color(red = 0.29f, green = 0.73f, blue = 0.47f)
  * compact = stacked phone layout, expanded = tablet two-column (backdrop right,
  * content left). All sections are shared; only the arrangement differs by width.
  *
- * Playback (Play / Resume / Start Over / Trailer) is stubbed to a snackbar —
- * M3 owns Media3. Shuffle navigates to a random episode's detail (real).
+ * Play / Resume / Start Over launch the Media3 player; Trailer resolves the first
+ * local trailer and plays it from the beginning. Shuffle navigates to a random
+ * episode's detail.
  */
 @Composable
 fun DetailScreen(
@@ -100,6 +100,8 @@ fun DetailScreen(
     isCompact: Boolean,
     onBack: () -> Unit,
     onOpenDetail: (itemId: String, libraryName: String?) -> Unit,
+    onPlay: (playItemId: String, startFromBeginning: Boolean) -> Unit,
+    onPlayTrailer: (trailerItemId: String) -> Unit,
 ) {
     val vm: DetailViewModel = viewModel(key = "detail-$itemId", factory = DetailViewModel.Factory(itemId))
     val state by vm.state.collectAsStateWithLifecycle()
@@ -118,9 +120,25 @@ fun DetailScreen(
             vm.consumeError()
         }
     }
+    // Refresh progress/watched state when returning from the player (skip the
+    // first RESUME, which coincides with the initial load in init).
+    val firstResume = remember { mutableStateOf(true) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        if (firstResume.value) {
+            firstResume.value = false
+        } else {
+            vm.reload()
+        }
+        onPauseOrDispose {}
+    }
 
     val item = state.item
-    val showStub: () -> Unit = { scope.launch { snackbar.showSnackbar(PLAYBACK_STUB) } }
+    val onPlayMain: (Boolean) -> Unit = { fromBeginning ->
+        vm.playTargetId()?.let { onPlay(it, fromBeginning) }
+    }
+    val onTrailer: () -> Unit = {
+        scope.launch { vm.firstLocalTrailerId()?.let { onPlayTrailer(it) } }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -147,9 +165,9 @@ fun DetailScreen(
                         Text("Could not load item.", color = SashimiTextSecondary)
                     }
                 isCompact ->
-                    CompactLayout(state, item, libraryName, vm, onOpenDetail, showStub)
+                    CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
                 else ->
-                    ExpandedLayout(state, item, libraryName, vm, onOpenDetail, showStub)
+                    ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
             }
         }
     }
@@ -185,7 +203,8 @@ private fun CompactLayout(
     libraryName: String?,
     vm: DetailViewModel,
     onOpenDetail: (String, String?) -> Unit,
-    showStub: () -> Unit,
+    onPlay: (Boolean) -> Unit,
+    onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -202,7 +221,7 @@ private fun CompactLayout(
                 ),
             )
         }
-        DetailContent(state, item, libraryName, vm, onOpenDetail, showStub, Modifier.padding(16.dp))
+        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, Modifier.padding(16.dp))
     }
 }
 
@@ -213,7 +232,8 @@ private fun ExpandedLayout(
     libraryName: String?,
     vm: DetailViewModel,
     onOpenDetail: (String, String?) -> Unit,
-    showStub: () -> Unit,
+    onPlay: (Boolean) -> Unit,
+    onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
     Box(Modifier.fillMaxSize()) {
@@ -241,7 +261,7 @@ private fun ExpandedLayout(
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp),
         ) {
-            DetailContent(state, item, libraryName, vm, onOpenDetail, showStub)
+            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer)
         }
     }
 }
@@ -253,7 +273,8 @@ private fun DetailContent(
     libraryName: String?,
     vm: DetailViewModel,
     onOpenDetail: (String, String?) -> Unit,
-    showStub: () -> Unit,
+    onPlay: (Boolean) -> Unit,
+    onTrailer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val yt = isYouTube(libraryName, item.path)
@@ -262,7 +283,7 @@ private fun DetailContent(
         MetadataRow(item)
         RatingsAndMedia(state, item)
         if (item.type == ItemType.MOVIE) GenresCert(item)
-        ActionButtons(state, item, vm, onOpenDetail, libraryName, showStub)
+        ActionButtons(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer)
         OverviewSection(item)
         if (state.isSeries || state.isEpisode) SeasonsSection(state, vm, onOpenDetail, libraryName)
         CastSection(item)
@@ -411,7 +432,8 @@ private fun ActionButtons(
     vm: DetailViewModel,
     onOpenDetail: (String, String?) -> Unit,
     libraryName: String?,
-    showStub: () -> Unit,
+    onPlay: (Boolean) -> Unit,
+    onTrailer: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     Row(
@@ -420,13 +442,13 @@ private fun ActionButtons(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val playLabel = playButtonLabel(state, item)
-        Button(onClick = showStub) {
+        Button(onClick = { onPlay(false) }) {
             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(playLabel, modifier = Modifier.padding(start = 4.dp))
         }
 
         if (state.hasProgress || (state.isSeries && state.nextEpisode?.userData?.playbackPositionTicks?.let { it > 0 } == true)) {
-            FilledTonalButton(onClick = showStub) {
+            FilledTonalButton(onClick = { onPlay(true) }) {
                 Icon(Icons.Filled.Replay, contentDescription = "Start Over", modifier = Modifier.size(18.dp))
             }
         }
@@ -440,7 +462,7 @@ private fun ActionButtons(
         }
 
         if ((item.localTrailerCount ?: 0) > 0) {
-            FilledTonalButton(onClick = showStub) {
+            FilledTonalButton(onClick = onTrailer) {
                 Icon(Icons.Filled.Movie, contentDescription = "Trailer", modifier = Modifier.size(18.dp))
             }
         }

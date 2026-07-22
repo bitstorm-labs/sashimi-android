@@ -177,6 +177,18 @@ class DetailViewModel(
         }
     }
 
+    /**
+     * The item id to hand the player when Play/Resume is tapped: for a series the
+     * resolved next-up episode, otherwise this item.
+     */
+    fun playTargetId(): String? = if (_state.value.isSeries) _state.value.nextEpisode?.id else _state.value.item?.id
+
+    /** First local trailer item id for the Trailer button, or null. */
+    suspend fun firstLocalTrailerId(): String? = runCatching { client.getLocalTrailers(itemId).firstOrNull()?.id }.getOrNull()
+
+    /** Re-fetch after returning from the player so progress/watched state refreshes. */
+    fun reload() = load()
+
     /** Shuffle: a random episode of this series (navigates to its detail). */
     suspend fun randomEpisode(): BaseItemDto? {
         val item = _state.value.item ?: return null

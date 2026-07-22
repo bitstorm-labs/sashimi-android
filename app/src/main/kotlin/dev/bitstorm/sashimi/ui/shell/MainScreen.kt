@@ -51,9 +51,11 @@ import dev.bitstorm.sashimi.ui.nav.DownloadsRoute
 import dev.bitstorm.sashimi.ui.nav.HomeRoute
 import dev.bitstorm.sashimi.ui.nav.LibrariesRoute
 import dev.bitstorm.sashimi.ui.nav.LibraryBrowseRoute
+import dev.bitstorm.sashimi.ui.nav.PlayerRoute
 import dev.bitstorm.sashimi.ui.nav.RecentlyAddedRoute
 import dev.bitstorm.sashimi.ui.nav.SearchRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
+import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.search.SearchScreen
 import dev.bitstorm.sashimi.ui.settings.SettingsScreen
 
@@ -120,6 +122,10 @@ private fun AppShell(
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
 
+    // The player is a full-screen destination: hide the tab bar / nav rail while
+    // it is on top.
+    val isPlayerRoute = currentDestination?.hierarchy?.any { it.hasRoute(PlayerRoute::class) } == true
+
     val navigateToTab: (Destination) -> Unit = { dest ->
         navController.navigate(dest.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -182,13 +188,7 @@ private fun AppShell(
                 )
             }
             composable<DetailRoute>(
-                deepLinks =
-                    listOf(
-                        navDeepLink<DetailRoute>(basePath = "sashimi://item"),
-                        // TODO(M3): sashimi://play/{id} should open the player; for
-                        // now it routes to detail so the deep link is not dead.
-                        navDeepLink<DetailRoute>(basePath = "sashimi://play"),
-                    ),
+                deepLinks = listOf(navDeepLink<DetailRoute>(basePath = "sashimi://item")),
             ) { entry ->
                 val route = entry.toRoute<DetailRoute>()
                 DetailScreen(
@@ -197,12 +197,31 @@ private fun AppShell(
                     isCompact = isCompact,
                     onBack = { navController.popBackStack() },
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
+                    onPlay = { playId, fromBeginning ->
+                        navController.navigate(PlayerRoute(itemId = playId, startFromBeginning = fromBeginning))
+                    },
+                    onPlayTrailer = { trailerId ->
+                        navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId))
+                    },
+                )
+            }
+            composable<PlayerRoute>(
+                deepLinks = listOf(navDeepLink<PlayerRoute>(basePath = "sashimi://play")),
+            ) { entry ->
+                val route = entry.toRoute<PlayerRoute>()
+                PlayerScreen(
+                    itemId = route.itemId,
+                    startFromBeginning = route.startFromBeginning,
+                    trailerItemId = route.trailerItemId,
+                    onExit = { navController.popBackStack() },
                 )
             }
         }
     }
 
-    if (expanded) {
+    if (isPlayerRoute) {
+        host(Modifier.fillMaxSize())
+    } else if (expanded) {
         Row(modifier = Modifier.fillMaxSize()) {
             NavigationRail {
                 Destination.entries.forEach { dest ->

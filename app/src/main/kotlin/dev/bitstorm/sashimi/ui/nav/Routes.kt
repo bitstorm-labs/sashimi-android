@@ -48,3 +48,16 @@ data class DetailRoute(
     val itemId: String,
     val libraryName: String? = null,
 )
+
+/**
+ * Full-screen Media3 player. [startFromBeginning] forces a Start Over (ignore
+ * the saved resume position). [trailerItemId], when set, plays that item from 0
+ * instead of [itemId] (the local-first Trailer button). The `sashimi://play/{id}`
+ * deep link resolves straight here.
+ */
+@Serializable
+data class PlayerRoute(
+    val itemId: String,
+    val startFromBeginning: Boolean = false,
+    val trailerItemId: String? = null,
+)
