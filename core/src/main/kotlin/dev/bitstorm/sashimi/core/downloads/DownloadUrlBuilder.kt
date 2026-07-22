@@ -30,6 +30,24 @@ object DownloadUrlBuilder {
         }
     }
 
+    /**
+     * External WebVTT subtitle stream URL for a given subtitle stream index,
+     * ported from the Swift `DownloadURLBuilder.subtitleURL` (note the itemId
+     * appears twice in the path). The access token rides in an `X-Emby-Token`
+     * header on the request, matching the video download.
+     */
+    fun subtitleUrl(
+        serverUrl: String,
+        itemId: String,
+        subtitleIndex: Int,
+    ): String? {
+        val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
+        return base.newBuilder()
+            .addPathSegments("Videos/$itemId/$itemId/Subtitles/$subtitleIndex/Stream.vtt")
+            .build()
+            .toString()
+    }
+
     private fun originalUrl(
         serverUrl: String,
         itemId: String,

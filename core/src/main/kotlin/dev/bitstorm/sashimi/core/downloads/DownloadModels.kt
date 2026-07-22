@@ -1,5 +1,25 @@
 package dev.bitstorm.sashimi.core.downloads
 
+import kotlinx.serialization.Serializable
+
+/**
+ * A downloaded external/text subtitle track, ported from the Swift
+ * `DownloadedSubtitle` SwiftData model. Persisted as a JSON list on
+ * [DownloadedItemEntity.subtitlesJson] (a single nullable column keeps the Room
+ * schema flat — no @Relation join table) and side-loaded as a Media3 VTT
+ * [androidx.media3.common.MediaItem.SubtitleConfiguration] during offline
+ * playback.
+ *
+ * [fileName] is relative to the item's `subtitles/` directory.
+ */
+@Serializable
+data class DownloadedSubtitle(
+    val subtitleIndex: Int,
+    val language: String,
+    val displayTitle: String,
+    val fileName: String,
+)
+
 /**
  * Download quality tiers, ported 1:1 from the Swift `DownloadQuality`
  * (Downloads/Models/DownloadModels.swift). The resolution strings ("1080p" …)

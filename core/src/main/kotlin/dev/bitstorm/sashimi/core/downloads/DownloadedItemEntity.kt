@@ -2,6 +2,9 @@ package dev.bitstorm.sashimi.core.downloads
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /**
  * Room mirror of the Swift `DownloadedItem` SwiftData model. One row per
@@ -34,6 +37,8 @@ data class DownloadedItemEntity(
     val videoFileName: String? = null,
     val posterFileName: String? = null,
     val backdropFileName: String? = null,
+    /** JSON-encoded list of [DownloadedSubtitle] side-loaded during offline playback. */
+    val subtitlesJson: String? = null,
     /** Locally-saved resume position (100-ns ticks); synced to the server later. */
     val localPositionTicks: Long = 0,
     /** True when [localPositionTicks] moved while offline and needs a server report. */
@@ -44,6 +49,13 @@ data class DownloadedItemEntity(
     val downloadStatus: DownloadStatus get() = DownloadStatus.fromWire(status)
     val downloadQuality: DownloadQuality get() = DownloadQuality.fromWire(quality)
     val isComplete: Boolean get() = downloadStatus == DownloadStatus.COMPLETED
+
+    /** Decoded side-loaded subtitle tracks (empty when none downloaded). */
+    val subtitles: List<DownloadedSubtitle>
+        get() =
+            subtitlesJson?.let { json ->
+                runCatching { SUBTITLE_JSON.decodeFromString<List<DownloadedSubtitle>>(json) }.getOrDefault(emptyList())
+            } ?: emptyList()
 
     /** True while queued, preparing, or actively downloading. */
     val isActive: Boolean
@@ -60,5 +72,10 @@ data class DownloadedItemEntity(
     companion object {
         val ACTIVE_STATUSES =
             setOf(DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING)
+
+        val SUBTITLE_JSON = Json { ignoreUnknownKeys = true }
+
+        fun encodeSubtitles(subtitles: List<DownloadedSubtitle>): String? =
+            if (subtitles.isEmpty()) null else SUBTITLE_JSON.encodeToString(subtitles)
     }
 }

@@ -214,9 +214,11 @@ class DownloadManager(
     suspend fun performDownload(
         itemId: String,
         isStopped: () -> Boolean,
+        onProgress: suspend (title: String, percent: Int) -> Unit = { _, _ -> },
     ): androidx.work.ListenableWorker.Result =
         withContext(Dispatchers.IO) {
             val row = repository.get(itemId) ?: return@withContext androidx.work.ListenableWorker.Result.success()
+            val notifyTitle = row.displayTitle
             val server = client.currentServerUrl
             val token = client.currentAccessToken
             if (server == null || token == null) {
@@ -284,6 +286,7 @@ class DownloadManager(
                                     lastPersist = now
                                     val fraction = if (total > 0) written.toDouble() / total.toDouble() else PROGRESS_UNKNOWN
                                     repository.updateProgress(itemId, DownloadStatus.DOWNLOADING, fraction, written, total.coerceAtLeast(0))
+                                    onProgress(notifyTitle, if (fraction >= 0) (fraction * 100).toInt() else -1)
                                 }
                             }
                         }
@@ -315,6 +318,7 @@ class DownloadManager(
         partial.renameTo(target)
 
         downloadImages(itemId)
+        val subtitles = downloadSubtitles(itemId)
 
         val size = fileManager.itemSize(itemId)
         val row = repository.get(itemId)
@@ -326,6 +330,7 @@ class DownloadManager(
                     downloadedBytes = size,
                     totalBytes = size,
                     videoFileName = videoName,
+                    subtitlesJson = DownloadedItemEntity.encodeSubtitles(subtitles),
                     posterFileName =
                         if (fileManager.imageFile(
                                 itemId,
@@ -370,22 +375,67 @@ class DownloadManager(
         }
     }
 
+    /**
+     * Fetches every external-deliverable **text** subtitle stream as WebVTT
+     * alongside the video (Swift `downloadSubtitles`), storing each under the
+     * item's `subtitles/` directory. Image-based tracks (PGS/VOBSUB/DVD) are
+     * skipped — they can't be rendered as text and the VTT endpoint can't extract
+     * them. Returns the persisted descriptors for the completed row.
+     */
+    private suspend fun downloadSubtitles(itemId: String): List<DownloadedSubtitle> {
+        val server = client.currentServerUrl ?: return emptyList()
+        val token = client.currentAccessToken ?: return emptyList()
+        val info = runCatching { client.getPlaybackInfo(itemId) }.getOrNull() ?: return emptyList()
+        val source = info.mediaSources?.firstOrNull() ?: return emptyList()
+
+        val results = mutableListOf<DownloadedSubtitle>()
+        for (stream in source.subtitleStreams) {
+            val index = stream.index ?: continue
+            if (!isTextSubtitle(stream.codec)) continue
+            val language = stream.language ?: stream.displayTitle ?: "und"
+            val url = DownloadUrlBuilder.subtitleUrl(server, itemId, index) ?: continue
+            val fileName = "${index}_$language.vtt"
+            val target = fileManager.subtitleFile(itemId, fileName)
+            val ok = fetchImage(url, token, target)
+            if (ok && target.length() > 0) {
+                results.add(
+                    DownloadedSubtitle(
+                        subtitleIndex = index,
+                        language = language,
+                        displayTitle = stream.displayTitle ?: language,
+                        fileName = fileName,
+                    ),
+                )
+            }
+        }
+        return results
+    }
+
+    /** True for text-based subtitle codecs (renderable as VTT); false for image tracks. */
+    private fun isTextSubtitle(codec: String?): Boolean {
+        val c = codec?.lowercase() ?: return true // unknown → assume text (server will VTT it)
+        return c !in IMAGE_SUBTITLE_CODECS
+    }
+
     private fun fetchImage(
         url: String?,
         token: String,
         target: File,
-    ) {
-        url ?: return
-        runCatching {
+    ): Boolean {
+        url ?: return false
+        return runCatching {
             val request = Request.Builder().url(url).header("X-Emby-Token", token).build()
             http.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     response.body?.byteStream()?.use { input ->
                         java.io.FileOutputStream(target).use { output -> input.copyTo(output) }
                     }
+                    true
+                } else {
+                    false
                 }
             }
-        }
+        }.getOrDefault(false)
     }
 
     private suspend fun fail(
@@ -431,8 +481,18 @@ class DownloadManager(
         }
     }
 
+    /** Absolute local file for a downloaded subtitle, or null if missing. */
+    suspend fun localSubtitleFile(
+        itemId: String,
+        fileName: String,
+    ): File? = fileManager.subtitleFile(itemId, fileName).takeIf { it.exists() }
+
     companion object {
         private const val PROGRESS_PERSIST_MS = 1_500L
+
+        /** Image-based subtitle codecs that can't be delivered as text VTT. */
+        private val IMAGE_SUBTITLE_CODECS =
+            setOf("pgssub", "hdmv_pgs_subtitle", "pgs", "dvbsub", "dvb_subtitle", "dvdsub", "dvd_subtitle", "vobsub", "xsub")
 
         /** Sentinel written to [DownloadedItemEntity.progress] for unknown-size streams. */
         const val PROGRESS_UNKNOWN = -1.0

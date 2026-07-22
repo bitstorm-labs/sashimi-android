@@ -63,7 +63,7 @@ interface DownloadDao {
     suspend fun clearSyncFlag(itemId: String)
 }
 
-@Database(entities = [DownloadedItemEntity::class], version = 1, exportSchema = false)
+@Database(entities = [DownloadedItemEntity::class], version = 2, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
 }

@@ -30,6 +30,14 @@ class DownloadFileManager(context: Context) {
         fileName: String,
     ): File = File(itemDirectory(itemId), fileName)
 
+    /** The per-item `subtitles/` directory (created on demand). */
+    fun subtitlesDirectory(itemId: String): File = File(itemDirectory(itemId), "subtitles").apply { mkdirs() }
+
+    fun subtitleFile(
+        itemId: String,
+        fileName: String,
+    ): File = File(subtitlesDirectory(itemId), fileName)
+
     fun deleteItemDirectory(itemId: String) {
         File(root, itemId).deleteRecursively()
     }
