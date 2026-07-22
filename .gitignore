@@ -41,3 +41,8 @@ captures/
 
 # Kotlin
 .kotlin/
+
+# On-device verification screenshots (belong in the scratchpad, not the repo)
+android-fix*.png
+android-parity*.png
+fix[0-9]*.png
