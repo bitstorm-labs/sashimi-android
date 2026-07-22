@@ -4,9 +4,36 @@ A native Kotlin / Jetpack Compose (Material 3) client for [Jellyfin](https://jel
 the Android sibling of the Sashimi iOS/tvOS apps. Phones and tablets first, with a
 TV-ready architecture.
 
-This repo is at **Milestone 1** (scaffold + auth): API client core, multi-server
-session manager, two-step connect/login flow, and an empty tabbed shell. Browse,
-playback, and downloads land in later milestones — see the spec.
+This repo is at **Milestone 2** (Browse). Playback and downloads land in later
+milestones — see the spec.
+
+## Features
+
+- **Auth / multi-server** (M1): two-step connect (URL → credentials), servers
+  list with switch / remove / add, per-server tokens, prefilled re-auth on
+  expiry, 401-only-on-active-server session handling.
+- **Home** (M2): configurable rows (Continue Watching + per-library Recently
+  Added; order + visibility persisted). Continue Watching cards show remaining
+  time, progress, and S#:E#; Recently Added rows dedupe by series, cap at 20,
+  show "X new" / watched / quality badges (quality gated by the
+  `showQualityBadges` setting), a See All grid past 6 items, and circular
+  YouTube-channel styling. Pull-to-refresh; logo opens the server switcher.
+- **Libraries** (M2): library list → adaptive poster grid with sort
+  (Name / Date Added / Release Date / Rating / Runtime ± direction), filter
+  (All / Unwatched / Watched / Favorites), shuffle, and in-library client-side
+  search over eagerly-loaded pages, plus empty states.
+- **Search** (M2): poster-grid results with a count and year/type captions,
+  300 ms-debounced query, and recent-search chips (last 10, committed 1.5 s
+  after a settled query with results; Clear).
+- **Detail** (M2): one adaptive screen (compact = stacked, expanded = tablet
+  two-column) with Play / Resume / Start Over / Trailer (M3 playback stubs),
+  Shuffle (random episode), optimistic watched toggle, favorite + admin menu
+  (File Info / Refresh Metadata / Delete), season tabs + episode list with
+  current-episode highlight and progress, cast (from the refreshed full item),
+  ratings, media badges, genres/cert, "Ends at", and overview expand/collapse.
+- **Navigation** (M2): type-safe routes; detail pushes from every surface;
+  `sashimi://item/{id}` and `sashimi://play/{id}` deep links (play → detail
+  until M3).
 
 ## Module layout
 

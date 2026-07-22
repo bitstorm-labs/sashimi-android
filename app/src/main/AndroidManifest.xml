@@ -22,6 +22,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Deep links: sashimi://item/{id} and sashimi://play/{id}. Both open
+                 the detail screen for now; play-to-player is wired in M3. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sashimi" android:host="item" />
+                <data android:scheme="sashimi" android:host="play" />
+            </intent-filter>
         </activity>
     </application>
 

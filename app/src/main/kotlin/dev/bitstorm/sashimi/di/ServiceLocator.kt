@@ -1,10 +1,15 @@
 package dev.bitstorm.sashimi.di
 
 import android.content.Context
+import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
+import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
+import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.SessionManager
+import dev.bitstorm.sashimi.core.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 
@@ -23,6 +28,15 @@ object ServiceLocator {
     lateinit var session: SessionManager
         private set
 
+    lateinit var homeRowSettings: HomeRowSettings
+        private set
+
+    lateinit var recentSearchStore: RecentSearchStore
+        private set
+
+    lateinit var appSettings: AppSettings
+        private set
+
     private val appScope = CoroutineScope(SupervisorJob())
 
     fun init(context: Context) {
@@ -37,6 +51,9 @@ object ServiceLocator {
                 tokenStore = EncryptedTokenStore(app),
                 scope = appScope,
             )
+        homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
+        recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
+        appSettings = AppSettings(app)
     }
 
     /** A UUID generated once per install and reused (mirrors the Swift deviceId). */
