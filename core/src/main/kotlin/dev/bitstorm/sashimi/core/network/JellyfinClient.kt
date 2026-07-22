@@ -11,6 +11,9 @@ import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.model.MediaSegmentType
 import dev.bitstorm.sashimi.core.model.PlaybackInfoResponse
 import dev.bitstorm.sashimi.core.model.PublicSystemInfo
+import dev.bitstorm.sashimi.core.playback.DeviceProfile
+import dev.bitstorm.sashimi.core.playback.NegotiationFlags
+import dev.bitstorm.sashimi.core.playback.PlaybackInfoRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.encodeToString
@@ -47,6 +50,16 @@ class JellyfinClient(
             ignoreUnknownKeys = true
             isLenient = true
             encodeDefaults = false
+        }
+
+    // Playback request bodies need defaults emitted (MaxStaticBitrate,
+    // BreakOnNonKeyFrames, the Enable* flags, …) but nulls omitted (StartTimeTicks
+    // etc. are only present when set). The default [json] would drop the defaults.
+    private val playbackJson =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
         }
 
     private val api: JellyfinApi =
@@ -487,16 +500,93 @@ class JellyfinClient(
     // MARK: - Detail: media info / trailers / ancestors / admin
 
     /**
-     * Playback info for the detail media badges (resolution/codec/audio). This
-     * is the lightweight GET form — no DeviceProfile negotiation, which M3's
-     * player owns. It returns the file's MediaSources so the detail screen can
-     * render resolution/codec/audio chips from mediaSources.first. Port of the
-     * Swift getPlaybackInfo, minus the profile POST (M3 replaces this).
+     * Lightweight PlaybackInfo GET for the detail media badges
+     * (resolution/codec/audio). No DeviceProfile — it only reads the file's
+     * MediaStreams off mediaSources.first, which are unaffected by negotiation.
+     * The real DeviceProfile POST negotiation the player uses is
+     * [postPlaybackInfo] (driven by PlaybackEngine).
      */
     suspend fun getPlaybackInfo(itemId: String): PlaybackInfoResponse {
         val uid = requireUserId()
         val data = execute("GET", "/Items/$itemId/PlaybackInfo", query = listOf("UserId" to uid))
         return decode(data)
+    }
+
+    /**
+     * The real playback negotiation: POST /Items/{id}/PlaybackInfo with the
+     * Android [DeviceProfile] and the streaming caps, returning the server's
+     * chosen MediaSource(s) (SupportsDirectPlay/Stream, TranscodingUrl,
+     * PlaySessionId). Port of the Swift getPlaybackInfo POST. See
+     * [PlaybackInfoRequest] for the body and [NegotiationFlags] for the Enable*
+     * derivation (Force Direct Play vs an explicit Quality pick).
+     */
+    suspend fun postPlaybackInfo(
+        itemId: String,
+        deviceProfile: DeviceProfile,
+        maxStreamingBitrate: Int,
+        startTimeTicks: Long? = null,
+        audioStreamIndex: Int? = null,
+        subtitleStreamIndex: Int? = null,
+        forceDirectPlay: Boolean = false,
+        forceTranscode: Boolean = false,
+    ): PlaybackInfoResponse {
+        val uid = requireUserId()
+        val flags = NegotiationFlags.derive(forceDirectPlay = forceDirectPlay, forceTranscode = forceTranscode)
+        val request =
+            PlaybackInfoRequest(
+                userId = uid,
+                maxStreamingBitrate = maxStreamingBitrate,
+                startTimeTicks = startTimeTicks,
+                audioStreamIndex = audioStreamIndex,
+                subtitleStreamIndex = subtitleStreamIndex,
+                deviceProfile = deviceProfile,
+                enableDirectPlay = flags.enableDirectPlay,
+                enableDirectStream = flags.enableDirectStream,
+                enableTranscoding = flags.enableTranscoding,
+            )
+        val body = playbackJson.encodeToString(request)
+        val data =
+            execute(
+                method = "POST",
+                path = "/Items/$itemId/PlaybackInfo",
+                query = listOf("UserId" to uid),
+                jsonBody = body,
+            )
+        return decode(data)
+    }
+
+    /**
+     * Tears down a running server transcode. DELETE /Videos/ActiveEncodings with
+     * lowercase query keys (deviceId / playSessionId), matching the Swift
+     * stopActiveEncoding. Only call when a transcode was actually running.
+     */
+    suspend fun stopActiveEncoding(playSessionId: String) {
+        execute(
+            method = "DELETE",
+            path = "/Videos/ActiveEncodings",
+            query = listOf("deviceId" to deviceId, "playSessionId" to playSessionId),
+        )
+    }
+
+    /**
+     * External VTT subtitle stream URL for app/player-side rendering (never
+     * burn-in). Port of the Swift SubtitleManager URL (note the itemId appears
+     * twice). The api_key rides in the URL so Media3 can side-load it without
+     * custom auth headers.
+     */
+    fun subtitleStreamUrl(
+        itemId: String,
+        subtitleStreamIndex: Int,
+        mediaSourceId: String? = null,
+    ): String? {
+        val base = serverUrl ?: return null
+        val token = accessToken ?: return null
+        val builder =
+            base.newBuilder()
+                .addPathSegments("Videos/$itemId/$itemId/Subtitles/$subtitleStreamIndex/Stream.vtt")
+                .addQueryParameter("api_key", token)
+        mediaSourceId?.let { builder.addQueryParameter("MediaSourceId", it) }
+        return builder.build().toString()
     }
 
     /**

@@ -230,6 +230,9 @@ data class MediaSourceInfo(
     @SerialName("DirectStreamUrl") val directStreamUrl: String? = null,
     @SerialName("MediaStreams") val mediaStreams: List<MediaStream>? = null,
     @SerialName("Bitrate") val bitrate: Int? = null,
+    // Present on a negotiated PlaybackInfo POST response when the server chose to
+    // transcode — surfaced on the OSD chip ("video codec", "bitrate limit", …).
+    @SerialName("TranscodeReasons") val transcodeReasons: List<String>? = null,
 ) {
     val videoCodec: String?
         get() = mediaStreams?.firstOrNull { it.type == "Video" }?.codec
