@@ -26,8 +26,7 @@ android {
     // NOTE: blank counts as absent — CI passes `${{ steps.keystore.outputs.path }}`
     // which is an EMPTY STRING (not unset) when the secret isn't configured;
     // `file("")` throws "Cannot convert '' to File" (broke the v0.5.0 tag run).
-    fun signingValue(name: String): String? =
-        (System.getenv(name) ?: (findProperty(name) as String?))?.takeIf { it.isNotBlank() }
+    fun signingValue(name: String): String? = (System.getenv(name) ?: (findProperty(name) as String?))?.takeIf { it.isNotBlank() }
     val uploadStoreFile = signingValue("SASHIMI_UPLOAD_STORE_FILE")
     val uploadStorePassword = signingValue("SASHIMI_UPLOAD_STORE_PASSWORD")
     val uploadKeyAlias = signingValue("SASHIMI_UPLOAD_KEY_ALIAS") ?: "sashimi"
