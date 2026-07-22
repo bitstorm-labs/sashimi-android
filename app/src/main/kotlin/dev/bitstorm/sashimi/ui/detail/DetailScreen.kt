@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -217,21 +219,72 @@ private fun CompactLayout(
     onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
+    val ytSeries = yt && item.type == ItemType.SERIES
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
+        if (ytSeries) {
+            // YouTube channel page: a compact banner with the circular channel
+            // avatar overlapping its bottom edge (iOS PhoneDetailView youtube
+            // backdropSection) instead of the regular 220dp backdrop.
+            YouTubeChannelBanner(item)
+        } else {
+            Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
+                AsyncImage(
+                    model = ImageUrls.detailBackdrop(item, false),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
+                    ),
+                )
+            }
+        }
+        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = true, modifier = Modifier.padding(16.dp))
+    }
+}
+
+/**
+ * iOS parity (PhoneDetailView backdropSection, YouTube-series branch): a compact
+ * full-width Banner image (~120dp) fading into the background, with the circular
+ * channel avatar (Primary image) straddling the banner's bottom edge.
+ */
+@Composable
+private fun YouTubeChannelBanner(item: BaseItemDto) {
+    val bannerHeight = 120.dp
+    val avatarSize = 72.dp
+    Box(
+        modifier = Modifier.fillMaxWidth().height(bannerHeight + avatarSize / 2),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
+        ) {
             AsyncImage(
-                model = ImageUrls.detailBackdrop(item, yt && item.type == ItemType.SERIES),
+                model = ImageUrls.banner(item.id),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
             Box(
-                Modifier.fillMaxSize().background(
+                Modifier.fillMaxWidth().height(60.dp).align(Alignment.BottomCenter).background(
                     Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
                 ),
             )
         }
-        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, Modifier.padding(16.dp))
+        // Avatar centered on the banner's bottom edge (top offset = banner - r).
+        AsyncImage(
+            model = ImageUrls.primary(item.id, 240),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = bannerHeight - avatarSize / 2)
+                    .size(avatarSize)
+                    .clip(CircleShape)
+                    .background(SashimiCard),
+        )
     }
 }
 
@@ -246,13 +299,14 @@ private fun ExpandedLayout(
     onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
+    val ytSeries = yt && item.type == ItemType.SERIES
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
-            model = ImageUrls.detailBackdrop(item, yt && item.type == ItemType.SERIES),
+            model = ImageUrls.detailBackdrop(item, ytSeries),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             alignment = Alignment.TopEnd,
-            modifier = Modifier.fillMaxWidth(0.55f).align(Alignment.TopEnd),
+            modifier = Modifier.fillMaxWidth(if (ytSeries) 0.65f else 0.55f).align(Alignment.TopEnd),
         )
         Box(
             Modifier.fillMaxSize().background(
@@ -271,7 +325,7 @@ private fun ExpandedLayout(
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp),
         ) {
-            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer)
+            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = false)
         }
     }
 }
@@ -285,11 +339,12 @@ private fun DetailContent(
     onOpenDetail: (String, String?) -> Unit,
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
+    isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val yt = isYouTube(libraryName, item.path)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TitleBlock(item, yt)
+        TitleBlock(item, yt, isCompact)
         MetadataRow(item)
         RatingsAndMedia(state, item)
         if (item.type == ItemType.MOVIE) GenresCert(item)
@@ -304,6 +359,7 @@ private fun DetailContent(
 private fun TitleBlock(
     item: BaseItemDto,
     yt: Boolean,
+    isCompact: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         when (item.type) {
@@ -349,7 +405,7 @@ private fun TitleBlock(
                 }
             }
             else ->
-                LogoOrTitle(item, yt)
+                LogoOrTitle(item, yt, isCompact)
         }
     }
 }
@@ -358,11 +414,53 @@ private fun TitleBlock(
 private fun LogoOrTitle(
     item: BaseItemDto,
     yt: Boolean,
+    isCompact: Boolean,
 ) {
-    val title = if (yt && item.type == ItemType.SERIES) item.name.cleanedYouTubeTitle() else item.name
+    val ytSeries = yt && item.type == ItemType.SERIES
+    // iOS parity: render the item's server Logo image as the title, falling back
+    // to the bold text title on a missing/failed logo. YouTube channels have no
+    // logos, so they show the cleaned channel title: centered under the banner
+    // avatar on compact, and inline beside a small circular avatar on expanded
+    // (iPad seriesHeaderSection).
+    if (ytSeries) {
+        val cleaned = item.name.cleanedYouTubeTitle()
+        if (isCompact) {
+            Text(
+                cleaned,
+                color = SashimiTextPrimary,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AsyncImage(
+                    model = ImageUrls.primary(item.id, 240),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(50.dp).clip(CircleShape).background(SashimiCard),
+                )
+                Text(
+                    cleaned,
+                    color = SashimiTextPrimary,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        return
+    }
     val titleText: @Composable () -> Unit = {
         Text(
-            title,
+            item.name,
             color = SashimiTextPrimary,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
@@ -370,18 +468,11 @@ private fun LogoOrTitle(
             overflow = TextOverflow.Ellipsis,
         )
     }
-    // iOS parity: render the item's server Logo image as the title, falling back
-    // to the bold text title on a missing/failed logo. YouTube series keep the
-    // (cleaned) text title — Pinchflat libraries have no logos.
-    if (yt && item.type == ItemType.SERIES) {
-        titleText()
-    } else {
-        LogoImage(
-            logoUrl = ImageUrls.logo(item.id),
-            fallback = titleText,
-            modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
-        )
-    }
+    LogoImage(
+        logoUrl = ImageUrls.logo(item.id),
+        fallback = titleText,
+        modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
+    )
 }
 
 /**
