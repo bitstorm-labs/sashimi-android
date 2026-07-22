@@ -1,10 +1,12 @@
 package dev.bitstorm.sashimi.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,6 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -34,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +49,7 @@ import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.ui.components.ContextMenuBox
 import dev.bitstorm.sashimi.ui.components.ContinueWatchingCard
 import dev.bitstorm.sashimi.ui.components.PosterCard
+import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiLink
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
@@ -119,6 +125,7 @@ fun HomeScreen(
                                     items = state.continueWatching,
                                     libraryNames = state.continueWatchingLibraryNames,
                                     onOpenDetail = onOpenDetail,
+                                    onRefresh = { vm.loadContent() },
                                 )
                             }
                         HomeRowConfig.Kind.LIBRARY ->
@@ -207,6 +214,7 @@ private fun ContinueWatchingRow(
     items: List<dev.bitstorm.sashimi.core.model.BaseItemDto>,
     libraryNames: Map<String, String>,
     onOpenDetail: (String, String?) -> Unit,
+    onRefresh: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Continue Watching")
@@ -219,6 +227,7 @@ private fun ContinueWatchingRow(
                 ContextMenuBox(
                     item = item,
                     onClick = { onOpenDetail(item.id, libraryName) },
+                    onAction = onRefresh,
                 ) {
                     ContinueWatchingCard(item = item, width = 260.dp, libraryName = libraryName)
                 }
@@ -236,15 +245,17 @@ private fun RecentlyAddedRow(
     onOpenDetail: (String, String?) -> Unit,
     onSeeAll: (String, String, String?) -> Unit,
 ) {
-    var data by remember(libraryId) { mutableStateOf(RecentlyAddedData()) }
-    var loaded by remember(libraryId) { mutableStateOf(false) }
+    val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
+    val data = recentlyAdded[libraryId]
 
-    androidx.compose.runtime.LaunchedEffect(libraryId) {
-        data = vm.loadRecentlyAdded(libraryId, libraryName, collectionType)
-        loaded = true
+    // Fallback for rows the up-front prefetch didn't cover (e.g. a newly added
+    // library). Idempotent in the ViewModel, so this never refetches a cached row.
+    androidx.compose.runtime.LaunchedEffect(libraryId, collectionType) {
+        vm.ensureRecentlyAdded(libraryId, libraryName, collectionType)
     }
 
-    if (loaded && data.items.isEmpty()) return
+    // Loaded and empty → hide the row entirely. Null == still loading (placeholders).
+    if (data != null && data.items.isEmpty()) return
 
     val isYouTube = libraryName.contains("youtube", ignoreCase = true)
     val title = "Recently Added $libraryName".let { if (it.endsWith(" - Videos")) it.dropLast(9) else it }
@@ -255,7 +266,7 @@ private fun RecentlyAddedRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = SashimiTextPrimary, modifier = Modifier.weight(1f))
-            if (data.items.size > 6) {
+            if (data != null && data.items.size > 6) {
                 TextButton(onClick = { onSeeAll(libraryId, libraryName, collectionType) }) {
                     Text("See All", color = SashimiLink)
                 }
@@ -265,19 +276,54 @@ private fun RecentlyAddedRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
         ) {
-            items(data.items, key = { it.id }) { item ->
-                val key = item.seriesId ?: item.id
-                ContextMenuBox(item = item, onClick = { onOpenDetail(item.id, libraryName) }) {
-                    PosterCard(
-                        item = item,
-                        width = 110.dp,
-                        libraryName = libraryName,
-                        isCircular = isYouTube && item.type == dev.bitstorm.sashimi.core.model.ItemType.SERIES,
-                        badgeCount = data.badgeCounts[key],
-                    )
+            if (data == null) {
+                items(PLACEHOLDER_CARD_COUNT) { PlaceholderPosterCard(isCircular = isYouTube) }
+            } else {
+                items(data.items, key = { it.id }) { item ->
+                    val key = item.seriesId ?: item.id
+                    ContextMenuBox(item = item, onClick = { onOpenDetail(item.id, libraryName) }) {
+                        PosterCard(
+                            item = item,
+                            width = 110.dp,
+                            libraryName = libraryName,
+                            isCircular = isYouTube,
+                            badgeCount = data.badgeCounts[key],
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+private const val PLACEHOLDER_CARD_COUNT = 6
+
+/**
+ * Stable-height stand-in for a [PosterCard] while a Recently Added row loads —
+ * theme-colored rounded (or circular for YouTube) rects so row heights don't jump
+ * and no spinner churns as rows scroll in.
+ */
+@Composable
+private fun PlaceholderPosterCard(isCircular: Boolean) {
+    val width = 110.dp
+    Column(modifier = Modifier.width(width)) {
+        Box(
+            modifier =
+                Modifier
+                    .width(width)
+                    .then(if (isCircular) Modifier.aspectRatio(1f) else Modifier.aspectRatio(2f / 3f))
+                    .clip(if (isCircular) CircleShape else RoundedCornerShape(8.dp))
+                    .background(SashimiCard),
+        )
+        Box(
+            modifier =
+                Modifier
+                    .padding(top = 6.dp)
+                    .height(12.dp)
+                    .fillMaxWidth(0.8f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(SashimiCard),
+        )
     }
 }
 
