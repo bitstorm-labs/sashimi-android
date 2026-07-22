@@ -3,7 +3,6 @@ package dev.bitstorm.sashimi.core.downloads
 import android.content.Context
 import android.os.storage.StorageManager
 import java.io.File
-import java.util.UUID
 
 /**
  * On-disk layout + storage accounting for downloads, ported from the Swift
@@ -73,8 +72,5 @@ class DownloadFileManager(context: Context) {
         const val POSTER_NAME = "poster.jpg"
         const val BACKDROP_NAME = "backdrop.jpg"
         const val SERIES_POSTER_NAME = "series_poster.jpg"
-
-        /** Unique temp name is unused; kept for potential atomic-move needs. */
-        fun tempName(): String = "tmp-${UUID.randomUUID()}"
     }
 }

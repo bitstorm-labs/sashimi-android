@@ -43,9 +43,9 @@ data class RecentlyAddedRoute(
 
 /**
  * Item detail. Carries only the id + optional library name; the screen fetches
- * the full item on entry (the Swift cast-lesson refresh). Deep links
- * `sashimi://item/{itemId}` and `sashimi://play/{itemId}` both resolve here
- * (play-to-detail is a TODO until M3 owns playback).
+ * the full item on entry (the Swift cast-lesson refresh). The
+ * `sashimi://item/{itemId}` deep link resolves here; `sashimi://play/{itemId}`
+ * resolves straight to [PlayerRoute].
  */
 @Serializable
 data class DetailRoute(

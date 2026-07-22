@@ -26,13 +26,10 @@ class ProgressReporter(
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
     private var startClockMs: Long = 0
-    private var lastPeriodicMs: Long = 0
 
-    /** Records the wall-clock start of playback (for the quick-exit + cadence timers). */
+    /** Records the wall-clock start of playback (for the quick-exit timer). */
     fun begin() {
-        val now = clock()
-        startClockMs = now
-        lastPeriodicMs = now
+        startClockMs = clock()
     }
 
     /** Records the wall-clock start and sends the initial /Sessions/Playing report. */
@@ -46,23 +43,10 @@ class ProgressReporter(
         )
     }
 
-    /**
-     * True when at least [PROGRESS_INTERVAL_MS] has elapsed since the last
-     * periodic report. The caller checks this on its timer tick, reports, then
-     * calls [markPeriodicReported]. Play/pause transitions bypass this and report
-     * immediately.
-     */
-    fun periodicDue(nowMs: Long = clock()): Boolean = nowMs - lastPeriodicMs >= PROGRESS_INTERVAL_MS
-
-    fun markPeriodicReported(nowMs: Long = clock()) {
-        lastPeriodicMs = nowMs
-    }
-
     suspend fun reportProgress(
         positionTicks: Long,
         isPaused: Boolean,
     ) {
-        markPeriodicReported()
         client.reportPlaybackProgress(
             itemId = itemId,
             positionTicks = positionTicks,

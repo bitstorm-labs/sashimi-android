@@ -2,8 +2,6 @@ package dev.bitstorm.sashimi.core.playback
 
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressReporterTest {
@@ -45,20 +43,5 @@ class ProgressReporterTest {
         r.begin()
         now = 1_000 + 1 // even a near-instant exit
         assertEquals(456L, r.stopPositionTicks(currentPositionTicks = 456L))
-    }
-
-    @Test
-    fun `periodic report is due every 5 seconds`() {
-        val r = reporter(resumeTicks = 0L)
-        r.begin() // lastPeriodic = 1000
-        now = 1_000 + 4_999
-        assertFalse(r.periodicDue(now))
-        now = 1_000 + 5_000
-        assertTrue(r.periodicDue(now))
-        r.markPeriodicReported(now) // reset window
-        now += 4_999
-        assertFalse(r.periodicDue(now))
-        now += 1
-        assertTrue(r.periodicDue(now))
     }
 }

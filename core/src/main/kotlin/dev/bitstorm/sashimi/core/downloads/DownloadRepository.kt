@@ -15,8 +15,6 @@ class DownloadRepository(
 
     suspend fun get(itemId: String): DownloadedItemEntity? = dao.getById(itemId)
 
-    suspend fun pendingSync(): List<DownloadedItemEntity> = dao.getPendingSync()
-
     suspend fun upsert(item: DownloadedItemEntity) = dao.upsert(item)
 
     suspend fun delete(itemId: String) = dao.deleteById(itemId)

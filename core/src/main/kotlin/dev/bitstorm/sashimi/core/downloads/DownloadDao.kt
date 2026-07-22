@@ -20,9 +20,6 @@ interface DownloadDao {
     @Query("SELECT * FROM downloaded_items WHERE itemId = :itemId")
     suspend fun getById(itemId: String): DownloadedItemEntity?
 
-    @Query("SELECT * FROM downloaded_items WHERE pendingProgressSync = 1")
-    suspend fun getPendingSync(): List<DownloadedItemEntity>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: DownloadedItemEntity)
 
