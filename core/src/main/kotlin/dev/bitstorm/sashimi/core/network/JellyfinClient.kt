@@ -94,6 +94,14 @@ class JellyfinClient(
     val currentUserId: String?
         get() = userId
 
+    /** Access token for the active server — used by the downloads engine (X-Emby-Token). */
+    val currentAccessToken: String?
+        get() = accessToken
+
+    /** Stable per-install device id — used to build download stream URLs. */
+    val currentDeviceId: String
+        get() = deviceId
+
     val isConfigured: Boolean
         get() = serverUrl != null && accessToken != null && userId != null
 
