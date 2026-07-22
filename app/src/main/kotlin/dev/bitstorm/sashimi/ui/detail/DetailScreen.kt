@@ -1,6 +1,8 @@
 package dev.bitstorm.sashimi.ui.detail
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,9 +13,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -39,6 +45,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -57,14 +64,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import dev.bitstorm.sashimi.R
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
@@ -107,12 +119,8 @@ fun DetailScreen(
 ) {
     val vm: DetailViewModel = viewModel(key = "detail-$itemId", factory = DetailViewModel.Factory(itemId))
     val state by vm.state.collectAsStateWithLifecycle()
-    val isOnline by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-
-    var showFileInfo by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
@@ -146,20 +154,9 @@ fun DetailScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            BackTopBar(title = "", onBack = onBack) {
-                // The overflow actions (Favorite/File Info/Refresh/Delete) all hit
-                // the server, so hide the menu entirely when offline (M4 loose end:
-                // they silently failed before).
-                if (item != null && isOnline) {
-                    DetailOverflowMenu(
-                        isFavorite = item.userData?.isFavorite == true,
-                        onToggleFavorite = vm::toggleFavorite,
-                        onFileInfo = { showFileInfo = true },
-                        onRefresh = vm::refreshMetadata,
-                        onDelete = { showDeleteConfirm = true },
-                    )
-                }
-            }
+            // Overflow actions now live in the detail action row's single labeled
+            // menu (iOS PhoneDetailView parity), so the top bar is just Back.
+            BackTopBar(title = "", onBack = onBack)
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
@@ -177,29 +174,6 @@ fun DetailScreen(
             }
         }
     }
-
-    if (showFileInfo && item != null) {
-        AlertDialog(
-            onDismissRequest = { showFileInfo = false },
-            confirmButton = { TextButton(onClick = { showFileInfo = false }) { Text("OK") } },
-            title = { Text("File Info") },
-            text = { Text(state.mediaInfo?.path ?: item.path ?: "Path not available") },
-        )
-    }
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Item") },
-            text = { Text("Are you sure you want to delete this item? This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    vm.deleteItem()
-                }) { Text("Delete", color = Color.Red) }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
-        )
-    }
 }
 
 @Composable
@@ -213,21 +187,72 @@ private fun CompactLayout(
     onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
+    val ytSeries = yt && item.type == ItemType.SERIES
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
+        if (ytSeries) {
+            // YouTube channel page: a compact banner with the circular channel
+            // avatar overlapping its bottom edge (iOS PhoneDetailView youtube
+            // backdropSection) instead of the regular 220dp backdrop.
+            YouTubeChannelBanner(item)
+        } else {
+            Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
+                AsyncImage(
+                    model = ImageUrls.detailBackdrop(item, false),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
+                    ),
+                )
+            }
+        }
+        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = true, modifier = Modifier.padding(16.dp))
+    }
+}
+
+/**
+ * iOS parity (PhoneDetailView backdropSection, YouTube-series branch): a compact
+ * full-width Banner image (~120dp) fading into the background, with the circular
+ * channel avatar (Primary image) straddling the banner's bottom edge.
+ */
+@Composable
+private fun YouTubeChannelBanner(item: BaseItemDto) {
+    val bannerHeight = 120.dp
+    val avatarSize = 72.dp
+    Box(
+        modifier = Modifier.fillMaxWidth().height(bannerHeight + avatarSize / 2),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
+        ) {
             AsyncImage(
-                model = ImageUrls.detailBackdrop(item, yt && item.type == ItemType.SERIES),
+                model = ImageUrls.banner(item.id),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
             Box(
-                Modifier.fillMaxSize().background(
+                Modifier.fillMaxWidth().height(60.dp).align(Alignment.BottomCenter).background(
                     Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
                 ),
             )
         }
-        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, Modifier.padding(16.dp))
+        // Avatar centered on the banner's bottom edge (top offset = banner - r).
+        AsyncImage(
+            model = ImageUrls.primary(item.id, 240),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = bannerHeight - avatarSize / 2)
+                    .size(avatarSize)
+                    .clip(CircleShape)
+                    .background(SashimiCard),
+        )
     }
 }
 
@@ -242,13 +267,14 @@ private fun ExpandedLayout(
     onTrailer: () -> Unit,
 ) {
     val yt = isYouTube(libraryName, item.path)
+    val ytSeries = yt && item.type == ItemType.SERIES
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
-            model = ImageUrls.detailBackdrop(item, yt && item.type == ItemType.SERIES),
+            model = ImageUrls.detailBackdrop(item, ytSeries),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             alignment = Alignment.TopEnd,
-            modifier = Modifier.fillMaxWidth(0.55f).align(Alignment.TopEnd),
+            modifier = Modifier.fillMaxWidth(if (ytSeries) 0.65f else 0.55f).align(Alignment.TopEnd),
         )
         Box(
             Modifier.fillMaxSize().background(
@@ -267,7 +293,7 @@ private fun ExpandedLayout(
                     .verticalScroll(rememberScrollState())
                     .padding(24.dp),
         ) {
-            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer)
+            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = false)
         }
     }
 }
@@ -281,11 +307,12 @@ private fun DetailContent(
     onOpenDetail: (String, String?) -> Unit,
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
+    isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val yt = isYouTube(libraryName, item.path)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TitleBlock(item, yt)
+        TitleBlock(item, yt, isCompact)
         MetadataRow(item)
         RatingsAndMedia(state, item)
         if (item.type == ItemType.MOVIE) GenresCert(item)
@@ -300,17 +327,33 @@ private fun DetailContent(
 private fun TitleBlock(
     item: BaseItemDto,
     yt: Boolean,
+    isCompact: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         when (item.type) {
             ItemType.EPISODE -> {
                 val seriesName = item.seriesName
-                if (seriesName != null) {
-                    Text(
-                        if (yt) seriesName.cleanedYouTubeTitle() else seriesName,
-                        color = SashimiTextSecondary,
-                        fontSize = 13.sp,
+                // iOS parity: render the parent series' Logo image above the episode
+                // title, falling back to the (cleaned) series name text. YouTube
+                // channel episodes keep the plain text (they have no logo).
+                val seriesId = item.seriesId
+                val seriesNameText: @Composable () -> Unit = {
+                    if (seriesName != null) {
+                        Text(
+                            if (yt) seriesName.cleanedYouTubeTitle() else seriesName,
+                            color = SashimiTextSecondary,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+                if (!yt && seriesId != null) {
+                    LogoImage(
+                        logoUrl = ImageUrls.logo(seriesId),
+                        fallback = seriesNameText,
+                        modifier = Modifier.heightIn(max = 60.dp).widthIn(max = 250.dp),
                     )
+                } else {
+                    seriesNameText()
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val s = item.parentIndexNumber
@@ -330,7 +373,7 @@ private fun TitleBlock(
                 }
             }
             else ->
-                LogoOrTitle(item, yt)
+                LogoOrTitle(item, yt, isCompact)
         }
     }
 }
@@ -339,12 +382,95 @@ private fun TitleBlock(
 private fun LogoOrTitle(
     item: BaseItemDto,
     yt: Boolean,
+    isCompact: Boolean,
 ) {
-    val title = if (yt && item.type == ItemType.SERIES) item.name.cleanedYouTubeTitle() else item.name
-    // Server logo when present; fall back to bold title (Coil error -> nothing,
-    // so we always render the title beneath at a smaller weight? Keep it simple:
-    // show the title text — logos are a nice-to-have, the text is the guarantee).
-    Text(title, color = SashimiTextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    val ytSeries = yt && item.type == ItemType.SERIES
+    // iOS parity: render the item's server Logo image as the title, falling back
+    // to the bold text title on a missing/failed logo. YouTube channels have no
+    // logos, so they show the cleaned channel title: centered under the banner
+    // avatar on compact, and inline beside a small circular avatar on expanded
+    // (iPad seriesHeaderSection).
+    if (ytSeries) {
+        val cleaned = item.name.cleanedYouTubeTitle()
+        if (isCompact) {
+            Text(
+                cleaned,
+                color = SashimiTextPrimary,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AsyncImage(
+                    model = ImageUrls.primary(item.id, 240),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(50.dp).clip(CircleShape).background(SashimiCard),
+                )
+                Text(
+                    cleaned,
+                    color = SashimiTextPrimary,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        return
+    }
+    val titleText: @Composable () -> Unit = {
+        Text(
+            item.name,
+            color = SashimiTextPrimary,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    LogoImage(
+        logoUrl = ImageUrls.logo(item.id),
+        fallback = titleText,
+        modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
+    )
+}
+
+/**
+ * iOS parity: shows a server Logo image (left-aligned, aspect-fit within the
+ * given max bounds) and falls back to [fallback] text when there is no logo URL
+ * or Coil fails to load it (e.g. the server has no Logo for this item).
+ */
+@Composable
+private fun LogoImage(
+    logoUrl: String?,
+    fallback: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (logoUrl == null) {
+        fallback()
+        return
+    }
+    var failed by remember(logoUrl) { mutableStateOf(false) }
+    if (failed) {
+        fallback()
+        return
+    }
+    AsyncImage(
+        model = logoUrl,
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        alignment = Alignment.CenterStart,
+        modifier = modifier,
+        onState = { s -> if (s is AsyncImagePainter.State.Error) failed = true },
+    )
 }
 
 @Composable
@@ -376,8 +502,18 @@ private fun RatingsAndMedia(
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         val community = item.communityRating ?: state.seriesCommunityRating
         val critic = item.criticRating ?: state.seriesCriticRating
+        // TMDb community rating: the brand logo (colored, untinted) + score. Port
+        // of PhoneDetailView.ratingsRow.
         if (community != null && community > 0) {
-            Text("TMDB ${"%.1f".format(community)}", color = SashimiTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(R.drawable.tmdb_logo),
+                    contentDescription = "TMDb",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.height(16.dp),
+                )
+                Text("%.1f".format(community), color = SashimiTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
         }
         if (critic != null) {
             Text("🍅 $critic%", color = SashimiTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -388,9 +524,56 @@ private fun RatingsAndMedia(
                 info.videoCodec?.let { MediaBadge(Formatting.codec(it)) }
                 val ac = info.audioCodec
                 val ch = info.audioChannels
-                if (ac != null && ch != null) MediaBadge("${Formatting.codec(ac)} ${Formatting.channels(ch)}")
+                if (ac != null && ch != null) AudioBadge(codec = ac, channels = ch)
             }
         }
+    }
+}
+
+/** Maps an audio codec to its Dolby/DTS wordmark drawable. Port of audioCodecLogoName. */
+private fun audioLogoRes(codec: String): Int? =
+    when (codec.uppercase(java.util.Locale.US)) {
+        "AC3" -> R.drawable.dolby_digital
+        "EAC3" -> R.drawable.dolby_digital_plus
+        "TRUEHD" -> R.drawable.dolby_truehd
+        "DTS", "DCA" -> R.drawable.dts
+        else -> null
+    }
+
+/**
+ * Audio pill: the real Dolby/DTS wordmark + channel string where the codec maps,
+ * else a plain text badge. Port of PhoneDetailView.audioInfoBadge. The wordmarks
+ * are forced white so the black-on-transparent Dolby TrueHD art stays visible on
+ * the dark card (iOS renders it untinted and so shows it dark).
+ */
+@Composable
+private fun AudioBadge(
+    codec: String,
+    channels: Int,
+) {
+    val logo = audioLogoRes(codec)
+    if (logo == null) {
+        MediaBadge("${Formatting.codec(codec)} ${Formatting.channels(channels)}")
+        return
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(SashimiCard)
+                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Image(
+            painter = painterResource(logo),
+            contentDescription = codec,
+            contentScale = ContentScale.Fit,
+            colorFilter = ColorFilter.tint(Color.White),
+            modifier = Modifier.height(10.dp),
+        )
+        Text(Formatting.channels(channels), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -405,6 +588,7 @@ private fun MediaBadge(text: String) {
             Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(SashimiCard)
+                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
@@ -431,6 +615,13 @@ private fun GenresCert(item: BaseItemDto) {
     }
 }
 
+/**
+ * iOS PhoneDetailView action-row parity: a visible row of Play/Resume (prominent,
+ * cannot shrink) + Watched + Download (+ Shuffle for series), with every remaining
+ * action folded into a single labeled overflow menu — Start Over, Go to Series,
+ * Play Trailer, then the admin block (Favorite / File Info / Refresh / Delete).
+ * Phones don't have the width for a pile of unlabeled icon buttons.
+ */
 @Composable
 private fun ActionButtons(
     state: DetailUiState,
@@ -442,40 +633,21 @@ private fun ActionButtons(
     onTrailer: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Play/Resume — prominent, fixed size so its label never wraps or shrinks.
         val playLabel = playButtonLabel(state, item)
         Button(onClick = { onPlay(false) }) {
             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(playLabel, modifier = Modifier.padding(start = 4.dp))
-        }
-
-        if (state.hasProgress || (state.isSeries && state.nextEpisode?.userData?.playbackPositionTicks?.let { it > 0 } == true)) {
-            FilledTonalButton(onClick = { onPlay(true) }) {
-                Icon(Icons.Filled.Replay, contentDescription = "Start Over", modifier = Modifier.size(18.dp))
-            }
-        }
-
-        if (state.isSeries) {
-            FilledTonalButton(onClick = {
-                scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
-            }) {
-                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(18.dp))
-            }
-        }
-
-        if ((item.localTrailerCount ?: 0) > 0) {
-            FilledTonalButton(onClick = onTrailer) {
-                Icon(Icons.Filled.Movie, contentDescription = "Trailer", modifier = Modifier.size(18.dp))
-            }
+            Text(playLabel, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
         }
 
         // Watched state is a server call — only offer the toggle when online (M4
         // loose end: it silently failed offline).
-        val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
         if (online) {
             FilledTonalButton(onClick = vm::toggleWatched) {
                 Icon(
@@ -491,6 +663,146 @@ private fun ActionButtons(
         if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
             dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item)
         }
+
+        // Shuffle stays visible for series (a primary series action on iOS).
+        if (state.isSeries) {
+            FilledTonalButton(onClick = {
+                scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
+            }) {
+                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(18.dp))
+            }
+        }
+
+        DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer, online)
+    }
+}
+
+/**
+ * The single labeled "⋮" overflow menu for the action row (iOS overflowMenu +
+ * adminMenuItems). Contextual actions (labeled) first, then a divider and the
+ * admin block. Hosts its own File Info / Delete dialogs.
+ */
+@Composable
+private fun DetailActionOverflow(
+    state: DetailUiState,
+    item: BaseItemDto,
+    vm: DetailViewModel,
+    onOpenDetail: (String, String?) -> Unit,
+    libraryName: String?,
+    onPlay: (Boolean) -> Unit,
+    onTrailer: () -> Unit,
+    online: Boolean,
+) {
+    var open by remember { mutableStateOf(false) }
+    var showFileInfo by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    val hasStartOver =
+        state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
+    val seriesId = item.seriesId
+    val canGoToSeries = online && item.type == ItemType.EPISODE && seriesId != null
+    val hasTrailer = (item.localTrailerCount ?: 0) > 0
+
+    // Nothing to show (rare: offline movie with no progress/trailer) → no button.
+    if (!hasStartOver && !canGoToSeries && !hasTrailer && !online) return
+
+    FilledTonalButton(onClick = { open = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "More", modifier = Modifier.size(18.dp))
+        Text("More", maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        if (hasStartOver) {
+            DropdownMenuItem(
+                text = { Text("Start Over") },
+                leadingIcon = { Icon(Icons.Filled.Replay, contentDescription = null) },
+                onClick = {
+                    open = false
+                    onPlay(true)
+                },
+            )
+        }
+        if (canGoToSeries && seriesId != null) {
+            DropdownMenuItem(
+                text = { Text("Go to Series") },
+                leadingIcon = { Icon(Icons.Filled.Tv, contentDescription = null) },
+                onClick = {
+                    open = false
+                    onOpenDetail(seriesId, libraryName)
+                },
+            )
+        }
+        if (hasTrailer) {
+            DropdownMenuItem(
+                text = { Text("Play Trailer") },
+                leadingIcon = { Icon(Icons.Filled.Movie, contentDescription = null) },
+                onClick = {
+                    open = false
+                    onTrailer()
+                },
+            )
+        }
+        // Admin block — all server calls, so online-only.
+        if (online) {
+            if (hasStartOver || canGoToSeries || hasTrailer) HorizontalDivider()
+            val isFavorite = item.userData?.isFavorite == true
+            DropdownMenuItem(
+                text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
+                leadingIcon = {
+                    Icon(if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null)
+                },
+                onClick = {
+                    open = false
+                    vm.toggleFavorite()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("File Info") },
+                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                onClick = {
+                    open = false
+                    showFileInfo = true
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Refresh Metadata") },
+                leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                onClick = {
+                    open = false
+                    vm.refreshMetadata()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                onClick = {
+                    open = false
+                    showDeleteConfirm = true
+                },
+            )
+        }
+    }
+
+    if (showFileInfo) {
+        AlertDialog(
+            onDismissRequest = { showFileInfo = false },
+            confirmButton = { TextButton(onClick = { showFileInfo = false }) { Text("OK") } },
+            title = { Text("File Info") },
+            text = { Text(state.mediaInfo?.path ?: item.path ?: "Path not available") },
+        )
+    }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Item") },
+            text = { Text("Are you sure you want to delete this item? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    vm.deleteItem()
+                }) { Text("Delete", color = Color.Red) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -775,53 +1087,5 @@ private fun CastCard(person: PersonInfo) {
         person.role?.takeIf { it.isNotEmpty() }?.let {
             Text(it, color = SashimiTextTertiary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-    }
-}
-
-@Composable
-private fun DetailOverflowMenu(
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
-    onFileInfo: () -> Unit,
-    onRefresh: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    IconButton(onClick = { open = true }) {
-        Icon(Icons.Filled.MoreVert, contentDescription = "More")
-    }
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        DropdownMenuItem(
-            text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-            leadingIcon = { Icon(if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null) },
-            onClick = {
-                open = false
-                onToggleFavorite()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("File Info") },
-            leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-            onClick = {
-                open = false
-                onFileInfo()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("Refresh Metadata") },
-            leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
-            onClick = {
-                open = false
-                onRefresh()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("Delete") },
-            leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            onClick = {
-                open = false
-                onDelete()
-            },
-        )
     }
 }

@@ -60,19 +60,20 @@ fun PosterCard(
         modifier = modifier.width(width),
         horizontalAlignment = if (isCircular) Alignment.CenterHorizontally else Alignment.Start,
     ) {
+        // The cover art is clipped to [shape]; badges live in this OUTER, unclipped
+        // Box so a circular card's checkmark/"X new" badge at the corner isn't cut
+        // off by the circle mask (matches the iOS ZStack, which clips only the art).
         Box(
             modifier =
                 Modifier
                     .width(width)
-                    .then(if (isCircular) Modifier.aspectRatio(1f) else Modifier.aspectRatio(2f / 3f))
-                    .clip(shape)
-                    .background(SashimiCard),
+                    .then(if (isCircular) Modifier.aspectRatio(1f) else Modifier.aspectRatio(2f / 3f)),
         ) {
             AsyncImage(
                 model = ImageUrls.cardPoster(item, width.value.toInt()),
                 contentDescription = item.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().clip(shape).background(SashimiCard),
             )
 
             if (item.userData?.played == true) {

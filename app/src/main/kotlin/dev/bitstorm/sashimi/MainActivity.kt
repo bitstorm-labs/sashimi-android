@@ -35,6 +35,13 @@ class MainActivity : ComponentActivity() {
         stashDeepLink(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-check connectivity on every foreground so a stale offline state (e.g.
+        // from background network blocking) can't survive a minimize→return cycle.
+        ServiceLocator.networkMonitor.refresh()
+    }
+
     private fun stashDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme == "sashimi") ServiceLocator.setPendingDeepLink(data.toString())

@@ -3,9 +3,11 @@ package dev.bitstorm.sashimi.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
+import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.async
@@ -42,7 +44,32 @@ class HomeViewModel(
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    /**
+     * Recently Added results cached per libraryId. Rows read from here, so a row
+     * scrolled out of and back into the LazyColumn reuses the cached data instead
+     * of refetching (the source of the visible loading churn). A missing key means
+     * "still loading" — the row shows placeholder cards until the value lands.
+     */
+    private val _recentlyAdded = MutableStateFlow<Map<String, RecentlyAddedData>>(emptyMap())
+    val recentlyAdded: StateFlow<Map<String, RecentlyAddedData>> = _recentlyAdded.asStateFlow()
+
+    /** libraryIds whose Recently Added fetch is in flight, so we launch each once. */
+    private val loadingRows = mutableSetOf<String>()
+
     val rows = homeRowSettings.rows
+
+    init {
+        // Reload when connectivity returns: content that loaded (or failed)
+        // while offline is stale, and the offline->online composable swap
+        // alone doesn't refetch reliably.
+        viewModelScope.launch {
+            var wasOnline = dev.bitstorm.sashimi.di.ServiceLocator.networkMonitor.isOnline.value
+            dev.bitstorm.sashimi.di.ServiceLocator.networkMonitor.isOnline.collect { online ->
+                if (online && !wasOnline) loadContent()
+                wasOnline = online
+            }
+        }
+    }
 
     fun loadContent() {
         _state.update { it.copy(isLoading = it.continueWatching.isEmpty()) }
@@ -50,9 +77,9 @@ class HomeViewModel(
     }
 
     /** Suspending reload for pull-to-refresh (the caller drives the spinner). */
-    suspend fun refresh() = load()
+    suspend fun refresh() = load(refreshRows = true)
 
-    private suspend fun load() {
+    private suspend fun load(refreshRows: Boolean = false) {
         runCatching {
             val resumeDeferred = viewModelScope.async { runCatching { client.getResumeItems() }.getOrDefault(emptyList()) }
             val nextUpDeferred = viewModelScope.async { runCatching { client.getNextUp() }.getOrDefault(emptyList()) }
@@ -67,9 +94,51 @@ class HomeViewModel(
             _state.update {
                 it.copy(isLoading = false, continueWatching = cw, libraries = mediaLibraries)
             }
+            if (refreshRows) {
+                loadingRows.clear()
+                _recentlyAdded.value = emptyMap()
+            }
+            prefetchRecentlyAdded(mediaLibraries)
             loadContinueWatchingLibraryNames(cw)
         }.onFailure {
             _state.update { it.copy(isLoading = false) }
+        }
+    }
+
+    /**
+     * Kick off every enabled library row's Recently Added load up front (parallel),
+     * so the data is usually ready before the row scrolls into view — replacing the
+     * old per-row lazy fetch that spun a spinner each time a row appeared.
+     */
+    private fun prefetchRecentlyAdded(libraries: List<JellyfinLibrary>) {
+        val byId = libraries.associateBy { it.id }
+        for (row in homeRowSettings.rows.value) {
+            if (row.kind != HomeRowConfig.Kind.LIBRARY || !row.isEnabled) continue
+            val libraryId = row.libraryId ?: continue
+            ensureRecentlyAdded(libraryId, row.libraryName ?: "", byId[libraryId]?.collectionType)
+        }
+    }
+
+    /**
+     * Load a row's Recently Added once and cache it by libraryId. Idempotent: a row
+     * already cached or in flight is skipped, so scrolling it back into view never
+     * refetches. Safe to call from row composition as a fallback for rows not
+     * covered by the up-front prefetch.
+     */
+    fun ensureRecentlyAdded(
+        libraryId: String,
+        libraryName: String,
+        collectionType: String?,
+    ) {
+        if (_recentlyAdded.value.containsKey(libraryId)) return
+        if (!loadingRows.add(libraryId)) return
+        viewModelScope.launch {
+            val result =
+                runCatching {
+                    RecentlyAddedLoader.load(client, libraryId, libraryName, collectionType)
+                }.getOrDefault(RecentlyAddedData())
+            _recentlyAdded.update { it + (libraryId to result) }
+            loadingRows.remove(libraryId)
         }
     }
 
@@ -92,13 +161,6 @@ class HomeViewModel(
         }
         _state.update { it.copy(continueWatchingLibraryNames = names) }
     }
-
-    /** Recently Added for one library row. Delegates to [RecentlyAddedLoader]. */
-    suspend fun loadRecentlyAdded(
-        libraryId: String,
-        libraryName: String,
-        collectionType: String?,
-    ): RecentlyAddedData = RecentlyAddedLoader.load(client, libraryId, libraryName, collectionType)
 
     /**
      * Merge Resume + Next Up into the Continue Watching list, most-recent first,

@@ -14,10 +14,14 @@ import kotlinx.serialization.encoding.Encoder
 // configured with ignoreUnknownKeys = true so partial Field lists decode.
 
 /**
- * Cleans up YouTube channel titles by removing the common " - Videos" suffix.
- * Ported from the Swift `String.cleanedYouTubeTitle` extension.
+ * Cleans up YouTube channel titles by removing the common " - Videos" suffix
+ * that Pinchflat appends. Case-insensitive and tolerant of surrounding spaces
+ * (e.g. "Foo - Videos", "Foo - videos", "Foo -videos "). Ported from the Swift
+ * `String.cleanedYouTubeTitle` extension.
  */
-fun String.cleanedYouTubeTitle(): String = if (endsWith(" - Videos")) dropLast(9) else this
+private val youTubeVideosSuffix = Regex("""\s*-\s*videos\s*$""", RegexOption.IGNORE_CASE)
+
+fun String.cleanedYouTubeTitle(): String = youTubeVideosSuffix.replace(this, "")
 
 @Serializable
 data class AuthenticationResult(
