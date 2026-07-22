@@ -12,7 +12,10 @@ class SashimiApplication : Application() {
         super.onCreate()
         ServiceLocator.init(this)
         // Restore any saved session on launch (Swift did this in SessionManager.init).
-        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
+        // Runs on IO, never Main: restoreSession() does EncryptedSharedPreferences
+        // first-init (key generation) + disk reads synchronously, which must not
+        // block the main thread during app startup.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             ServiceLocator.session.restoreSession()
         }
     }
