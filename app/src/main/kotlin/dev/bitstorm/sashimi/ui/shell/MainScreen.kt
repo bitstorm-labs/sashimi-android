@@ -33,8 +33,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
+import dev.bitstorm.sashimi.core.deeplink.DeepLinkResolver
+import dev.bitstorm.sashimi.core.deeplink.DeepLinkTarget
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.auth.AuthScreen
@@ -51,6 +52,7 @@ import dev.bitstorm.sashimi.ui.library.LibraryBrowseScreen
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
 import dev.bitstorm.sashimi.ui.nav.DownloadsRoute
 import dev.bitstorm.sashimi.ui.nav.HomeRoute
+import dev.bitstorm.sashimi.ui.nav.HomeRowOrderRoute
 import dev.bitstorm.sashimi.ui.nav.LibrariesRoute
 import dev.bitstorm.sashimi.ui.nav.LibraryBrowseRoute
 import dev.bitstorm.sashimi.ui.nav.PlayerRoute
@@ -80,7 +82,16 @@ fun MainScreen(
         Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (!isAuthenticated && reauthServer == null) {
                 val vm: AuthViewModel = viewModel(key = "root-auth", factory = AuthViewModelFactory())
-                AuthScreen(viewModel = vm)
+                val logoutReason by session.logoutReason.collectAsStateWithLifecycle()
+                // Session-expired banner on the connect screen (port of the iOS
+                // "Your session has expired…" message).
+                val banner =
+                    if (logoutReason == dev.bitstorm.sashimi.core.session.LogoutReason.SESSION_EXPIRED) {
+                        "Your session has expired. Please sign in again."
+                    } else {
+                        null
+                    }
+                AuthScreen(viewModel = vm, banner = banner, onComplete = { session.consumeLogoutReason() })
             } else {
                 AppShell(session = session, widthSizeClass = widthSizeClass)
             }
@@ -120,6 +131,18 @@ private fun AppShell(
     var showAddServer by remember { mutableStateOf(false) }
     val expanded = widthSizeClass != WindowWidthSizeClass.Compact
     val isCompact = widthSizeClass == WindowWidthSizeClass.Compact
+
+    // Resolve any stashed sashimi:// deep link now that we're authenticated
+    // (AppShell only renders when signed in) — the port of iOS pendingDeepLink.
+    val pendingDeepLink by ServiceLocator.pendingDeepLink.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingDeepLink) {
+        val target = DeepLinkResolver.resolve(pendingDeepLink) ?: return@LaunchedEffect
+        when (target) {
+            is DeepLinkTarget.Play -> navController.navigate(PlayerRoute(itemId = target.itemId))
+            is DeepLinkTarget.Detail -> navController.navigate(DetailRoute(itemId = target.itemId))
+        }
+        ServiceLocator.consumePendingDeepLink()
+    }
 
     // Offline mode: hide Libraries + Search (iPhone PhoneTabView parity) and swap
     // Home for the local-only offline variant.
@@ -182,7 +205,14 @@ private fun AppShell(
                 DownloadsScreen()
             }
             composable<SettingsRoute> {
-                SettingsScreen(session = session, onAddServer = { showAddServer = true })
+                SettingsScreen(
+                    session = session,
+                    onAddServer = { showAddServer = true },
+                    onOpenRowOrder = { navController.navigate(HomeRowOrderRoute) },
+                )
+            }
+            composable<HomeRowOrderRoute> {
+                dev.bitstorm.sashimi.ui.settings.HomeRowOrderScreen(settings = ServiceLocator.homeRowSettings)
             }
             composable<LibraryBrowseRoute> { entry ->
                 val route = entry.toRoute<LibraryBrowseRoute>()
@@ -206,9 +236,7 @@ private fun AppShell(
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
                 )
             }
-            composable<DetailRoute>(
-                deepLinks = listOf(navDeepLink<DetailRoute>(basePath = "sashimi://item")),
-            ) { entry ->
+            composable<DetailRoute> { entry ->
                 val route = entry.toRoute<DetailRoute>()
                 DetailScreen(
                     itemId = route.itemId,
@@ -224,9 +252,7 @@ private fun AppShell(
                     },
                 )
             }
-            composable<PlayerRoute>(
-                deepLinks = listOf(navDeepLink<PlayerRoute>(basePath = "sashimi://play")),
-            ) { entry ->
+            composable<PlayerRoute> { entry ->
                 val route = entry.toRoute<PlayerRoute>()
                 PlayerScreen(
                     itemId = route.itemId,

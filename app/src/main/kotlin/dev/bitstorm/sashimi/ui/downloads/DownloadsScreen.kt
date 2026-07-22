@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,54 +73,56 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
         return
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            StorageSummary(
-                usedBytes = StorageAccounting.bytesUsed(downloads),
-                freeBytes = available,
-                completedCount = completed.size,
-            )
-        }
-
-        if (active.isNotEmpty()) {
-            item { SectionHeader("Active") }
-            items(active, key = { it.itemId }) { row ->
-                ActiveRow(row, onCancel = { manager.cancel(row.itemId) })
-            }
-        }
-
-        if (completed.isNotEmpty()) {
-            item { SectionHeader("Completed") }
-            items(completed, key = { it.itemId }) { row ->
-                CompletedRow(row, onDelete = { manager.delete(row.itemId) })
-            }
-        }
-
-        if (failed.isNotEmpty()) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().widthIn(max = 640.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Failed",
-                        color = SashimiTextPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { manager.retryAllFailed() }) { Text("Retry All", color = SashimiAccent) }
+                StorageSummary(
+                    usedBytes = StorageAccounting.bytesUsed(downloads),
+                    freeBytes = available,
+                    completedCount = completed.size,
+                )
+            }
+
+            if (active.isNotEmpty()) {
+                item { SectionHeader("Active") }
+                items(active, key = { it.itemId }) { row ->
+                    ActiveRow(row, onCancel = { manager.cancel(row.itemId) })
                 }
             }
-            items(failed, key = { it.itemId }) { row ->
-                FailedRow(row, onRetry = { manager.retry(row.itemId) }, onDelete = { manager.delete(row.itemId) })
-            }
-        }
 
-        item {
-            TextButton(onClick = { showDeleteAll = true }, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Delete All Downloads", color = Color.Red)
+            if (completed.isNotEmpty()) {
+                item { SectionHeader("Completed") }
+                items(completed, key = { it.itemId }) { row ->
+                    CompletedRow(row, onDelete = { manager.delete(row.itemId) })
+                }
+            }
+
+            if (failed.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Failed",
+                            color = SashimiTextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { manager.retryAllFailed() }) { Text("Retry All", color = SashimiAccent) }
+                    }
+                }
+                items(failed, key = { it.itemId }) { row ->
+                    FailedRow(row, onRetry = { manager.retry(row.itemId) }, onDelete = { manager.delete(row.itemId) })
+                }
+            }
+
+            item {
+                TextButton(onClick = { showDeleteAll = true }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Delete All Downloads", color = Color.Red)
+                }
             }
         }
     }

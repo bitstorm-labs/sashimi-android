@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.ui.auth
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 
 /**
@@ -36,6 +39,7 @@ fun AuthScreen(
     viewModel: AuthViewModel,
     onCancel: (() -> Unit)? = null,
     onComplete: () -> Unit = {},
+    banner: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -50,6 +54,19 @@ fun AuthScreen(
         verticalArrangement = Arrangement.Center,
     ) {
         val fieldModifier = Modifier.fillMaxWidth().widthIn(max = 480.dp)
+
+        if (banner != null) {
+            Text(
+                text = banner,
+                color = SashimiTextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                modifier =
+                    fieldModifier
+                        .padding(bottom = 16.dp)
+                        .background(SashimiAccent.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+            )
+        }
 
         Text(
             text = if (state.showLogin) "Sign In" else "Connect to Server",

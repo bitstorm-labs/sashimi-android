@@ -22,6 +22,10 @@ object DownloadsRoute
 @Serializable
 object SettingsRoute
 
+/** Home row order + visibility editor, pushed from Settings. */
+@Serializable
+object HomeRowOrderRoute
+
 @Serializable
 data class LibraryBrowseRoute(
     val libraryId: String,
