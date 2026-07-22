@@ -86,7 +86,7 @@ class PlaybackEngine(
             playSessionId = playSessionId,
             playerStartPositionMs = playerStartMs,
             isTranscoding = isTranscoding,
-            streamInfo = streamInfo(method, source),
+            streamInfo = streamInfo(method, source, url),
             audioTracks = audioTracks(source),
             subtitleTracks = subtitleTracks(source),
             transcodeReasons = source.transcodeReasons.orEmpty().map(::humanTranscodeReason),
@@ -132,11 +132,12 @@ class PlaybackEngine(
      * this from a live /Sessions poll (e.g. a "Transcode" whose video is actually
      * being copied shows as Direct Stream); the Android version classifies
      * directly off the chosen delivery method — a deliberate simplification that
-     * avoids an extra round-trip. The bitrate/codec detail comes off the source.
+     * avoids an extra round-trip. The bitrate detail reflects what's DELIVERED.
      */
     private fun streamInfo(
         method: PlayMethod,
         source: MediaSourceInfo,
+        streamUrl: String,
     ): StreamInfo {
         val streamMethod =
             when (method) {
@@ -144,27 +145,55 @@ class PlaybackEngine(
                 PlayMethod.DIRECT_STREAM -> StreamMethod.DIRECT_STREAM
                 PlayMethod.TRANSCODE -> StreamMethod.TRANSCODE
             }
+        val bitrate =
+            if (streamMethod == StreamMethod.TRANSCODE) {
+                deliveredBitrateDetail(source, streamUrl)
+            } else {
+                bitrateDetail(sourceBitrate(source))
+            }
         val detail =
             if (streamMethod == StreamMethod.TRANSCODE) {
-                listOfNotNull(
-                    source.videoResolution,
-                    source.videoCodec?.uppercase(),
-                    bitrateDetail(source),
-                ).joinToString(" ").ifEmpty { null }
+                listOfNotNull(source.videoResolution, source.videoCodec?.uppercase(), bitrate)
+                    .joinToString(" ").ifEmpty { null }
             } else {
-                bitrateDetail(source)
+                bitrate
             }
         return StreamInfo(method = streamMethod, label = StreamInfo.label(streamMethod), detail = detail)
     }
 
-    /** "{n} Mbps" from the source bitrate (or its video stream's), else null. */
-    private fun bitrateDetail(source: MediaSourceInfo): String? {
-        val bps =
+    /** Source total bitrate (or its video stream's) in bps, else null. */
+    private fun sourceBitrate(source: MediaSourceInfo): Long? =
+        (
             source.bitrate?.takeIf { it > 0 }
                 ?: source.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.takeIf { it > 0 }
-                ?: return null
-        return "${(bps / 1_000_000.0).roundToLong()} Mbps"
+        )?.toLong()
+
+    private fun bitrateDetail(bps: Long?): String? = bps?.let { "${(it / 1_000_000.0).roundToLong()} Mbps" }
+
+    /**
+     * A transcode delivers the TARGET rate, not the source. Delivered video =
+     * min(source, target) — the min covers both an audio-only transcode (video
+     * COPIED at the source rate) and a real re-encode (video capped at the lower
+     * target, e.g. burn-in subtitles) — plus the transcoded audio target. Read
+     * off the TranscodingUrl's VideoBitrate/AudioBitrate params (no extra call).
+     * Falls back to the source rate when the URL omits them.
+     */
+    private fun deliveredBitrateDetail(
+        source: MediaSourceInfo,
+        streamUrl: String,
+    ): String? {
+        val target = urlIntParam(streamUrl, "VideoBitrate") ?: return bitrateDetail(sourceBitrate(source))
+        val srcVideo = source.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.takeIf { it > 0 }?.toLong()
+        val deliveredVideo = if (srcVideo != null && srcVideo < target) srcVideo else target
+        val audio = urlIntParam(streamUrl, "AudioBitrate") ?: 0L
+        return bitrateDetail(deliveredVideo + audio)
     }
+
+    /** Integer query-string parameter (e.g. VideoBitrate) from a URL, else null. */
+    private fun urlIntParam(
+        url: String,
+        key: String,
+    ): Long? = Regex("[?&]$key=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
 
     private fun humanTranscodeReason(reason: String): String =
         when (reason) {
