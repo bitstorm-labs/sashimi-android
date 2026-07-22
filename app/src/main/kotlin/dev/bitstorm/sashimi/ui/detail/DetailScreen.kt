@@ -44,7 +44,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -649,12 +649,12 @@ private fun ActionButtons(
         // Watched state is a server call — only offer the toggle when online (M4
         // loose end: it silently failed offline).
         if (online) {
-            FilledTonalButton(onClick = vm::toggleWatched) {
+            FilledTonalIconButton(onClick = vm::toggleWatched) {
                 Icon(
                     if (state.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
                     contentDescription = "Watched",
                     tint = if (state.isWatched) SashimiAccent else SashimiTextSecondary,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -666,10 +666,10 @@ private fun ActionButtons(
 
         // Shuffle stays visible for series (a primary series action on iOS).
         if (state.isSeries) {
-            FilledTonalButton(onClick = {
+            FilledTonalIconButton(onClick = {
                 scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
             }) {
-                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(20.dp))
             }
         }
 
@@ -706,9 +706,8 @@ private fun DetailActionOverflow(
     // Nothing to show (rare: offline movie with no progress/trailer) → no button.
     if (!hasStartOver && !canGoToSeries && !hasTrailer && !online) return
 
-    FilledTonalButton(onClick = { open = true }) {
-        Icon(Icons.Filled.MoreVert, contentDescription = "More", modifier = Modifier.size(18.dp))
-        Text("More", maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+    FilledTonalIconButton(onClick = { open = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "More", modifier = Modifier.size(20.dp))
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
         if (hasStartOver) {

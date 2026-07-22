@@ -8,8 +8,8 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +28,6 @@ import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.di.ServiceLocator
-import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 
 private val Success = Color(0xFF4CAF50)
 private val Warning = Color(0xFFFF9800)
@@ -52,7 +51,7 @@ fun DownloadButton(
     var showRemoveConfirm by remember { mutableStateOf(false) }
     val notificationGate = rememberNotificationPermissionGate()
 
-    IconButton(onClick = {
+    FilledTonalIconButton(onClick = {
         when (row?.downloadStatus) {
             null -> showQualityDialog = true
             DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING -> manager.cancel(item.id)
@@ -93,8 +92,11 @@ fun DownloadButton(
 @Composable
 private fun DownloadButtonIcon(row: DownloadedItemEntity?) {
     when (row?.downloadStatus) {
+        // Not-downloaded: neutral tint (inherits the tonal button's content
+        // color). Purple/accent is reserved for the COMPLETED state so the
+        // accent actually signals "downloaded", not "downloadable".
         null ->
-            Icon(Icons.Filled.Download, contentDescription = "Download", tint = SashimiAccent)
+            Icon(Icons.Filled.Download, contentDescription = "Download")
         DownloadStatus.QUEUED ->
             Icon(Icons.Filled.HourglassEmpty, contentDescription = "Queued", tint = Color.Gray)
         DownloadStatus.PREPARING ->
