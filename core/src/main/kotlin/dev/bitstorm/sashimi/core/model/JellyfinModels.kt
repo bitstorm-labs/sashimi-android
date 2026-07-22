@@ -251,6 +251,12 @@ data class MediaSourceInfo(
             }
         }
 
+    val audioCodec: String?
+        get() = mediaStreams?.firstOrNull { it.type == "Audio" }?.codec
+
+    val audioChannels: Int?
+        get() = mediaStreams?.firstOrNull { it.type == "Audio" }?.channels
+
     val audioStreams: List<MediaStream>
         get() = mediaStreams?.filter { it.type == "Audio" } ?: emptyList()
 

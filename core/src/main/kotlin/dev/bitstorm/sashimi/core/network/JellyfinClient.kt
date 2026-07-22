@@ -9,6 +9,7 @@ import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.model.LibraryViewsResponse
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.model.MediaSegmentType
+import dev.bitstorm.sashimi.core.model.PlaybackInfoResponse
 import dev.bitstorm.sashimi.core.model.PublicSystemInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -395,6 +396,22 @@ class JellyfinClient(
         return decode<ItemsResponse>(data).items
     }
 
+    /**
+     * One random item for the Shuffle button. `parentId` is the library or
+     * series id; `includeTypes` scopes to movies or episodes. Port of the Swift
+     * getRandomItem (SortBy=Random, limit 1).
+     */
+    suspend fun getRandomItem(
+        parentId: String,
+        includeTypes: List<ItemType>,
+    ): BaseItemDto? =
+        getItems(
+            parentId = parentId,
+            includeTypes = includeTypes,
+            sortBy = "Random",
+            limit = 1,
+        ).items.firstOrNull()
+
     /** Full item fetch — same Fields list as Swift (People + LocalTrailerCount). */
     suspend fun getItem(itemId: String): BaseItemDto {
         val uid = requireUserId()
@@ -465,6 +482,62 @@ class JellyfinClient(
     suspend fun removeFavorite(itemId: String) {
         val uid = requireUserId()
         execute("DELETE", "/Users/$uid/FavoriteItems/$itemId")
+    }
+
+    // MARK: - Detail: media info / trailers / ancestors / admin
+
+    /**
+     * Playback info for the detail media badges (resolution/codec/audio). This
+     * is the lightweight GET form — no DeviceProfile negotiation, which M3's
+     * player owns. It returns the file's MediaSources so the detail screen can
+     * render resolution/codec/audio chips from mediaSources.first. Port of the
+     * Swift getPlaybackInfo, minus the profile POST (M3 replaces this).
+     */
+    suspend fun getPlaybackInfo(itemId: String): PlaybackInfoResponse {
+        val uid = requireUserId()
+        val data = execute("GET", "/Items/$itemId/PlaybackInfo", query = listOf("UserId" to uid))
+        return decode(data)
+    }
+
+    /**
+     * Local trailer items (from Trailarr etc.) that Jellyfin exposes as playable
+     * Trailer items. The endpoint returns a JSON array directly. Port of Swift
+     * getLocalTrailers — drives the local-first Trailer button.
+     */
+    suspend fun getLocalTrailers(itemId: String): List<BaseItemDto> {
+        val uid = requireUserId()
+        val data = execute("GET", "/Users/$uid/Items/$itemId/LocalTrailers")
+        return runCatching { decode<List<BaseItemDto>>(data) }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Ancestors of an item (used to resolve the owning library's name for the
+     * Continue Watching row). Port of Swift getItemAncestors.
+     */
+    suspend fun getItemAncestors(itemId: String): List<BaseItemDto> {
+        val uid = requireUserId()
+        val data = execute("GET", "/Items/$itemId/Ancestors", query = listOf("UserId" to uid))
+        return decode(data)
+    }
+
+    /** Admin: full metadata + image refresh. Port of Swift refreshMetadata. */
+    suspend fun refreshMetadata(
+        itemId: String,
+        replaceImages: Boolean = false,
+    ) {
+        val query =
+            mutableListOf(
+                "Recursive" to "true",
+                "MetadataRefreshMode" to "FullRefresh",
+                "ImageRefreshMode" to "FullRefresh",
+            )
+        if (replaceImages) query.add("ReplaceAllImages" to "true")
+        execute("POST", "/Items/$itemId/Refresh", query)
+    }
+
+    /** Admin: delete an item from the server. Port of Swift deleteItem. */
+    suspend fun deleteItem(itemId: String) {
+        execute("DELETE", "/Items/$itemId")
     }
 
     // MARK: - Playback reporting
