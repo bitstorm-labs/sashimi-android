@@ -50,13 +50,14 @@ fun DownloadButton(
 
     var showQualityDialog by remember { mutableStateOf(false) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    val notificationGate = rememberNotificationPermissionGate()
 
     IconButton(onClick = {
         when (row?.downloadStatus) {
             null -> showQualityDialog = true
             DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING -> manager.cancel(item.id)
             DownloadStatus.COMPLETED -> showRemoveConfirm = true
-            DownloadStatus.FAILED, DownloadStatus.PAUSED -> manager.retry(item.id)
+            DownloadStatus.FAILED, DownloadStatus.PAUSED -> notificationGate { manager.retry(item.id) }
         }
     }, modifier = modifier) {
         DownloadButtonIcon(row)
@@ -68,7 +69,7 @@ fun DownloadButton(
             onDismiss = { showQualityDialog = false },
             onPick = { quality ->
                 showQualityDialog = false
-                manager.enqueueDownload(item, quality)
+                notificationGate { manager.enqueueDownload(item, quality) }
             },
         )
     }

@@ -648,6 +648,7 @@ private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
         )
     }
 
+    val notificationGate = dev.bitstorm.sashimi.ui.downloads.rememberNotificationPermissionGate()
     pendingEpisodes?.let { eps ->
         if (eps.isNotEmpty()) {
             dev.bitstorm.sashimi.ui.downloads.QualityDialog(
@@ -656,7 +657,7 @@ private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
                 onDismiss = { pendingEpisodes = null },
                 onPick = { quality ->
                     pendingEpisodes = null
-                    ServiceLocator.downloadManager.downloadSeason(eps, quality)
+                    notificationGate { ServiceLocator.downloadManager.downloadSeason(eps, quality) }
                 },
             )
         }
