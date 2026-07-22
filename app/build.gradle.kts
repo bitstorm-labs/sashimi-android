@@ -23,15 +23,15 @@ android {
     // Upload signing, read from env vars (CI) or gradle properties (local). When
     // absent — e.g. a contributor build or an un-secreted CI run — the release
     // build falls back to unsigned so `assembleRelease` still succeeds.
-    val uploadStoreFile =
-        System.getenv("SASHIMI_UPLOAD_STORE_FILE") ?: (findProperty("SASHIMI_UPLOAD_STORE_FILE") as String?)
-    val uploadStorePassword =
-        System.getenv("SASHIMI_UPLOAD_STORE_PASSWORD") ?: (findProperty("SASHIMI_UPLOAD_STORE_PASSWORD") as String?)
-    val uploadKeyAlias =
-        System.getenv("SASHIMI_UPLOAD_KEY_ALIAS") ?: (findProperty("SASHIMI_UPLOAD_KEY_ALIAS") as String?) ?: "sashimi"
-    val uploadKeyPassword =
-        System.getenv("SASHIMI_UPLOAD_KEY_PASSWORD") ?: (findProperty("SASHIMI_UPLOAD_KEY_PASSWORD") as String?)
-            ?: uploadStorePassword
+    // NOTE: blank counts as absent — CI passes `${{ steps.keystore.outputs.path }}`
+    // which is an EMPTY STRING (not unset) when the secret isn't configured;
+    // `file("")` throws "Cannot convert '' to File" (broke the v0.5.0 tag run).
+    fun signingValue(name: String): String? =
+        (System.getenv(name) ?: (findProperty(name) as String?))?.takeIf { it.isNotBlank() }
+    val uploadStoreFile = signingValue("SASHIMI_UPLOAD_STORE_FILE")
+    val uploadStorePassword = signingValue("SASHIMI_UPLOAD_STORE_PASSWORD")
+    val uploadKeyAlias = signingValue("SASHIMI_UPLOAD_KEY_ALIAS") ?: "sashimi"
+    val uploadKeyPassword = signingValue("SASHIMI_UPLOAD_KEY_PASSWORD") ?: uploadStorePassword
     val hasUploadSigning =
         uploadStoreFile != null && uploadStorePassword != null && file(uploadStoreFile).exists()
 
