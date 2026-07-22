@@ -68,6 +68,17 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun `re-enqueue deletes the partial only when the quality changed`() {
+        val failedHigh = item("a", DownloadStatus.FAILED, 0).copy(quality = DownloadQuality.HIGH.wireName)
+        // Different quality → must drop the stale partial (avoids mixed-encoding corruption).
+        assertTrue(DownloadPolicy.shouldDeletePartialOnReenqueue(failedHigh, DownloadQuality.MEDIUM))
+        // Same quality → keep the partial so its Range-resume is safe.
+        assertFalse(DownloadPolicy.shouldDeletePartialOnReenqueue(failedHigh, DownloadQuality.HIGH))
+        // No existing row → nothing to delete.
+        assertFalse(DownloadPolicy.shouldDeletePartialOnReenqueue(null, DownloadQuality.HIGH))
+    }
+
+    @Test
     fun `retry transition resets a failed row back into the queue`() {
         // Retry semantics are expressed as a status/progress reset; assert the pieces.
         val failed = item("a", DownloadStatus.FAILED, 0).copy(progress = 0.4, downloadedBytes = 10, errorMessage = "boom")

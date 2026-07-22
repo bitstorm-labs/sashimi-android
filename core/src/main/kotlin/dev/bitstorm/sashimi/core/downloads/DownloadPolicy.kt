@@ -41,6 +41,25 @@ object DownloadPolicy {
         if (existing == null) return false
         return existing.isComplete || existing.isActive
     }
+
+    /**
+     * Whether re-enqueuing over an existing (non-duplicate, i.e. FAILED/PAUSED)
+     * row must delete its leftover partial file first.
+     *
+     * The partial (`video.part`) is quality-independent, so a re-enqueue at a
+     * DIFFERENT quality would Range-resume by appending a differently-encoded
+     * stream onto the old bytes and finalize a COMPLETED-but-corrupt file. When
+     * the quality differs we drop the partial and restart from byte 0; a
+     * same-quality re-enqueue keeps the partial so its resume is safe (identical
+     * encoding). No existing row (fresh download) never has a stale partial.
+     */
+    fun shouldDeletePartialOnReenqueue(
+        existing: DownloadedItemEntity?,
+        newQuality: DownloadQuality,
+    ): Boolean {
+        existing ?: return false
+        return existing.downloadQuality != newQuality
+    }
 }
 
 /**

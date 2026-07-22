@@ -102,6 +102,11 @@ class DownloadManager(
     ) {
         val existing = repository.get(item.id)
         if (DownloadPolicy.isDuplicate(existing)) return
+        // A re-enqueue at a different quality must not resume onto the old
+        // partial (different encoding) — drop it so the download restarts clean.
+        if (DownloadPolicy.shouldDeletePartialOnReenqueue(existing, quality)) {
+            fileManager.partialFile(item.id).delete()
+        }
         repository.upsert(
             DownloadedItemEntity(
                 itemId = item.id,
