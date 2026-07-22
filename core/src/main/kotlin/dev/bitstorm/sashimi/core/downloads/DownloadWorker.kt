@@ -31,13 +31,14 @@ class DownloadWorker(
         val manager = DownloadManager.current ?: return Result.retry()
 
         ensureChannel()
-        runCatching { setForeground(foregroundInfo("Preparing download…", -1)) }
+        val notificationId = notificationId(itemId)
+        runCatching { setForeground(foregroundInfo(notificationId, "Preparing download…", -1)) }
 
         return manager.performDownload(
             itemId = itemId,
             isStopped = { isStopped },
             onProgress = { title, percent ->
-                runCatching { setForeground(foregroundInfo(title, percent)) }
+                runCatching { setForeground(foregroundInfo(notificationId, title, percent)) }
             },
         )
     }
@@ -54,6 +55,7 @@ class DownloadWorker(
 
     /** Builds the progress notification; [percent] < 0 renders an indeterminate bar. */
     private fun foregroundInfo(
+        notificationId: Int,
         title: String,
         percent: Int,
     ): ForegroundInfo {
@@ -70,9 +72,9 @@ class DownloadWorker(
         }
         val notification: Notification = builder.build()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
+            ForegroundInfo(notificationId, notification)
         }
     }
 
@@ -80,7 +82,15 @@ class DownloadWorker(
         const val KEY_ITEM_ID = "itemId"
         const val TAG = "sashimi-download"
         private const val CHANNEL_ID = "downloads"
-        private const val NOTIFICATION_ID = 4201
+        private const val NOTIFICATION_ID_BASE = 4201
+
+        /**
+         * Stable, per-item foreground-notification id. With MAX_CONCURRENT=2 the
+         * two live workers must not share one id (4201) or their foreground
+         * notifications collide; deriving it from the item id keeps each worker's
+         * notification distinct while staying stable across the worker's retries.
+         */
+        fun notificationId(itemId: String): Int = NOTIFICATION_ID_BASE + (itemId.hashCode() and 0xFFFF)
 
         fun itemTag(itemId: String): String = "item:$itemId"
 
