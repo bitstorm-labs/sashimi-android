@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -65,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
@@ -305,12 +309,27 @@ private fun TitleBlock(
         when (item.type) {
             ItemType.EPISODE -> {
                 val seriesName = item.seriesName
-                if (seriesName != null) {
-                    Text(
-                        if (yt) seriesName.cleanedYouTubeTitle() else seriesName,
-                        color = SashimiTextSecondary,
-                        fontSize = 13.sp,
+                // iOS parity: render the parent series' Logo image above the episode
+                // title, falling back to the (cleaned) series name text. YouTube
+                // channel episodes keep the plain text (they have no logo).
+                val seriesId = item.seriesId
+                val seriesNameText: @Composable () -> Unit = {
+                    if (seriesName != null) {
+                        Text(
+                            if (yt) seriesName.cleanedYouTubeTitle() else seriesName,
+                            color = SashimiTextSecondary,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+                if (!yt && seriesId != null) {
+                    LogoImage(
+                        logoUrl = ImageUrls.logo(seriesId),
+                        fallback = seriesNameText,
+                        modifier = Modifier.heightIn(max = 60.dp).widthIn(max = 250.dp),
                     )
+                } else {
+                    seriesNameText()
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val s = item.parentIndexNumber
@@ -341,10 +360,58 @@ private fun LogoOrTitle(
     yt: Boolean,
 ) {
     val title = if (yt && item.type == ItemType.SERIES) item.name.cleanedYouTubeTitle() else item.name
-    // Server logo when present; fall back to bold title (Coil error -> nothing,
-    // so we always render the title beneath at a smaller weight? Keep it simple:
-    // show the title text — logos are a nice-to-have, the text is the guarantee).
-    Text(title, color = SashimiTextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    val titleText: @Composable () -> Unit = {
+        Text(
+            title,
+            color = SashimiTextPrimary,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    // iOS parity: render the item's server Logo image as the title, falling back
+    // to the bold text title on a missing/failed logo. YouTube series keep the
+    // (cleaned) text title — Pinchflat libraries have no logos.
+    if (yt && item.type == ItemType.SERIES) {
+        titleText()
+    } else {
+        LogoImage(
+            logoUrl = ImageUrls.logo(item.id),
+            fallback = titleText,
+            modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
+        )
+    }
+}
+
+/**
+ * iOS parity: shows a server Logo image (left-aligned, aspect-fit within the
+ * given max bounds) and falls back to [fallback] text when there is no logo URL
+ * or Coil fails to load it (e.g. the server has no Logo for this item).
+ */
+@Composable
+private fun LogoImage(
+    logoUrl: String?,
+    fallback: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (logoUrl == null) {
+        fallback()
+        return
+    }
+    var failed by remember(logoUrl) { mutableStateOf(false) }
+    if (failed) {
+        fallback()
+        return
+    }
+    AsyncImage(
+        model = logoUrl,
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        alignment = Alignment.CenterStart,
+        modifier = modifier,
+        onState = { s -> if (s is AsyncImagePainter.State.Error) failed = true },
+    )
 }
 
 @Composable
@@ -490,6 +557,16 @@ private fun ActionButtons(
         // Single-item download (movies + episodes). Series use the bulk season menu.
         if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
             dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item)
+        }
+
+        // Series button (iOS parity): jump from an episode to its parent series
+        // detail. Online-only (the series page fetches from the server); shown for
+        // all episodes with a seriesId, including YouTube-style channels.
+        val seriesId = item.seriesId
+        if (online && item.type == ItemType.EPISODE && seriesId != null) {
+            FilledTonalButton(onClick = { onOpenDetail(seriesId, libraryName) }) {
+                Icon(Icons.Filled.Tv, contentDescription = "Series", modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
