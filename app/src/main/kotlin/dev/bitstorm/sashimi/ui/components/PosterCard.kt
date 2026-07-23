@@ -52,6 +52,7 @@ fun PosterCard(
     badgeCount: Int? = null,
 ) {
     val showQualityBadges = LocalShowQualityBadges.current
+    val showReviewRatings = LocalShowReviewRatings.current
     val shape = if (isCircular) CircleShape else RoundedCornerShape(8.dp)
     // Title font grows with the cover so bigger grids read better (Swift: 13–16).
     val titleSize = (width.value * 0.095f).coerceIn(13f, 16f)
@@ -104,6 +105,14 @@ fun PosterCard(
                 QualityBadge(
                     label = quality,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                )
+            }
+
+            val rating = item.communityRating ?: 0.0
+            if (showReviewRatings && !isCircular && rating > 0) {
+                ReviewRatingBadge(
+                    rating = rating,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                 )
             }
         }

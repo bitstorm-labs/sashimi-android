@@ -14,6 +14,14 @@ import kotlin.math.max
  */
 val LocalShowQualityBadges = compositionLocalOf { true }
 
+/**
+ * Whether the "showReviewRatings" setting is on. Provided at the app root from
+ * [dev.bitstorm.sashimi.core.settings.AppSettings] so any card can gate its
+ * TMDb community-rating pill without threading the flag through every call.
+ * Mirrors [LocalShowQualityBadges].
+ */
+val LocalShowReviewRatings = compositionLocalOf { true }
+
 /** Poster-grid layout metrics — column count + exact per-card width. */
 data class GridMetrics(
     val columns: Int,
