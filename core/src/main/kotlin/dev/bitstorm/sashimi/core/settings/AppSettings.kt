@@ -20,6 +20,9 @@ class AppSettings(context: Context) {
     private val _showQualityBadges = MutableStateFlow(prefs.getBoolean(KEY_QUALITY_BADGES, true))
     val showQualityBadges: StateFlow<Boolean> = _showQualityBadges.asStateFlow()
 
+    private val _showReviewRatings = MutableStateFlow(prefs.getBoolean(KEY_REVIEW_RATINGS, true))
+    val showReviewRatings: StateFlow<Boolean> = _showReviewRatings.asStateFlow()
+
     private val _maxBitrate = MutableStateFlow(prefs.getInt(KEY_MAX_BITRATE, 0))
     val maxBitrate: StateFlow<Int> = _maxBitrate.asStateFlow()
 
@@ -48,6 +51,8 @@ class AppSettings(context: Context) {
     val preferredSubtitleLanguage: StateFlow<String> = _preferredSubtitleLanguage.asStateFlow()
 
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
+
+    fun setShowReviewRatings(value: Boolean) = putBoolean(_showReviewRatings, KEY_REVIEW_RATINGS, value)
 
     fun setMaxBitrate(value: Int) {
         _maxBitrate.value = value
@@ -94,6 +99,7 @@ class AppSettings(context: Context) {
     companion object {
         private const val PREFS = "sashimi_settings"
         private const val KEY_QUALITY_BADGES = "showQualityBadges"
+        private const val KEY_REVIEW_RATINGS = "showReviewRatings"
         private const val KEY_MAX_BITRATE = "maxBitrate"
         private const val KEY_AUTO_PLAY_NEXT = "autoPlayNextEpisode"
         private const val KEY_AUTO_SKIP_INTRO = "autoSkipIntro"

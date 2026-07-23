@@ -42,6 +42,7 @@ import dev.bitstorm.sashimi.ui.auth.AuthScreen
 import dev.bitstorm.sashimi.ui.auth.AuthViewModel
 import dev.bitstorm.sashimi.ui.auth.AuthViewModelFactory
 import dev.bitstorm.sashimi.ui.components.LocalShowQualityBadges
+import dev.bitstorm.sashimi.ui.components.LocalShowReviewRatings
 import dev.bitstorm.sashimi.ui.detail.DetailScreen
 import dev.bitstorm.sashimi.ui.downloads.DownloadsScreen
 import dev.bitstorm.sashimi.ui.downloads.OfflineHomeScreen
@@ -77,8 +78,12 @@ fun MainScreen(
     val isAuthenticated by session.isAuthenticated.collectAsStateWithLifecycle()
     val reauthServer by session.reauthServer.collectAsStateWithLifecycle()
     val showQualityBadges by ServiceLocator.appSettings.showQualityBadges.collectAsStateWithLifecycle()
+    val showReviewRatings by ServiceLocator.appSettings.showReviewRatings.collectAsStateWithLifecycle()
 
-    CompositionLocalProvider(LocalShowQualityBadges provides showQualityBadges) {
+    CompositionLocalProvider(
+        LocalShowQualityBadges provides showQualityBadges,
+        LocalShowReviewRatings provides showReviewRatings,
+    ) {
         Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (!isAuthenticated && reauthServer == null) {
                 val vm: AuthViewModel = viewModel(key = "root-auth", factory = AuthViewModelFactory())
