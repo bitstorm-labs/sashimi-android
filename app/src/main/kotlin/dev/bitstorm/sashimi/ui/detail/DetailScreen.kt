@@ -61,6 +61,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -195,13 +196,24 @@ private fun CompactLayout(
             // backdropSection) instead of the regular 220dp backdrop.
             YouTubeChannelBanner(item)
         } else {
+            // When the item has no real landscape backdrop, detailBackdrop falls
+            // back to the PORTRAIT poster — cropping it into this 220dp frame
+            // shows an ugly middle slice. Blur + darken that fallback so it reads
+            // as an intentional ambient backdrop instead of a sliced poster.
+            val posterFallback =
+                item.type != ItemType.EPISODE &&
+                    item.backdropImageTags?.isNotEmpty() != true &&
+                    !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
             Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
                 AsyncImage(
                     model = ImageUrls.detailBackdrop(item, false),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
                 )
+                if (posterFallback) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+                }
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
