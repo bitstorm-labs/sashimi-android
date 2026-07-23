@@ -142,6 +142,8 @@ fun SettingsScreen(
                 SwitchRow("Show quality badges", showBadges, settings::setShowQualityBadges)
                 val showRatings by settings.showReviewRatings.collectAsStateWithLifecycle()
                 SwitchRow("Show Review Ratings", showRatings, settings::setShowReviewRatings)
+                val useEpisodeRatings by settings.useEpisodeRatings.collectAsStateWithLifecycle()
+                SwitchRow("Use Episode Ratings", useEpisodeRatings, settings::setUseEpisodeRatings)
             }
 
             item { SectionHeader("DOWNLOADS") }

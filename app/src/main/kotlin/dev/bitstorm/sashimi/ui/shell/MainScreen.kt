@@ -43,6 +43,7 @@ import dev.bitstorm.sashimi.ui.auth.AuthViewModel
 import dev.bitstorm.sashimi.ui.auth.AuthViewModelFactory
 import dev.bitstorm.sashimi.ui.components.LocalShowQualityBadges
 import dev.bitstorm.sashimi.ui.components.LocalShowReviewRatings
+import dev.bitstorm.sashimi.ui.components.LocalUseEpisodeRatings
 import dev.bitstorm.sashimi.ui.detail.DetailScreen
 import dev.bitstorm.sashimi.ui.downloads.DownloadsScreen
 import dev.bitstorm.sashimi.ui.downloads.OfflineHomeScreen
@@ -79,10 +80,12 @@ fun MainScreen(
     val reauthServer by session.reauthServer.collectAsStateWithLifecycle()
     val showQualityBadges by ServiceLocator.appSettings.showQualityBadges.collectAsStateWithLifecycle()
     val showReviewRatings by ServiceLocator.appSettings.showReviewRatings.collectAsStateWithLifecycle()
+    val useEpisodeRatings by ServiceLocator.appSettings.useEpisodeRatings.collectAsStateWithLifecycle()
 
     CompositionLocalProvider(
         LocalShowQualityBadges provides showQualityBadges,
         LocalShowReviewRatings provides showReviewRatings,
+        LocalUseEpisodeRatings provides useEpisodeRatings,
     ) {
         Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (!isAuthenticated && reauthServer == null) {

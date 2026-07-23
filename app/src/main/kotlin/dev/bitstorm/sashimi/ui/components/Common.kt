@@ -22,6 +22,16 @@ val LocalShowQualityBadges = compositionLocalOf { true }
  */
 val LocalShowReviewRatings = compositionLocalOf { true }
 
+/**
+ * Whether the "Use Episode Ratings" setting is on. When off (the default), a
+ * card for a TV episode shows no review-rating pill — an episode's
+ * `communityRating` is that episode's score, not the show's overall rating, and
+ * the poster card has no series-level rating to fall back on. When on, episode
+ * cards may show their own rating. Series/movie cards are unaffected: their
+ * `communityRating` already IS the overall rating.
+ */
+val LocalUseEpisodeRatings = compositionLocalOf { false }
+
 /** Poster-grid layout metrics — column count + exact per-card width. */
 data class GridMetrics(
     val columns: Int,

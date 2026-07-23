@@ -23,6 +23,9 @@ class AppSettings(context: Context) {
     private val _showReviewRatings = MutableStateFlow(prefs.getBoolean(KEY_REVIEW_RATINGS, true))
     val showReviewRatings: StateFlow<Boolean> = _showReviewRatings.asStateFlow()
 
+    private val _useEpisodeRatings = MutableStateFlow(prefs.getBoolean(KEY_USE_EPISODE_RATINGS, false))
+    val useEpisodeRatings: StateFlow<Boolean> = _useEpisodeRatings.asStateFlow()
+
     private val _maxBitrate = MutableStateFlow(prefs.getInt(KEY_MAX_BITRATE, 0))
     val maxBitrate: StateFlow<Int> = _maxBitrate.asStateFlow()
 
@@ -53,6 +56,8 @@ class AppSettings(context: Context) {
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
 
     fun setShowReviewRatings(value: Boolean) = putBoolean(_showReviewRatings, KEY_REVIEW_RATINGS, value)
+
+    fun setUseEpisodeRatings(value: Boolean) = putBoolean(_useEpisodeRatings, KEY_USE_EPISODE_RATINGS, value)
 
     fun setMaxBitrate(value: Int) {
         _maxBitrate.value = value
@@ -100,6 +105,7 @@ class AppSettings(context: Context) {
         private const val PREFS = "sashimi_settings"
         private const val KEY_QUALITY_BADGES = "showQualityBadges"
         private const val KEY_REVIEW_RATINGS = "showReviewRatings"
+        private const val KEY_USE_EPISODE_RATINGS = "useEpisodeRatings"
         private const val KEY_MAX_BITRATE = "maxBitrate"
         private const val KEY_AUTO_PLAY_NEXT = "autoPlayNextEpisode"
         private const val KEY_AUTO_SKIP_INTRO = "autoSkipIntro"
