@@ -53,6 +53,7 @@ fun PosterCard(
 ) {
     val showQualityBadges = LocalShowQualityBadges.current
     val showReviewRatings = LocalShowReviewRatings.current
+    val useEpisodeRatings = LocalUseEpisodeRatings.current
     val shape = if (isCircular) CircleShape else RoundedCornerShape(8.dp)
     // Title font grows with the cover so bigger grids read better (Swift: 13–16).
     val titleSize = (width.value * 0.095f).coerceIn(13f, 16f)
@@ -108,8 +109,17 @@ fun PosterCard(
                 )
             }
 
+            // Series/movie cards carry the overall rating in communityRating, so the
+            // pill is correct as-is. An EPISODE's communityRating is that episode's
+            // score (not the show's), and the card has no series-level rating to fall
+            // back on — so by default (useEpisodeRatings off) we suppress the pill on
+            // episode cards. In practice the badge only ever renders on series/movie
+            // cards anyway: Continue Watching / Next Up use ContinueWatchingCard (no
+            // pill), TV Recently Added / browse / search return Series items, and the
+            // only episode cards (YouTube) are circular (excluded by !isCircular).
+            val isEpisode = item.type == ItemType.EPISODE && item.seriesId != null
             val rating = item.communityRating ?: 0.0
-            if (showReviewRatings && !isCircular && rating > 0) {
+            if (showReviewRatings && !isCircular && rating > 0 && (!isEpisode || useEpisodeRatings)) {
                 ReviewRatingBadge(
                     rating = rating,
                     modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
