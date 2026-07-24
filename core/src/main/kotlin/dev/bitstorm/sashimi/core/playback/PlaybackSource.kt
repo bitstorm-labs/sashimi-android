@@ -37,9 +37,12 @@ data class StreamInfo(
     companion object {
         fun label(method: StreamMethod): String =
             when (method) {
-                StreamMethod.DIRECT_PLAY -> "Direct Play"
-                StreamMethod.DIRECT_STREAM -> "Direct Stream"
-                StreamMethod.TRANSCODE -> "Transcode"
+                // Viewer-facing wording: DirectPlay vs DirectStream is server
+                // plumbing — both deliver identical video bits, so both read
+                // "Original". Only a transcode changes the picture.
+                StreamMethod.DIRECT_PLAY -> "Original"
+                StreamMethod.DIRECT_STREAM -> "Original"
+                StreamMethod.TRANSCODE -> "Converted"
             }
     }
 }

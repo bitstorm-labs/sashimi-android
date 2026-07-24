@@ -263,10 +263,10 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
         SwitchRow("Auto-skip intro", autoSkipIntro, settings::setAutoSkipIntro)
         SwitchRow("Auto-skip credits", autoSkipCredits, settings::setAutoSkipCredits)
         SwitchRow(
-            "Force direct play",
+            "Always play original",
             forceDirectPlay,
             settings::setForceDirectPlay,
-            subtitle = "Prefer the original file; suppress transcoding.",
+            subtitle = "Play the untouched file; never convert quality.",
         )
         DropdownRow("Resume threshold", ResumeThresholdOptions, resumeThreshold, settings::setResumeThresholdSeconds)
         SwitchRow("Subtitles on by default", subtitlesEnabled, settings::setSubtitlesEnabled)
