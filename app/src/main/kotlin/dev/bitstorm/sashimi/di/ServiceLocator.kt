@@ -61,7 +61,12 @@ object ServiceLocator {
     lateinit var downloadFileManager: DownloadFileManager
         private set
 
-    private val appScope = CoroutineScope(SupervisorJob())
+    /**
+     * Scope for work that must outlive the UI that started it -- a mutation the
+     * user has already committed to must not be cancelled just because they
+     * navigated away or the row scrolled out of view.
+     */
+    val appScope = CoroutineScope(SupervisorJob())
 
     /**
      * A `sashimi://` deep link captured by [dev.bitstorm.sashimi.MainActivity]

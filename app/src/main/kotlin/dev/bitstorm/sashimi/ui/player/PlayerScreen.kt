@@ -195,8 +195,18 @@ fun PlayerScreen(
         SettingsSheet(
             state = state,
             onDismiss = { showSettings = false },
-            onQuality = vm::selectQuality,
-            onAudio = vm::selectAudioTrack,
+            // Dismiss on selection. Leaving the sheet open put it over the
+            // loading spinner, so a re-negotiation looked like nothing had
+            // happened and tapping a second option was the natural response --
+            // which is exactly what raced two transcodes on the server.
+            onQuality = {
+                showSettings = false
+                vm.selectQuality(it)
+            },
+            onAudio = {
+                showSettings = false
+                vm.selectAudioTrack(it)
+            },
             onSubtitle = vm::selectSubtitle,
             onSpeed = vm::setSpeed,
         )

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -21,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -64,6 +66,7 @@ import dev.bitstorm.sashimi.ui.nav.SettingsRoute
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.search.SearchScreen
 import dev.bitstorm.sashimi.ui.settings.SettingsScreen
+import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 
 /**
  * Root of the authenticated/unauthenticated app. Unauthenticated shows the
@@ -77,6 +80,7 @@ fun MainScreen(
     modifier: Modifier = Modifier,
 ) {
     val isAuthenticated by session.isAuthenticated.collectAsStateWithLifecycle()
+    val isRestoring by session.isRestoring.collectAsStateWithLifecycle()
     val reauthServer by session.reauthServer.collectAsStateWithLifecycle()
     val showQualityBadges by ServiceLocator.appSettings.showQualityBadges.collectAsStateWithLifecycle()
     val showReviewRatings by ServiceLocator.appSettings.showReviewRatings.collectAsStateWithLifecycle()
@@ -88,7 +92,13 @@ fun MainScreen(
         LocalUseEpisodeRatings provides useEpisodeRatings,
     ) {
         Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            if (!isAuthenticated && reauthServer == null) {
+            if (isRestoring) {
+                // A signed-in user must not be shown Connect to Server while the
+                // saved session is still being read off disk.
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = SashimiAccent)
+                }
+            } else if (!isAuthenticated && reauthServer == null) {
                 val vm: AuthViewModel = viewModel(key = "root-auth", factory = AuthViewModelFactory())
                 val logoutReason by session.logoutReason.collectAsStateWithLifecycle()
                 // Session-expired banner on the connect screen (port of the iOS

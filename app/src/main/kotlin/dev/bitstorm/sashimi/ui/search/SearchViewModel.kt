@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -70,7 +71,13 @@ class SearchViewModel(
             return
         }
         _state.update { it.copy(isSearching = true) }
-        val results = runCatching { client.search(query = query, limit = 50) }.getOrDefault(emptyList())
+        // runCatchingCancellable, not runCatching: the plain version catches
+        // Throwable including CancellationException, so a search cancelled by the
+        // next keystroke did not die at its suspension point. It resumed,
+        // substituted an empty list and wrote isSearching = false -- killing the
+        // spinner and leaving the PREVIOUS query's results on screen, presented
+        // as the answer for the new text.
+        val results = runCatchingCancellable { client.search(query = query, limit = 50) }.getOrDefault(emptyList())
         // Ignore a stale response if the text moved on.
         if (_state.value.searchText == query) {
             _state.update { it.copy(results = results, isSearching = false) }

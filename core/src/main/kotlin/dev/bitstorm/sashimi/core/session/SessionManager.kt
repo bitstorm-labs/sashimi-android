@@ -28,6 +28,20 @@ class SessionManager(
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
 
+    /**
+     * True until the first restoreSession() has finished.
+     *
+     * Without this third state, "not yet restored" and "signed out" were
+     * indistinguishable, so every cold launch for a signed-in user rendered the
+     * Connect to Server screen first and then swapped to the shell. That gap is
+     * EncryptedSharedPreferences lazy init (AndroidKeyStore + Tink) plus two
+     * SharedPreferences reads, typically 100-300ms and longer on first-ever key
+     * generation, and anything typed into the URL field in that window was
+     * thrown away mid-keystroke.
+     */
+    private val _isRestoring = MutableStateFlow(true)
+    val isRestoring: StateFlow<Boolean> = _isRestoring.asStateFlow()
+
     private val _currentUser = MutableStateFlow<UserDto?>(null)
     val currentUser: StateFlow<UserDto?> = _currentUser.asStateFlow()
 
@@ -74,6 +88,16 @@ class SessionManager(
     // MARK: - Session lifecycle
 
     suspend fun restoreSession() {
+        try {
+            restoreSessionInternal()
+        } finally {
+            // finally, not a trailing statement: every early return above and any
+            // throw must still clear the flag, or the splash becomes permanent.
+            _isRestoring.value = false
+        }
+    }
+
+    private suspend fun restoreSessionInternal() {
         _servers.value = serverStore.loadServers()
         _activeServerId.value = serverStore.getActiveServerId()
 
