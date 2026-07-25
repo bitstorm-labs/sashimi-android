@@ -36,9 +36,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.retrofit)
-    implementation(libs.retrofit.serialization)
     implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.security.crypto)
 
