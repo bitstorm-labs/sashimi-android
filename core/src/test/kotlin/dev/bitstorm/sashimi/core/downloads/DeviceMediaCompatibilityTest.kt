@@ -2,6 +2,8 @@ package dev.bitstorm.sashimi.core.downloads
 
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.model.MediaStream
+import dev.bitstorm.sashimi.core.playback.CodecCapabilities
+import dev.bitstorm.sashimi.core.playback.FixedCodecCapabilities
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -83,5 +85,49 @@ class DeviceMediaCompatibilityTest {
         assertEquals(DownloadQuality.HIGH, DownloadQuality.effectiveQuality(DownloadQuality.ORIGINAL, sourceIsCompatible = false))
         // Transcoded tiers pass through regardless.
         assertEquals(DownloadQuality.LOW, DownloadQuality.effectiveQuality(DownloadQuality.LOW, sourceIsCompatible = false))
+    }
+
+    // MARK: - Real device decoder gate
+
+    @Test
+    fun `ac3 is refused on a device with no ac3 decoder`() {
+        // ExoPlayer ships no software AC-3 decoder, so the format being on the
+        // allowlist is not enough: without this the tier was offered, the file
+        // downloaded in full, and it then would not play, with no fallback.
+        val noAc3 = FixedCodecCapabilities(setOf(CodecCapabilities.MimeTypes.AAC))
+        assertFalse(
+            DeviceMediaCompatibility.canDirectPlayOnDevice(
+                source("mp4", listOf(video("h264"), audio("ac3"))),
+                codecs = noAc3,
+            ),
+        )
+    }
+
+    @Test
+    fun `ac3 is allowed when the device really can decode it`() {
+        val withAc3 = FixedCodecCapabilities(setOf(CodecCapabilities.MimeTypes.AC3))
+        assertTrue(
+            DeviceMediaCompatibility.canDirectPlayOnDevice(
+                source("mp4", listOf(video("h264"), audio("ac3"))),
+                codecs = withAc3,
+            ),
+        )
+    }
+
+    @Test
+    fun `a second track the device can decode still qualifies the source`() {
+        val aacOnly = FixedCodecCapabilities(setOf(CodecCapabilities.MimeTypes.AAC))
+        assertTrue(
+            DeviceMediaCompatibility.canDirectPlayOnDevice(
+                source("mp4", listOf(video("h264"), audio("ac3"), audio("aac"))),
+                codecs = aacOnly,
+            ),
+        )
+    }
+
+    @Test
+    fun `omitting capabilities keeps the previous allowlist-only behaviour`() {
+        // Callers that cannot supply device capabilities must not regress.
+        assertTrue(DeviceMediaCompatibility.canDirectPlayOnDevice(source("mp4", listOf(video("h264"), audio("ac3")))))
     }
 }

@@ -27,6 +27,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
 import dev.bitstorm.sashimi.di.ServiceLocator
 
 private val Success = Color(0xFF4CAF50)
@@ -141,7 +142,14 @@ fun QualityDialog(
         originalAllowed =
             runCatching {
                 val source = ServiceLocator.client.getPlaybackInfo(probeId).mediaSources?.firstOrNull()
-                source != null && DeviceMediaCompatibility.canDirectPlayOnDevice(source)
+                source != null &&
+                    DeviceMediaCompatibility.canDirectPlayOnDevice(
+                        source,
+                        // Real device capabilities: the static allowlist alone
+                        // offered AC-3 "Original" downloads on devices with no
+                        // AC-3 decoder, producing a large unplayable file.
+                        codecs = AndroidCodecCapabilities(),
+                    )
             }.getOrDefault(false)
     }
 
