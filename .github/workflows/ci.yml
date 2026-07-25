@@ -34,8 +34,29 @@ jobs:
       - name: Unit tests
         run: ./gradlew :core:test
 
+      # Android Lint on the RELEASE variant, which is where API-level and
+      # minification problems surface. It was never run in CI, so a
+      # `longVersionCode` call above minSdk shipped unnoticed -- it degraded
+      # the Settings screen on Android 8.x rather than failing the build.
+      - name: Android Lint (release)
+        run: ./gradlew :app:lintRelease
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-results
+          path: app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug
+
+      # A minified release build is the only place missing R8 keep rules show
+      # up (kotlinx.serialization, Retrofit, Room, Media3 all rely on them).
+      # assembleDebug alone would never catch a stripped serializer.
+      - name: Assemble release APK (R8)
+        run: ./gradlew :app:assembleRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -50,6 +71,11 @@ jobs:
     # build falls back to unsigned when they are absent, so the job stays green
     # even before the keystore secrets are configured.
     if: startsWith(github.ref, 'refs/tags/v')
+    # Both jobs trigger on a v* tag push. Without this the two ran CONCURRENTLY,
+    # so a red ktlint/test/lint run did not stop the tag from publishing a public
+    # GitHub Release and deploying the AAB to the Play internal track. The gate
+    # that matters is the tag, so the tag is exactly where the checks must hold.
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release + attach the APK

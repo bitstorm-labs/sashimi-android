@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup and device-to-device transfer both default to including everything
+  under filesDir and every SharedPreferences file. Two things must be kept out.
+
+  1. sashimi_tokens.xml is EncryptedSharedPreferences. Its Tink keyset travels in
+     the backup, but the AES master key lives in the Android Keystore, which is
+     hardware-bound and is NOT restored. On the new device
+     EncryptedSharedPreferences.create() throws, and because that read happens in
+     SessionManager.restoreSession(), launched from Application.onCreate as a
+     root coroutine, the throw reached the default uncaught handler and killed
+     the process on every launch: an unrecoverable crash loop whose only exit was
+     Clear data.
+
+  2. downloads/ holds the offline media library. Backing it up uploads the user's
+     video to their Google Drive quota, and a single episode blows Auto Backup's
+     25 MB per-app cap, which makes the ENTIRE backup fail silently, so nothing
+     else gets backed up either.
+
+  Settings and the Room metadata DB are still backed up, which is the part a user
+  actually wants restored.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="sashimi_tokens.xml" />
+        <exclude domain="file" path="downloads/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="sashimi_tokens.xml" />
+        <exclude domain="file" path="downloads/" />
+    </device-transfer>
+</data-extraction-rules>

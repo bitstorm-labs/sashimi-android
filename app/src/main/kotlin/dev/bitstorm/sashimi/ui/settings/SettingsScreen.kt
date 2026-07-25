@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.ui.settings
 
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -167,7 +168,19 @@ fun SettingsScreen(
                     remember {
                         runCatching {
                             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-                            info.versionName to info.longVersionCode
+                            // longVersionCode is API 28; minSdk is 26. The
+                            // runCatching above swallowed the NoSuchMethodError
+                            // on Android 8.x, so Settings quietly showed
+                            // version "?" and build "0" there instead of the
+                            // real values.
+                            val code =
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                    info.longVersionCode
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    info.versionCode.toLong()
+                                }
+                            info.versionName to code
                         }.getOrDefault("?" to 0L)
                     }
                 InfoRow("Version", versionName ?: "?")

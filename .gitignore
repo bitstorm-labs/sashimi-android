@@ -46,3 +46,7 @@ captures/
 android-fix*.png
 android-parity*.png
 fix[0-9]*.png
+
+# fastlane run artifacts
+fastlane/report.xml
+fastlane/test_output/
