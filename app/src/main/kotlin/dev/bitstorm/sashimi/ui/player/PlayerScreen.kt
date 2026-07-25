@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -42,6 +43,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -58,6 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
@@ -96,6 +101,30 @@ fun PlayerScreen(
 
     LaunchedEffect(state.playbackEnded) {
         if (state.playbackEnded) onExit()
+    }
+
+    // Nothing else stops playback when the app leaves the foreground: the player
+    // is owned by the VM and released only in onCleared(), which back-navigation
+    // triggers but backgrounding does not. Without this, pressing Home left the
+    // decoder running and audio playing indefinitely -- and with no MediaSession
+    // there is no notification, so no way to stop it short of relaunching or
+    // force-stopping the app.
+    //
+    // ON_STOP is the right signal rather than ON_PAUSE: a PiP window keeps the
+    // activity STARTED, so PiP playback keeps running while a genuine background
+    // transition pauses. The isInPictureInPictureMode check is belt-and-braces
+    // for OEMs that stop the activity anyway.
+    val playerActivity = LocalActivity()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP && !playerActivity.isInPictureInPictureMode) {
+                    vm.player.pause()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var overlayVisible by remember { mutableStateOf(true) }
@@ -143,7 +172,7 @@ fun PlayerScreen(
             SkipButton(
                 label = skipLabel(segment.type),
                 onClick = vm::skipCurrentSegment,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(24.dp),
             )
         }
 
@@ -182,55 +211,74 @@ private fun PlayerOverlay(
     onClose: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    // The scrim covers the whole window (including behind the system bars, so the
+    // bars stay legible over bright video), but the controls inside it are inset
+    // to the safe-drawing area. MainActivity calls enableEdgeToEdge() and the
+    // player route deliberately bypasses MainScreen's Scaffold, so nothing else
+    // applies insets here: at targetSdk 36 edge-to-edge is mandatory, which put
+    // the close button and title under the status bar and the elapsed/duration
+    // labels under the gesture pill on every device.
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
-        // Top bar: close, title/subtitle, stream chip, PiP, settings.
-        Row(
-            modifier = Modifier.fillMaxWidth().align(Alignment.TopStart).padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                Text(
-                    state.title,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                state.subtitle?.let {
-                    Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+            // Top bar: close, title/subtitle, stream chip, PiP, settings.
+            Row(
+                modifier = Modifier.fillMaxWidth().align(Alignment.TopStart).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
-                state.streamInfo?.let { StreamChip(it) }
+                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    Text(
+                        state.title,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    state.subtitle?.let {
+                        Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    state.streamInfo?.let { StreamChip(it) }
+                }
+                val activity = LocalActivity()
+                IconButton(onClick = { activity.enterPip(state.videoWidth, state.videoHeight) }) {
+                    Icon(Icons.Filled.PictureInPicture, contentDescription = "Picture in picture", tint = Color.White)
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Color.White)
+                }
             }
-            val activity = LocalActivity()
-            IconButton(onClick = { activity.enterPip(state.videoWidth, state.videoHeight) }) {
-                Icon(Icons.Filled.PictureInPicture, contentDescription = "Picture in picture", tint = Color.White)
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Color.White)
-            }
-        }
 
-        // Center transport: -10s, play/pause, +10s.
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { vm.player.seekBack() }) {
-                Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(40.dp))
+            // Center transport: -10s, play/pause, +10s.
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { vm.player.seekBack() }) {
+                    Icon(
+                        Icons.Filled.Replay10,
+                        contentDescription = "Rewind 10 seconds",
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+                PlayPauseButton(vm)
+                IconButton(onClick = { vm.player.seekForward() }) {
+                    Icon(
+                        Icons.Filled.Forward10,
+                        contentDescription = "Forward 10 seconds",
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
             }
-            PlayPauseButton(vm)
-            IconButton(onClick = { vm.player.seekForward() }) {
-                Icon(Icons.Filled.Forward10, contentDescription = "Forward 10 seconds", tint = Color.White, modifier = Modifier.size(40.dp))
-            }
-        }
 
-        // Bottom scrubber.
-        Scrubber(vm, modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp))
+            // Bottom scrubber.
+            Scrubber(vm, modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp))
+        }
     }
 }
 

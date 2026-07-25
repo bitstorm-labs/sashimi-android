@@ -49,13 +49,44 @@ class PrefsServerStore(context: Context) : ServerStore {
  * login visibly (see SessionManager.login).
  */
 class EncryptedTokenStore(context: Context) : TokenStore {
-    private val prefs: SharedPreferences by lazy {
+    private val appContext = context.applicationContext
+
+    /**
+     * Null when the store cannot be opened at all. Opening is fallible in ways
+     * that are not the caller's fault: the Tink keyset lives in this prefs file
+     * but the AES master key lives in the hardware-backed Android Keystore, so
+     * the two can desynchronise — a restored backup or device-to-device
+     * transfer brings the keyset across without the key, and some OEMs
+     * invalidate keystore entries when the screen lock changes.
+     *
+     * This used to throw straight out of the lazy initialiser. The first read is
+     * SessionManager.restoreSession(), launched from Application.onCreate as a
+     * root coroutine with no handler, so the throw reached the default uncaught
+     * handler and killed the process on *every* launch — an unrecoverable crash
+     * loop whose only exit was Clear data.
+     *
+     * An unreadable token store means exactly one thing to the rest of the app:
+     * there is no saved token, so sign in again. That is a recoverable state and
+     * must never be a crash.
+     */
+    private val prefs: SharedPreferences? by lazy {
+        runCatching { open() }
+            .recoverCatching {
+                // The keyset cannot be decrypted by the current master key.
+                // Nothing in it is recoverable, so drop it and start clean
+                // rather than leave the user permanently unable to sign in.
+                appContext.deleteSharedPreferences(PREFS_NAME)
+                open()
+            }.getOrNull()
+    }
+
+    private fun open(): SharedPreferences {
         val masterKey =
-            MasterKey.Builder(context.applicationContext)
+            MasterKey.Builder(appContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-        EncryptedSharedPreferences.create(
-            context.applicationContext,
+        return EncryptedSharedPreferences.create(
+            appContext,
             PREFS_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
@@ -63,15 +94,18 @@ class EncryptedTokenStore(context: Context) : TokenStore {
         )
     }
 
-    override fun get(key: String): String? = prefs.getString(key, null)
+    override fun get(key: String): String? = prefs?.getString(key, null)
 
+    // Returning false when the store is unavailable preserves the existing
+    // contract: SessionManager.login aborts visibly rather than appearing to
+    // succeed and then losing the session on the next launch.
     override fun save(
         value: String,
         key: String,
-    ): Boolean = prefs.edit().putString(key, value).commit()
+    ): Boolean = prefs?.edit()?.putString(key, value)?.commit() ?: false
 
     override fun delete(key: String) {
-        prefs.edit().remove(key).apply()
+        prefs?.edit()?.remove(key)?.apply()
     }
 
     companion object {

@@ -71,6 +71,11 @@ jobs:
     # build falls back to unsigned when they are absent, so the job stays green
     # even before the keystore secrets are configured.
     if: startsWith(github.ref, 'refs/tags/v')
+    # Both jobs trigger on a v* tag push. Without this the two ran CONCURRENTLY,
+    # so a red ktlint/test/lint run did not stop the tag from publishing a public
+    # GitHub Release and deploying the AAB to the Play internal track. The gate
+    # that matters is the tag, so the tag is exactly where the checks must hold.
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release + attach the APK

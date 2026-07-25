@@ -368,6 +368,13 @@ class PlayerViewModel(
         _state.update {
             it.copy(
                 isLoading = false,
+                // Retract any error the connect watchdog stamped while we were
+                // negotiating. The watchdog fires at 5s on (isLoading &&
+                // currentSource == null), which a slow-but-successful transcode
+                // negotiation satisfies -- without this, "Can't connect to
+                // server" stayed painted over video that was playing fine, with
+                // no way to dismiss it.
+                error = null,
                 title = titleFor(item),
                 subtitle = subtitleFor(item),
                 streamInfo = source.streamInfo,
@@ -618,8 +625,16 @@ class PlayerViewModel(
         val posTicks = player.currentPosition * TICKS_PER_MS
         // Local playback: stash the position for later server sync (Swift
         // savePlaybackPosition → syncPendingProgress). Trailers are never saved.
+        //
+        // Keyed on currentItem, NOT the constructor's itemId: auto-play-next
+        // advances currentItem while itemId stays pinned to the episode the user
+        // originally opened. Saving against itemId wrote the NEXT episode's
+        // position onto the PREVIOUS episode's row, and since savePlaybackPosition
+        // also sets pendingProgressSync, that wrong position was then POSTed to
+        // the server as the previous episode's stopped position, clobbering its
+        // correct finished state.
         if (isLocalPlayback && trailerItemId == null) {
-            downloads.savePlaybackPosition(itemId, posTicks)
+            downloads.savePlaybackPosition(currentItem?.id ?: itemId, posTicks)
         }
         // Fire the stopped report + transcode teardown on a detached scope so it
         // survives the ViewModel being cleared, then release the player.

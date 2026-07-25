@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-API-31 equivalent of data_extraction_rules.xml. minSdk is 26, so both must
+  exist: Android 12+ reads dataExtractionRules and ignores this file, while
+  Android 8 through 11 read this one. Keep the two in sync; the rationale lives
+  in data_extraction_rules.xml.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="sashimi_tokens.xml" />
+    <exclude domain="file" path="downloads/" />
+</full-backup-content>
