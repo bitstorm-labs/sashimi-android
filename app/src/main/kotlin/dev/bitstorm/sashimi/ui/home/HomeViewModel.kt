@@ -21,6 +21,14 @@ import java.time.OffsetDateTime
 
 data class HomeUiState(
     val isLoading: Boolean = false,
+    /**
+     * Set when the load genuinely failed, so the UI can distinguish that from a
+     * genuinely empty account. Every call used to degrade to emptyList(), which
+     * rendered a full library as "Start watching something to see it here."
+     * whenever the server was down -- an outage presented as an empty account,
+     * with no error, no retry and no clue what to do.
+     */
+    val error: String? = null,
     val continueWatching: List<BaseItemDto> = emptyList(),
     val continueWatchingLibraryNames: Map<String, String> = emptyMap(),
     val libraries: List<dev.bitstorm.sashimi.core.model.JellyfinLibrary> = emptyList(),
@@ -81,18 +89,34 @@ class HomeViewModel(
 
     private suspend fun load(refreshRows: Boolean = false) {
         runCatching {
-            val resumeDeferred = viewModelScope.async { runCatching { client.getResumeItems() }.getOrDefault(emptyList()) }
-            val nextUpDeferred = viewModelScope.async { runCatching { client.getNextUp() }.getOrDefault(emptyList()) }
-            val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() }.getOrDefault(emptyList()) }
-            val resume = resumeDeferred.await()
-            val nextUp = nextUpDeferred.await()
-            val libs = librariesDeferred.await()
+            // Each row is still individually tolerant -- one failing row should
+            // not blank the others -- but the RESULTS are kept so a total
+            // failure can be told apart from a genuinely empty account.
+            val resumeDeferred = viewModelScope.async { runCatching { client.getResumeItems() } }
+            val nextUpDeferred = viewModelScope.async { runCatching { client.getNextUp() } }
+            val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() } }
+            val resumeResult = resumeDeferred.await()
+            val nextUpResult = nextUpDeferred.await()
+            val librariesResult = librariesDeferred.await()
+
+            // Libraries are the load-bearing call: a user with an account always
+            // has at least one, so its failure means the server did not answer.
+            if (librariesResult.isFailure) {
+                _state.update {
+                    it.copy(isLoading = false, error = "Couldn't reach your server. Check that it's running, then try again.")
+                }
+                return@runCatching
+            }
+
+            val resume = resumeResult.getOrDefault(emptyList())
+            val nextUp = nextUpResult.getOrDefault(emptyList())
+            val libs = librariesResult.getOrDefault(emptyList())
 
             val cw = mergeContinueWatching(resume, nextUp)
             val mediaLibraries = libs.filter { isMediaLibrary(it.collectionType) }
             homeRowSettings.updateLibraries(mediaLibraries)
             _state.update {
-                it.copy(isLoading = false, continueWatching = cw, libraries = mediaLibraries)
+                it.copy(isLoading = false, error = null, continueWatching = cw, libraries = mediaLibraries)
             }
             if (refreshRows) {
                 loadingRows.clear()
@@ -101,7 +125,9 @@ class HomeViewModel(
             prefetchRecentlyAdded(mediaLibraries)
             loadContinueWatchingLibraryNames(cw)
         }.onFailure {
-            _state.update { it.copy(isLoading = false) }
+            _state.update {
+                it.copy(isLoading = false, error = "Something went wrong loading your library.")
+            }
         }
     }
 

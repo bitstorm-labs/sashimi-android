@@ -1,5 +1,7 @@
 package dev.bitstorm.sashimi.core.playback
 
+import dev.bitstorm.sashimi.core.settings.AppSettings
+
 /**
  * Player Quality menu options, ported from the Swift `QualityOption`. Any non-
  * Auto pick forces a transcode at the given cap (so the cap visibly takes effect
@@ -28,12 +30,32 @@ enum class QualityOption(
 
 /**
  * Resolves the effective streaming bitrate cap. A per-session Quality override
- * wins; otherwise the Settings value, where 0 means Auto (no cap → null). Ported
- * from Swift `PlaybackSelection.effectiveMaxBitrate`.
+ * wins; otherwise the Settings value. Ported from Swift
+ * `PlaybackSelection.effectiveMaxBitrate`.
+ *
+ * Three distinct settings values, which is the part worth being careful about:
+ *  - 0 (Auto) -> null, and PlaybackEngine applies its conservative default cap
+ *  - [AppSettings.UNLIMITED_BITRATE] -> [NO_CAP], an explicit "do not limit me",
+ *    for a LAN where transcoding a 4K remux is pure waste
+ *  - anything else -> that exact ceiling
  */
 object BitrateResolver {
+    /**
+     * Effectively no ceiling. A concrete number rather than null because the
+     * DeviceProfile field is non-nullable, and Jellyfin treats a value above any
+     * real source bitrate as no constraint at all.
+     */
+    const val NO_CAP = 1_000_000_000
+
     fun effectiveMaxBitrate(
         sessionOverride: Int?,
         settingsMaxBitrate: Int,
-    ): Int? = sessionOverride ?: settingsMaxBitrate.takeIf { it > 0 }
+    ): Int? {
+        sessionOverride?.let { return it }
+        return when {
+            settingsMaxBitrate == AppSettings.UNLIMITED_BITRATE -> NO_CAP
+            settingsMaxBitrate > 0 -> settingsMaxBitrate
+            else -> null
+        }
+    }
 }
