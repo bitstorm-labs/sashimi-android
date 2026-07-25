@@ -125,6 +125,16 @@ class PlayerViewModel(
     private var desiredAudioLanguage: String? = null
     private var desiredSubtitleIndex: Int = PlayerUiState.OFF_SUBTITLE
 
+    /**
+     * True once the user picks a subtitle for the CURRENT item, so a
+     * re-negotiation does not overwrite the choice with the settings default.
+     * Reset when the item changes, because stream indices are per-item.
+     */
+    private var userChoseSubtitle: Boolean = false
+
+    /** Jellyfin audio-stream index the user explicitly chose, if any. */
+    private var desiredAudioIndex: Int? = null
+
     private val playerListener =
         object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -330,6 +340,9 @@ class PlayerViewModel(
                     itemId = item.id,
                     resumeTicks = startTicks,
                     maxBitrate = maxBitrate,
+                    // The bitrate cap alone never changed resolution; this is
+                    // what makes a "720p" pick actually deliver 720p.
+                    maxWidth = quality.maxWidth,
                     forceDirectPlay = settings.forceDirectPlay.value,
                     forceTranscode = forceTranscode,
                     audioStreamIndex = audioStreamIndex,
@@ -345,7 +358,14 @@ class PlayerViewModel(
         currentSource = source
 
         // Resolve the subtitle selection to apply once tracks are known.
-        desiredSubtitleIndex = initialSubtitleSelection(item, source)
+        // Only fall back to the settings-derived default when the user has not
+        // chosen for THIS item. This used to be unconditional, so any
+        // re-negotiation -- a quality change, an audio change on a transcode --
+        // silently reverted the user's subtitle pick: off with default settings,
+        // or back to the first matching-language track.
+        if (!userChoseSubtitle) {
+            desiredSubtitleIndex = initialSubtitleSelection(item, source)
+        }
 
         val mediaItem = buildMediaItem(item.id, source)
         player.setMediaItem(mediaItem, source.playerStartPositionMs)
@@ -381,11 +401,15 @@ class PlayerViewModel(
                 streamInfo = source.streamInfo,
                 audioTracks = source.audioTracks,
                 subtitleTracks = source.subtitleTracks,
+                // An explicit pick wins. Re-deriving by language put the
+                // checkmark on the FIRST same-language track regardless of which
+                // one the server actually baked in, and showed no checkmark at
+                // all for an untagged track.
                 selectedAudioIndex =
-                    source.audioTracks.firstOrNull {
-                            t ->
-                        t.languageCode != null && LanguageMatcher.matches(t.languageCode, desiredAudioLanguage)
-                    }?.index,
+                    desiredAudioIndex
+                        ?: source.audioTracks.firstOrNull { t ->
+                            t.languageCode != null && LanguageMatcher.matches(t.languageCode, desiredAudioLanguage)
+                        }?.index,
                 selectedSubtitleIndex = desiredSubtitleIndex,
                 selectedQuality = quality,
             )
@@ -433,8 +457,26 @@ class PlayerViewModel(
      */
     private fun applyTrackSelections() {
         val builder = player.trackSelectionParameters.buildUpon()
-        // Audio: best-effort by preferred language (covers direct play).
+        // Audio. Language is only the fallback: it cannot pick between several
+        // same-language tracks, and it does nothing at all for an untagged
+        // commentary track. Prefer an explicit override on the chosen index,
+        // matched the same way subtitles are.
         desiredAudioLanguage?.let { builder.setPreferredAudioLanguage(it) }
+        //
+        // Matched by ordinal rather than by id: unlike subtitles, which we
+        // side-load with ids we choose, audio tracks come from the container and
+        // carry whatever id the extractor assigned. Jellyfin's MediaStream.index
+        // is an absolute index across all streams, so it cannot be compared to
+        // an ExoPlayer group index directly -- but the Nth audio stream Jellyfin
+        // reports is the Nth audio group ExoPlayer exposes.
+        val desiredOrdinal = desiredAudioIndex?.let { wanted -> _state.value.audioTracks.indexOfFirst { it.index == wanted } }
+        if (desiredOrdinal != null && desiredOrdinal >= 0) {
+            val audioGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            audioGroups.getOrNull(desiredOrdinal)?.let { group ->
+                builder.clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
+            }
+        }
 
         // Subtitles.
         if (desiredSubtitleIndex == PlayerUiState.OFF_SUBTITLE) {
@@ -533,6 +575,11 @@ class PlayerViewModel(
 
     fun selectAudioTrack(track: AudioTrack) {
         desiredAudioLanguage = track.languageCode
+        // Language alone cannot distinguish stereo / 5.1 / commentary, which are
+        // routinely all tagged "eng" -- and a commentary track often has no
+        // language tag at all, which made the tap a literal no-op. Remember the
+        // index and override on it.
+        desiredAudioIndex = track.index
         _state.update { it.copy(selectedAudioIndex = track.index) }
         val source = currentSource
         val item = currentItem
@@ -548,6 +595,7 @@ class PlayerViewModel(
     }
 
     fun selectSubtitle(index: Int) {
+        userChoseSubtitle = true
         desiredSubtitleIndex = index
         _state.update { it.copy(selectedSubtitleIndex = index) }
         applyTrackSelections()
@@ -648,6 +696,11 @@ class PlayerViewModel(
             if (next != null) {
                 isHandlingEnd = false
                 currentItem = next
+                // Stream indices are per-item, so a choice made on the previous
+                // episode is meaningless here. The preferred LANGUAGE is kept,
+                // since that is a standing preference rather than a per-item pick.
+                userChoseSubtitle = false
+                desiredAudioIndex = null
                 prepare(next, startTicks = 0, QualityOption.AUTO, forceTranscode = false)
             } else {
                 _state.update { it.copy(playbackEnded = true) }

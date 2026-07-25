@@ -31,13 +31,14 @@ class PlaybackEngine(
         itemId: String,
         resumeTicks: Long = 0,
         maxBitrate: Int? = null,
+        maxWidth: Int? = null,
         forceDirectPlay: Boolean = false,
         forceTranscode: Boolean = false,
         audioStreamIndex: Int? = null,
         subtitleStreamIndex: Int? = null,
     ): PlaybackSource {
         val streamingBitrate = maxBitrate ?: AUTO_BITRATE_CAP
-        val profile = profileBuilder.build(streamingBitrate)
+        val profile = profileBuilder.build(streamingBitrate, maxWidth)
         val response =
             client.postPlaybackInfo(
                 itemId = itemId,
