@@ -76,7 +76,12 @@ class PlaybackEngine(
         // A transcode bakes StartTimeTicks into its TranscodingUrl, so the stream
         // itself starts at the resume point → player starts at 0. Direct play /
         // stream serve from the top, so the player seeks.
-        val playerStartMs = if (isTranscoding && resumeTicks > 0) 0L else resumeTicks / TICKS_PER_MS
+        // The two halves of the same fact, kept together in ResumeTimeline: a
+        // resumed transcode's stream already starts at the resume point, so the
+        // player starts at 0 AND callers need that offset back to recover an
+        // absolute position. See PlaybackSource.timelineOffsetMs.
+        val playerStartMs = ResumeTimeline.playerStartMs(isTranscoding, resumeTicks)
+        val timelineOffsetMs = ResumeTimeline.timelineOffsetMs(isTranscoding, resumeTicks)
 
         return PlaybackSource(
             streamUrl = url,
@@ -85,6 +90,7 @@ class PlaybackEngine(
             container = source.container,
             playSessionId = playSessionId,
             playerStartPositionMs = playerStartMs,
+            timelineOffsetMs = timelineOffsetMs,
             isTranscoding = isTranscoding,
             streamInfo = streamInfo(method, source, url),
             audioTracks = audioTracks(source),
