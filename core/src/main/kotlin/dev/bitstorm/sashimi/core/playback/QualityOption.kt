@@ -9,11 +9,17 @@ package dev.bitstorm.sashimi.core.playback
 enum class QualityOption(
     val label: String,
     val maxBitrate: Int?,
+    /**
+     * Output width cap sent as a device-profile Width condition. Without this
+     * the labels were cosmetic: MaxStreamingBitrate is a bitrate ceiling only,
+     * so picking "720p" delivered 1080p at a lower bitrate.
+     */
+    val maxWidth: Int?,
 ) {
-    AUTO("Auto", null),
-    P1080("1080p", 20_000_000),
-    P720("720p", 8_000_000),
-    P480("480p", 4_000_000),
+    AUTO("Auto", null, null),
+    P1080("1080p", 20_000_000, 1920),
+    P720("720p", 8_000_000, 1280),
+    P480("480p", 4_000_000, 854),
     ;
 
     /** A non-Auto pick forces a transcode. */

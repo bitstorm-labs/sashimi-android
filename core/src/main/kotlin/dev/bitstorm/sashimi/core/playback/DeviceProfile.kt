@@ -26,6 +26,32 @@ data class DeviceProfile(
     @SerialName("TranscodingProfiles") val transcodingProfiles: List<TranscodingProfile>,
     @SerialName("SubtitleProfiles") val subtitleProfiles: List<SubtitleProfile>,
     @SerialName("ContainerProfiles") val containerProfiles: List<String> = emptyList(),
+    /**
+     * How a resolution cap is actually expressed to Jellyfin.
+     *
+     * MaxStreamingBitrate is a BITRATE ceiling and nothing more: it never
+     * constrains resolution. A "720p" option that only lowers the bitrate keeps
+     * delivering 1080p, just softer. The server sizes its transcode from a
+     * Video CodecProfile carrying a Width condition, which is what jellyfin-web
+     * sends and what this list is for.
+     */
+    @SerialName("CodecProfiles") val codecProfiles: List<CodecProfile> = emptyList(),
+)
+
+@Serializable
+data class CodecProfile(
+    @SerialName("Type") val type: String = "Video",
+    @SerialName("Conditions") val conditions: List<ProfileCondition>,
+)
+
+@Serializable
+data class ProfileCondition(
+    @SerialName("Condition") val condition: String,
+    @SerialName("Property") val property: String,
+    @SerialName("Value") val value: String,
+    // Advisory rather than mandatory: the server should downscale to satisfy
+    // this, not refuse the item outright when it cannot.
+    @SerialName("IsRequired") val isRequired: Boolean = false,
 )
 
 @Serializable
@@ -88,7 +114,15 @@ data class PlaybackInfoRequest(
 class DeviceProfileBuilder(
     private val codecs: CodecCapabilities,
 ) {
-    fun build(maxStreamingBitrate: Int): DeviceProfile {
+    /**
+     * @param maxWidth caps the transcode's output width. Null means no cap
+     *   (Auto). This is the ONLY thing that actually changes resolution; the
+     *   bitrate argument cannot.
+     */
+    fun build(
+        maxStreamingBitrate: Int,
+        maxWidth: Int? = null,
+    ): DeviceProfile {
         val videoCodecs =
             buildList {
                 add("h264")
@@ -97,8 +131,28 @@ class DeviceProfileBuilder(
                 if (codecs.canDecode(CodecCapabilities.MimeTypes.AV1)) add("av1")
             }.joinToString(",")
 
+        // Height is deliberately left unconstrained: pinning both would letterbox
+        // or refuse non-16:9 sources. Jellyfin scales to the width and preserves
+        // aspect ratio.
+        val codecProfiles =
+            maxWidth?.let {
+                listOf(
+                    CodecProfile(
+                        conditions =
+                            listOf(
+                                ProfileCondition(
+                                    condition = "LessThanOrEqual",
+                                    property = "Width",
+                                    value = it.toString(),
+                                ),
+                            ),
+                    ),
+                )
+            }.orEmpty()
+
         return DeviceProfile(
             maxStreamingBitrate = maxStreamingBitrate,
+            codecProfiles = codecProfiles,
             directPlayProfiles =
                 listOf(
                     DirectPlayProfile(container = "mp4,m4v,mov", videoCodec = videoCodecs, audioCodec = DIRECT_AUDIO),
