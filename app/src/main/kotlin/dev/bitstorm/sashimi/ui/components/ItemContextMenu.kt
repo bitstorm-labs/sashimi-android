@@ -16,10 +16,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.launch
 
@@ -39,7 +39,13 @@ fun ContextMenuBox(
     content: @Composable () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    // ServiceLocator.appScope, NOT rememberCoroutineScope(): this box is used
+    // inside LazyVerticalGrid and LazyRow items, so a composable-tied scope dies
+    // the moment the item leaves the viewport or the screen is popped. The
+    // in-flight POST was then cancelled and runCatching swallowed the resulting
+    // CancellationException, so "Mark as Watched" silently did nothing --
+    // long-press, tap, press Back, and the item was never marked.
+    val scope = ServiceLocator.appScope
     val client = ServiceLocator.client
 
     val isPlayed = item.userData?.played == true
@@ -65,7 +71,7 @@ fun ContextMenuBox(
                 onClick = {
                     expanded = false
                     scope.launch {
-                        runCatching {
+                        runCatchingCancellable {
                             if (isPlayed) client.markUnplayed(item.id) else client.markPlayed(item.id)
                         }
                         onAction()
@@ -83,7 +89,7 @@ fun ContextMenuBox(
                 onClick = {
                     expanded = false
                     scope.launch {
-                        runCatching {
+                        runCatchingCancellable {
                             if (isFavorite) client.removeFavorite(item.id) else client.markFavorite(item.id)
                         }
                         onAction()
