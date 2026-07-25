@@ -316,8 +316,11 @@ private fun Scrubber(
     LaunchedEffect(Unit) {
         while (true) {
             if (!scrubbing) {
-                positionMs = vm.player.currentPosition.coerceAtLeast(0)
-                durationMs = vm.player.duration.takeIf { it > 0 } ?: 0
+                // Absolute, not raw player position: a resumed transcode's
+                // timeline starts at the resume point, so the raw values would
+                // render a 2-hour film mid-way through as "0:00 / 0:30".
+                positionMs = vm.absolutePositionMs
+                durationMs = vm.absoluteDurationMs
             }
             delay(500)
         }
@@ -331,7 +334,7 @@ private fun Scrubber(
                 scrubValue = it
             },
             onValueChangeFinished = {
-                vm.player.seekTo(scrubValue.toLong())
+                vm.seekToAbsolute(scrubValue.toLong())
                 positionMs = scrubValue.toLong()
                 scrubbing = false
             },

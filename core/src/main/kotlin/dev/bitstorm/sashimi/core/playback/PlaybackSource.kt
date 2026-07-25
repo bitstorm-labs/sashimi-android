@@ -90,6 +90,19 @@ data class PlaybackSource(
      * direct stream, where the player must seek).
      */
     val playerStartPositionMs: Long,
+    /**
+     * How far into the item the player's own timeline zero actually is, in
+     * milliseconds.
+     *
+     * Non-zero only for a resumed transcode: the server bakes StartTimeTicks
+     * into the TranscodingUrl, so the returned HLS timeline is 0-based *at the
+     * resume point*. That makes `player.currentPosition` a RELATIVE value, and
+     * every consumer that means "how far into the item are we" must add this
+     * back: progress reporting, re-negotiation, media-segment matching, and the
+     * scrubber. Zero for direct play and direct stream, whose timelines already
+     * span the whole item.
+     */
+    val timelineOffsetMs: Long,
     val isTranscoding: Boolean,
     val streamInfo: StreamInfo,
     val audioTracks: List<AudioTrack>,

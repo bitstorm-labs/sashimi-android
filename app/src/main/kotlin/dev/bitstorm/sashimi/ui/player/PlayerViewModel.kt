@@ -29,6 +29,7 @@ import dev.bitstorm.sashimi.core.playback.PlaybackEngine
 import dev.bitstorm.sashimi.core.playback.PlaybackSource
 import dev.bitstorm.sashimi.core.playback.ProgressReporter
 import dev.bitstorm.sashimi.core.playback.QualityOption
+import dev.bitstorm.sashimi.core.playback.ResumeTimeline
 import dev.bitstorm.sashimi.core.playback.SegmentSkipTracker
 import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
@@ -458,6 +459,63 @@ class PlayerViewModel(
         player.trackSelectionParameters = builder.build()
     }
 
+    // MARK: - Absolute position
+
+    /**
+     * How far into the ITEM playback is, in milliseconds.
+     *
+     * `player.currentPosition` is relative to the stream's timeline, and for a
+     * resumed transcode that timeline starts at the resume point rather than at
+     * zero (see PlaybackSource.timelineOffsetMs). Everything that means "how far
+     * into the item" -- progress reports, re-negotiation, segment matching, the
+     * scrubber -- must go through this, never through the raw player position.
+     *
+     * Getting this wrong silently destroyed progress: resuming a transcode at
+     * 1:30:00 and watching five minutes reported five minutes to the server,
+     * discarding 85 minutes for every client.
+     */
+    val absolutePositionMs: Long
+        get() = ResumeTimeline.absoluteMs(timelineOffsetMs, player.currentPosition)
+
+    /**
+     * Runtime of the ITEM in milliseconds. For an offset transcode
+     * `player.duration` is only the remaining runtime, so prefer the item's own
+     * RunTimeTicks and fall back to the player timeline plus the offset.
+     */
+    val absoluteDurationMs: Long
+        get() {
+            currentItem?.runTimeTicks?.takeIf { it > 0 }?.let { return it / TICKS_PER_MS }
+            val playerDuration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: return 0
+            return timelineOffsetMs + playerDuration
+        }
+
+    /** Absolute item position -> a position on the current stream's timeline. */
+    private val timelineOffsetMs: Long
+        get() = currentSource?.timelineOffsetMs ?: 0L
+
+    /** Absolute item position -> a position on the current stream's timeline. */
+    private fun toTimelineMs(absoluteMs: Long): Long = ResumeTimeline.timelineMs(timelineOffsetMs, absoluteMs)
+
+    /**
+     * Seek to an absolute position in the item, e.g. from the scrubber.
+     *
+     * A resumed transcode's stream physically begins at the resume point, so a
+     * target before that point does not exist on the current timeline and has to
+     * be re-negotiated. Previously the scrubber seeked the raw player timeline,
+     * which silently clamped any backward scrub to the resume point.
+     */
+    fun seekToAbsolute(absoluteMs: Long) {
+        val target = absoluteMs.coerceAtLeast(0)
+        val item = currentItem
+        if (item != null && ResumeTimeline.requiresRenegotiation(timelineOffsetMs, target)) {
+            viewModelScope.launch {
+                prepare(item, target * TICKS_PER_MS, _state.value.selectedQuality, forceTranscode = false)
+            }
+            return
+        }
+        player.seekTo(toTimelineMs(target))
+    }
+
     // MARK: - Public actions (from the player chrome)
 
     fun setSpeed(speed: Float) {
@@ -467,7 +525,7 @@ class PlayerViewModel(
 
     fun selectQuality(quality: QualityOption) {
         val item = currentItem ?: return
-        val posTicks = player.currentPosition * TICKS_PER_MS
+        val posTicks = absolutePositionMs * TICKS_PER_MS
         viewModelScope.launch {
             prepare(item, posTicks, quality, forceTranscode = quality.forcesTranscode)
         }
@@ -480,7 +538,7 @@ class PlayerViewModel(
         val item = currentItem
         if (source != null && item != null && source.isTranscoding) {
             // A transcode bakes the audio track server-side → re-negotiate.
-            val posTicks = player.currentPosition * TICKS_PER_MS
+            val posTicks = absolutePositionMs * TICKS_PER_MS
             viewModelScope.launch {
                 prepare(item, posTicks, _state.value.selectedQuality, forceTranscode = true, audioStreamIndex = track.index)
             }
@@ -504,14 +562,16 @@ class PlayerViewModel(
     private fun performSkip(segment: MediaSegmentDto) {
         segmentTracker?.markSkipped(segment.id)
         _state.update { it.copy(skipSegment = null) }
-        val durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0
+        val durationMs = absoluteDurationMs
         val endMs = (segment.endSeconds * 1000).toLong()
         // A credit-skip that lands within 2s of the end doesn't fire STATE_ENDED
         // on a seek, so run the end flow directly (Swift skipCurrentSegment).
         if (durationMs > 0 && endMs >= durationMs - 2_000) {
             onPlaybackEnded()
         } else {
-            player.seekTo(endMs)
+            // Media segments are absolute item times; seekTo works on the
+            // stream's timeline, so an offset transcode needs the conversion.
+            player.seekTo(toTimelineMs(endMs))
         }
     }
 
@@ -546,7 +606,7 @@ class PlayerViewModel(
 
     private fun reportProgressNow() {
         val r = reporter ?: return
-        val posTicks = player.currentPosition * TICKS_PER_MS
+        val posTicks = absolutePositionMs * TICKS_PER_MS
         viewModelScope.launch { runCatching { r.reportProgress(posTicks, isPaused = !player.isPlaying) } }
     }
 
@@ -560,7 +620,7 @@ class PlayerViewModel(
 
     private fun checkSegments() {
         val tracker = segmentTracker ?: return
-        val posSeconds = player.currentPosition / 1000.0
+        val posSeconds = absolutePositionMs / 1000.0
         val autoTarget = tracker.autoSkipTarget(posSeconds, settings.autoSkipIntro.value, settings.autoSkipCredits.value)
         if (autoTarget != null) {
             performSkip(autoTarget)
@@ -578,7 +638,10 @@ class PlayerViewModel(
         stopProgressLoop()
         viewModelScope.launch {
             val item = currentItem
-            val durationTicks = player.duration.takeIf { it != C.TIME_UNSET }?.let { it * TICKS_PER_MS } ?: 0
+            // Absolute item runtime: for an offset transcode player.duration is
+            // only the REMAINING runtime, which would report a resumed item as
+            // having finished far short of its real length.
+            val durationTicks = absoluteDurationMs * TICKS_PER_MS
             runCatching { reporter?.reportEndOfPlayback(durationTicks) }
 
             val next = if (settings.autoPlayNextEpisode.value && trailerItemId == null && item != null) resolveNextEpisode(item) else null
@@ -622,7 +685,7 @@ class PlayerViewModel(
     override fun onCleared() {
         super.onCleared()
         watchdogJob?.cancel()
-        val posTicks = player.currentPosition * TICKS_PER_MS
+        val posTicks = absolutePositionMs * TICKS_PER_MS
         // Local playback: stash the position for later server sync (Swift
         // savePlaybackPosition → syncPendingProgress). Trailers are never saved.
         //
