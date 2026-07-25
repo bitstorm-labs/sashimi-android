@@ -116,10 +116,20 @@ class AppSettings(context: Context) {
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
 
-        /** Max Bitrate menu options in bits/sec (0 = Auto). */
+        /**
+         * Sentinel for "send no meaningful ceiling". Distinct from 0, which
+         * means Auto and still applies PlaybackEngine's conservative 20 Mbps
+         * default -- that default is why a 4K remux on a gigabit LAN was
+         * transcoded needlessly, and until a bandwidth probe exists there needs
+         * to be a way to say "don't guess".
+         */
+        const val UNLIMITED_BITRATE = -1
+
+        /** Max Bitrate menu options in bits/sec. */
         val MAX_BITRATE_OPTIONS =
             linkedMapOf(
-                "Auto" to 0,
+                "Auto (up to 20 Mbps)" to 0,
+                "Unlimited" to UNLIMITED_BITRATE,
                 "40 Mbps" to 40_000_000,
                 "20 Mbps" to 20_000_000,
                 "10 Mbps" to 10_000_000,
