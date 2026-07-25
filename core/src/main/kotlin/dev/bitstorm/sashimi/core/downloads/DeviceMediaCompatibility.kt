@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.core.downloads
 
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
+import dev.bitstorm.sashimi.core.playback.CodecCapabilities
 
 /**
  * Port of the Swift `DeviceMediaCompatibility.canDirectPlayOnDevice`. Decides
@@ -28,9 +29,15 @@ object DeviceMediaCompatibility {
     /** True only for bare Dolby Vision Profile 5 (no cross-compatible fallback layer). */
     private fun isDolbyVisionWithoutFallback(videoRangeType: String?): Boolean = videoRangeType?.lowercase()?.trim() == "dovi"
 
+    /**
+     * @param codecs queried for the audio codec. Defaults to null, which keeps
+     *   the old static-allowlist behaviour for callers that cannot supply it
+     *   (and for the pure tests); production passes real device capabilities.
+     */
     fun canDirectPlayOnDevice(
         source: MediaSourceInfo,
         deviceSupportsDolbyVision: Boolean = false,
+        codecs: CodecCapabilities? = null,
     ): Boolean {
         val rawContainer = source.container
         if (rawContainer.isNullOrEmpty()) return false
@@ -61,7 +68,16 @@ object DeviceMediaCompatibility {
         val hasCompatibleAudio =
             streams.filter { it.type == "Audio" }.any { stream ->
                 val codec = stream.codec
-                !codec.isNullOrEmpty() && canonicalCodec(codec) in directPlayAudioCodecs
+                if (codec.isNullOrEmpty()) return@any false
+                val canonical = canonicalCodec(codec)
+                if (canonical !in directPlayAudioCodecs) return@any false
+                // The allowlist says the FORMAT is acceptable; only the device
+                // can say whether it has a decoder. ExoPlayer has no software
+                // AC-3 decoder, so a device without audio/ac3 in its
+                // MediaCodecList must not be offered an AC-3 "Original".
+                codecs?.let { caps ->
+                    CodecCapabilities.audioMimeFor(canonical)?.let(caps::canDecode) ?: false
+                } ?: true
             }
         return hasCompatibleAudio
     }
