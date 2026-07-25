@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -39,6 +40,20 @@
                 <data android:scheme="sashimi" android:host="play" />
             </intent-filter>
         </activity>
+
+        <!-- WorkManager hosts our download worker in ITS service, and
+             DownloadWorker returns ForegroundInfo with a dataSync type. From
+             API 34, startForeground() with a type throws
+             MissingForegroundServiceTypeException unless the manifest declares
+             that type. The throw happens inside WorkManager's own service, so
+             the runCatching around setForeground() never sees it: downloads
+             crashed outright on every Android 14+ device. Lint cannot catch
+             this either, because its ForegroundServiceType check only inspects
+             startForeground() calls in your own Service subclasses. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>
