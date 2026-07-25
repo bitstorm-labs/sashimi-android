@@ -40,6 +40,10 @@ class MainActivity : ComponentActivity() {
         // Re-check connectivity on every foreground so a stale offline state (e.g.
         // from background network blocking) can't survive a minimize→return cycle.
         ServiceLocator.networkMonitor.refresh()
+        // Second chance for progress stashed while offline: isOnline only fires
+        // on a transition, so a device already online at process start never
+        // triggers a sync on its own.
+        ServiceLocator.downloadManager.syncNow()
     }
 
     private fun stashDeepLink(intent: Intent?) {

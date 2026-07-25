@@ -68,7 +68,15 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
     val completed = downloads.filter { it.isComplete }
     val failed = downloads.filter { it.downloadStatus == DownloadStatus.FAILED }
 
-    if (downloads.isEmpty()) {
+    // Only short-circuit when there is genuinely nothing to manage. Returning on
+    // an empty row list alone hid the storage figure and "Delete All" behind the
+    // empty state, which is exactly when they matter most: if rows are lost but
+    // files remain on disk, the user saw "No Downloads" with no way to reclaim
+    // the space. DownloadManager.recover now deletes such orphans, so this is
+    // belt-and-braces -- but the controls should never be unreachable while the
+    // app is still holding storage.
+    val onDiskBytes = remember(downloads.size) { manager.bytesOnDisk() }
+    if (downloads.isEmpty() && onDiskBytes == 0L) {
         EmptyDownloads(modifier)
         return
     }
@@ -81,7 +89,10 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
         ) {
             item {
                 StorageSummary(
-                    usedBytes = StorageAccounting.bytesUsed(downloads),
+                    // Measured from disk, not summed from rows: the two can
+                    // disagree, and the on-disk figure is the one that reflects
+                    // the storage actually consumed.
+                    usedBytes = maxOf(StorageAccounting.bytesUsed(downloads), onDiskBytes),
                     freeBytes = available,
                     completedCount = completed.size,
                 )

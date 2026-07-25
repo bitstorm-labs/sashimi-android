@@ -50,6 +50,14 @@ class DownloadFileManager(context: Context) {
 
     fun totalSize(): Long = directorySize(root)
 
+    /**
+     * Item ids that have a directory on disk. Used to reconcile the filesystem
+     * against the database: a destructive Room migration drops every row while
+     * leaving the media in place, which stranded the files with no in-app way to
+     * reclaim the space.
+     */
+    fun itemIdsOnDisk(): Set<String> = root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.toSet().orEmpty()
+
     private fun directorySize(dir: File): Long {
         if (!dir.exists()) return 0
         return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }

@@ -301,6 +301,10 @@ class PlayerViewModel(
             )
         }
         loadSegments(item)
+        // Local playback needs the checkpoint loop too. It was never started
+        // here, so a downloaded item's position was persisted exactly once, in
+        // onCleared.
+        startProgressLoop()
     }
 
     /** Resume threshold: only auto-resume when saved position exceeds the setting. */
@@ -653,8 +657,17 @@ class PlayerViewModel(
     }
 
     private fun reportProgressNow() {
-        val r = reporter ?: return
         val posTicks = absolutePositionMs * TICKS_PER_MS
+        // Local playback builds no ProgressReporter, so this loop used to be a
+        // complete no-op for downloaded items: the ONLY persistence point was
+        // onCleared. Streaming checkpointed every 5s while offline viewing had
+        // no safety net at all, so an OS reclaim or a crash mid-item lost the
+        // position entirely and the item restarted from zero.
+        if (isLocalPlayback && trailerItemId == null) {
+            currentItem?.id?.let { downloads.savePlaybackPosition(it, posTicks) }
+            return
+        }
+        val r = reporter ?: return
         viewModelScope.launch { runCatching { r.reportProgress(posTicks, isPaused = !player.isPlaying) } }
     }
 
@@ -690,6 +703,13 @@ class PlayerViewModel(
             // only the REMAINING runtime, which would report a resumed item as
             // having finished far short of its real length.
             val durationTicks = absoluteDurationMs * TICKS_PER_MS
+            if (isLocalPlayback && trailerItemId == null) {
+                // No ProgressReporter exists for local playback, so markPlayed is
+                // unreachable. Stash the full runtime instead: the pending-sync
+                // path posts it as the stopped position, which the server scores
+                // as watched.
+                currentItem?.id?.let { downloads.savePlaybackPosition(it, durationTicks) }
+            }
             runCatching { reporter?.reportEndOfPlayback(durationTicks) }
 
             val next = if (settings.autoPlayNextEpisode.value && trailerItemId == null && item != null) resolveNextEpisode(item) else null

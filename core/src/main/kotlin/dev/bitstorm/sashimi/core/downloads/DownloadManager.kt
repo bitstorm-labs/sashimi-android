@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +43,15 @@ class DownloadManager(
     private val fileManager: DownloadFileManager,
     private val client: JellyfinClient,
     private val networkMonitor: NetworkMonitor,
+    /**
+     * Emits true once a session is restored. The first sync used to fire
+     * eagerly from init, which runs BEFORE SessionManager.restoreSession()
+     * completes, so JellyfinClient was still unconfigured and every attempt
+     * failed. Nothing retried it, because the only other trigger is a
+     * TRANSITION on isOnline and a device that is already online at process
+     * start never emits one.
+     */
+    private val authenticated: StateFlow<Boolean>,
     private val scope: CoroutineScope,
 ) {
     private val appContext = context.applicationContext
@@ -62,8 +72,12 @@ class DownloadManager(
     init {
         current = this
         scope.launch { recover() }
-        // Sync stashed offline progress on start and whenever connectivity returns.
-        scope.launch { syncPendingProgress() }
+        // Sync stashed offline progress once a session actually exists, and
+        // again whenever connectivity returns.
+        scope.launch {
+            authenticated.first { it }
+            syncPendingProgress()
+        }
         scope.launch {
             networkMonitor.isOnline.drop(1).collect { online ->
                 if (online) {
@@ -71,6 +85,21 @@ class DownloadManager(
                     promote()
                 }
             }
+        }
+    }
+
+    /** Bytes actually consumed on disk by downloads, independent of the database. */
+    fun bytesOnDisk(): Long = runCatching { fileManager.totalSize() }.getOrDefault(0)
+
+    /**
+     * Sync anything stashed while offline. Called on app foreground as well as
+     * from init, because isOnline only fires on a TRANSITION: a device that was
+     * already online when the process started never emits, so foregrounding is
+     * the reliable second chance.
+     */
+    fun syncNow() {
+        scope.launch {
+            if (authenticated.value) syncPendingProgress()
         }
     }
 
@@ -175,10 +204,32 @@ class DownloadManager(
 
     /** Re-run any orphaned in-flight rows after a process restart. */
     private suspend fun recover() {
-        repository.all()
+        val rows = repository.all()
+        rows
             .filter { it.downloadStatus == DownloadStatus.PREPARING || it.downloadStatus == DownloadStatus.DOWNLOADING }
             .forEach { repository.updateStatus(it.itemId, DownloadStatus.QUEUED) }
+        reconcileOrphanedFiles(rows.map { it.itemId }.toSet())
         promote()
+    }
+
+    /**
+     * Delete media on disk that no longer has a database row.
+     *
+     * The database is built with fallbackToDestructiveMigration, so a schema
+     * bump drops every row while leaving filesDir/downloads/ untouched. Nothing
+     * reconciled the two, so the user's offline library silently vanished from
+     * the UI while the bytes stayed on disk -- and the Downloads tab returns its
+     * empty state BEFORE rendering "Delete All", so there was no way to reclaim
+     * the space from inside the app.
+     *
+     * Deleting is the right resolution rather than adopting the directories
+     * back: without a row there is no title, no runtime and no source metadata,
+     * so an adopted entry could not be presented or played.
+     */
+    private fun reconcileOrphanedFiles(knownIds: Set<String>) {
+        runCatching {
+            (fileManager.itemIdsOnDisk() - knownIds).forEach(fileManager::deleteItemDirectory)
+        }
     }
 
     /** Called by a finishing worker so the freed slot is refilled. */
