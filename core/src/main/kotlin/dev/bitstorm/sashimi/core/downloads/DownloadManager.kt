@@ -88,6 +88,9 @@ class DownloadManager(
         }
     }
 
+    /** Every download row, for callers that need a one-shot read rather than the flow. */
+    suspend fun allDownloads(): List<DownloadedItemEntity> = repository.all()
+
     /** Bytes actually consumed on disk by downloads, independent of the database. */
     fun bytesOnDisk(): Long = runCatching { fileManager.totalSize() }.getOrDefault(0)
 
