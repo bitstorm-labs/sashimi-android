@@ -9,7 +9,9 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.OffsetDateTime
+import kotlin.coroutines.coroutineContext
 
 data class HomeUiState(
     val isLoading: Boolean = false,
@@ -61,8 +64,18 @@ class HomeViewModel(
     private val _recentlyAdded = MutableStateFlow<Map<String, RecentlyAddedData>>(emptyMap())
     val recentlyAdded: StateFlow<Map<String, RecentlyAddedData>> = _recentlyAdded.asStateFlow()
 
-    /** libraryIds whose Recently Added fetch is in flight, so we launch each once. */
-    private val loadingRows = mutableSetOf<String>()
+    /**
+     * In-flight row loads, keyed by libraryId, so each row launches once.
+     *
+     * A Set could only record THAT a row was loading, not which coroutine, so a
+     * refresh could not cancel the old one -- and the old job's removal deleted
+     * the entry the NEW job had registered, defeating the in-flight guard for
+     * every subsequent call.
+     */
+    private val loadingRows = mutableMapOf<String, Job>()
+
+    /** Invalidates row loads started before the current refresh. */
+    private var rowGeneration = 0
 
     val rows = homeRowSettings.rows
 
@@ -119,6 +132,14 @@ class HomeViewModel(
                 it.copy(isLoading = false, error = null, continueWatching = cw, libraries = mediaLibraries)
             }
             if (refreshRows) {
+                // Cancel, don't just forget. RecentlyAddedLoader issues a
+                // getLatestMedia plus up to 20 sequential getItem calls for a TV
+                // library, so these live for seconds: clearing the set left the
+                // old load running, and if it finished second its stale result
+                // overwrote the fresh one and the row showed pre-refresh content
+                // until you navigated away and back.
+                rowGeneration += 1
+                loadingRows.values.forEach { it.cancel() }
                 loadingRows.clear()
                 _recentlyAdded.value = emptyMap()
             }
@@ -157,15 +178,21 @@ class HomeViewModel(
         collectionType: String?,
     ) {
         if (_recentlyAdded.value.containsKey(libraryId)) return
-        if (!loadingRows.add(libraryId)) return
-        viewModelScope.launch {
-            val result =
-                runCatching {
-                    RecentlyAddedLoader.load(client, libraryId, libraryName, collectionType)
-                }.getOrDefault(RecentlyAddedData())
-            _recentlyAdded.update { it + (libraryId to result) }
-            loadingRows.remove(libraryId)
-        }
+        if (loadingRows.containsKey(libraryId)) return
+        val generation = rowGeneration
+        loadingRows[libraryId] =
+            viewModelScope.launch {
+                val result =
+                    runCatchingCancellable {
+                        RecentlyAddedLoader.load(client, libraryId, libraryName, collectionType)
+                    }.getOrDefault(RecentlyAddedData())
+                // A refresh that started after this load owns the row now.
+                if (generation != rowGeneration) return@launch
+                _recentlyAdded.update { it + (libraryId to result) }
+                // Only clear the entry if it is still OURS -- removing blindly
+                // deleted a newer job's registration.
+                if (loadingRows[libraryId] === coroutineContext[Job]) loadingRows.remove(libraryId)
+            }
     }
 
     private suspend fun loadContinueWatchingLibraryNames(items: List<BaseItemDto>) {

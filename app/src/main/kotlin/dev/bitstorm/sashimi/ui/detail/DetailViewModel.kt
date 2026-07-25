@@ -11,7 +11,9 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,7 +62,26 @@ class DetailViewModel(
         load()
     }
 
+    /**
+     * Invalidates in-flight work, matching LibraryBrowseViewModel's idiom.
+     *
+     * Two independent races needed this. A full load() publishes `seasons`
+     * (making the chips tappable) and only writes `selectedSeasonId` after
+     * findNextEpisode, which can take seconds -- getNextUp plus one getEpisodes
+     * per season, sequentially. Tapping a season in that window had the page
+     * jump back to season 1 on its own when the sweep finished. And reload()
+     * from LifecycleResumeEffect starts a second load while the first may still
+     * be running, both writing the same fields.
+     */
+    private var loadGeneration = 0
+
+    /** The in-flight season fetch, so a slower earlier tap cannot win. */
+    private var episodesJob: Job? = null
+
     private fun load() {
+        loadGeneration += 1
+        val generation = loadGeneration
+        episodesJob?.cancel()
         viewModelScope.launch {
             val fresh = runCatching { client.getItem(itemId) }.getOrNull()
             if (fresh == null) {
@@ -95,17 +116,27 @@ class DetailViewModel(
     }
 
     private suspend fun loadSeriesContent(item: BaseItemDto) {
+        val generation = loadGeneration
         val seasons = runCatching { client.getSeasons(item.id) }.getOrDefault(emptyList())
+        if (generation != loadGeneration) return
         _state.update { it.copy(seasons = seasons) }
 
+        // Slow: getNextUp plus, on a miss, one getEpisodes per season in
+        // sequence. The chips above are already tappable, so the user can act
+        // during this.
         val next = findNextEpisode(item.id, seasons)
+        if (generation != loadGeneration) return
         _state.update { it.copy(nextEpisode = next) }
 
         val season =
             next?.seasonId?.let { sid -> seasons.firstOrNull { it.id == sid } } ?: seasons.firstOrNull()
         if (season != null) {
+            // Only pick a default season if the user has not already chosen one.
+            // Writing it unconditionally is what yanked a fully-watched 6-season
+            // show back to season 1 seconds after the user opened season 4.
+            if (_state.value.selectedSeasonId != null) return
             _state.update { it.copy(selectedSeasonId = season.id) }
-            loadEpisodesForSeason(item.id, season.id)
+            loadEpisodesForSeason(item.id, season.id, generation)
         }
     }
 
@@ -121,7 +152,7 @@ class DetailViewModel(
                 selectedSeasonId = item.seasonId,
             )
         }
-        item.seasonId?.let { loadEpisodesForSeason(seriesId, it) }
+        item.seasonId?.let { loadEpisodesForSeason(seriesId, it, loadGeneration) }
     }
 
     /**
@@ -196,16 +227,26 @@ class DetailViewModel(
             return
         }
         val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
-        viewModelScope.launch { loadEpisodesForSeason(seriesId, seasonId) }
+        // Cancel the previous season's fetch. Without this, tapping season 5 then
+        // season 2 on a slow link let whichever response landed last win, so the
+        // header read "Season 2" while the list showed season 5's episodes.
+        episodesJob?.cancel()
+        val generation = loadGeneration
+        episodesJob = viewModelScope.launch { loadEpisodesForSeason(seriesId, seasonId, generation) }
     }
 
     private suspend fun loadEpisodesForSeason(
         seriesId: String,
         seasonId: String,
+        generation: Int,
     ) {
         _state.update { it.copy(isLoadingEpisodes = true) }
         val episodes =
-            runCatching { client.getEpisodes(seriesId = seriesId, seasonId = seasonId) }.getOrDefault(emptyList())
+            runCatchingCancellable {
+                client.getEpisodes(seriesId = seriesId, seasonId = seasonId)
+            }.getOrDefault(emptyList())
+        // A full reload while this was in flight owns the state now.
+        if (generation != loadGeneration) return
         _state.update { it.copy(episodes = episodes, isLoadingEpisodes = false) }
     }
 
