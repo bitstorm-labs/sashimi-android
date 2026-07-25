@@ -110,6 +110,7 @@ object ServiceLocator {
                 fileManager = downloadFileManager,
                 client = client,
                 networkMonitor = networkMonitor,
+                authenticated = session.isAuthenticated,
                 scope = appScope,
             )
     }
