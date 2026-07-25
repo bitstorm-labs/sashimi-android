@@ -112,13 +112,29 @@ jobs:
           SASHIMI_UPLOAD_KEY_PASSWORD: ${{ secrets.SASHIMI_UPLOAD_KEY_PASSWORD }}
         run: ./gradlew :app:bundleRelease :app:assembleRelease
 
+      # The Gradle signing config falls back to unsigned when the secrets are
+      # absent, which keeps PR builds green but means a lost or rotated keystore
+      # secret would publish an UNINSTALLABLE apk to a public GitHub Release
+      # instead of failing. A tag is a ship, so verify rather than assume.
+      - name: Verify the release artifacts are actually signed
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::$apk is missing - the build produced an unsigned artifact."
+            ls -la app/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --print-certs "$apk"
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sashimi-release
           path: |
             app/build/outputs/bundle/release/app-release.aab
-            app/build/outputs/apk/release/app-release*.apk
+            app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       # Sideload distribution: attach the APK to a GitHub Release for the tag
@@ -126,7 +142,7 @@ jobs:
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/app-release*.apk
+          files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
 
       # Play internal-testing deploy via fastlane (pipeline ported from

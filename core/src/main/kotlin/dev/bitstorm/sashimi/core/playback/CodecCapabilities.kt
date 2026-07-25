@@ -23,6 +23,26 @@ interface CodecCapabilities {
         const val HEVC = MediaFormat.MIMETYPE_VIDEO_HEVC
         const val VP9 = MediaFormat.MIMETYPE_VIDEO_VP9
         const val AV1 = MediaFormat.MIMETYPE_VIDEO_AV1
+
+        // Audio matters for the same reason video does, and for downloads it
+        // matters more: ExoPlayer ships no software AC-3 decoder, so on a device
+        // whose MediaCodecList lacks audio/ac3 an mp4/h264/ac3 source was
+        // offered as "Original", downloaded in full, and then would not play --
+        // with no fallback, because the file is already on disk.
+        const val AAC = MediaFormat.MIMETYPE_AUDIO_AAC
+        const val AC3 = MediaFormat.MIMETYPE_AUDIO_AC3
+        const val EAC3 = MediaFormat.MIMETYPE_AUDIO_EAC3
+    }
+
+    companion object {
+        /** Jellyfin codec token to the MIME type used to query the decoder. */
+        fun audioMimeFor(codec: String): String? =
+            when (codec) {
+                "aac" -> MimeTypes.AAC
+                "ac3" -> MimeTypes.AC3
+                "eac3" -> MimeTypes.EAC3
+                else -> null
+            }
     }
 }
 

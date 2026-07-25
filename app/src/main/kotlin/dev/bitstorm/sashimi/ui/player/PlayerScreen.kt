@@ -68,6 +68,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import dev.bitstorm.sashimi.MainActivity
 import dev.bitstorm.sashimi.core.playback.AudioTrack
 import dev.bitstorm.sashimi.core.playback.QualityOption
 import dev.bitstorm.sashimi.core.playback.StreamInfo
@@ -127,6 +128,10 @@ fun PlayerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // In PiP the window is thumbnail-sized; full-screen chrome over it is noise.
+    val inPip by (playerActivity as? MainActivity)?.isInPip?.collectAsStateWithLifecycle()
+        ?: remember { mutableStateOf(false) }
+
     var overlayVisible by remember { mutableStateOf(true) }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -157,7 +162,7 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        if (state.isLoading) {
+        if (state.isLoading && !inPip) {
             Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         }
 
@@ -168,7 +173,7 @@ fun PlayerScreen(
         }
 
         // Skip Intro/Credits — always tappable, independent of the overlay.
-        state.skipSegment?.let { segment ->
+        state.skipSegment?.takeIf { !inPip }?.let { segment ->
             SkipButton(
                 label = skipLabel(segment.type),
                 onClick = vm::skipCurrentSegment,
@@ -177,7 +182,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = overlayVisible && !state.isLoading,
+            visible = overlayVisible && !state.isLoading && !inPip,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),

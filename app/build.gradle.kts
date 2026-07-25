@@ -53,6 +53,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Falls back to unsigned so PR builds stay green without secrets.
+            // CI verifies the artifact is genuinely signed before publishing a
+            // tag, because this fallback is silent and an unsigned APK on a
+            // GitHub Release is uninstallable.
             signingConfig = if (hasUploadSigning) signingConfigs.getByName("upload") else null
         }
     }
