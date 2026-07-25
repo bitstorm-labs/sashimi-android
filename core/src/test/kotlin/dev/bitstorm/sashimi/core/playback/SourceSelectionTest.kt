@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.core.playback
 
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
+import dev.bitstorm.sashimi.core.settings.AppSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,5 +88,32 @@ class BitrateResolverTest {
     fun `settings used when no override, zero means auto`() {
         assertEquals(20_000_000, BitrateResolver.effectiveMaxBitrate(sessionOverride = null, settingsMaxBitrate = 20_000_000))
         assertEquals(null, BitrateResolver.effectiveMaxBitrate(sessionOverride = null, settingsMaxBitrate = 0))
+    }
+
+    @Test
+    fun `unlimited is distinct from auto and does declare a ceiling`() {
+        // The distinction is the whole point: Auto still applies the engine's
+        // conservative 20 Mbps default, which needlessly transcoded 4K remuxes
+        // on a LAN. Unlimited has to be expressible separately.
+        val unlimited = BitrateResolver.effectiveMaxBitrate(null, AppSettings.UNLIMITED_BITRATE)
+        assertEquals(BitrateResolver.NO_CAP, unlimited)
+        assertTrue("Unlimited must exceed any real source bitrate", (unlimited ?: 0) > 100_000_000)
+    }
+
+    @Test
+    fun `a session override still wins over unlimited`() {
+        assertEquals(8_000_000, BitrateResolver.effectiveMaxBitrate(8_000_000, AppSettings.UNLIMITED_BITRATE))
+    }
+
+    @Test
+    fun `every menu option resolves to something sane`() {
+        AppSettings.MAX_BITRATE_OPTIONS.forEach { (label, value) ->
+            val resolved = BitrateResolver.effectiveMaxBitrate(null, value)
+            if (value == 0) {
+                assertEquals("$label must defer to the engine default", null, resolved)
+            } else {
+                assertTrue("$label must resolve to a positive ceiling", (resolved ?: 0) > 0)
+            }
+        }
     }
 }

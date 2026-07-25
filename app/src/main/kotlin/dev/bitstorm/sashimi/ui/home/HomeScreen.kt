@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,6 +55,7 @@ import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.ui.components.ContextMenuBox
 import dev.bitstorm.sashimi.ui.components.ContinueWatchingCard
 import dev.bitstorm.sashimi.ui.components.PosterCard
+import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiLink
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
@@ -145,7 +147,28 @@ fun HomeScreen(
                     }
                 }
 
-                if (state.continueWatching.isEmpty() && state.libraries.isEmpty() && !state.isLoading) {
+                // A failure and an empty account look identical once every call
+                // has degraded to an empty list, so say which one it is. Offer a
+                // retry: pull-to-refresh works, but nothing told the user that.
+                val homeError = state.error
+                if (homeError != null && !state.isLoading) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().height(300.dp).padding(horizontal = 32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                homeError,
+                                color = SashimiTextTertiary,
+                                textAlign = TextAlign.Center,
+                            )
+                            TextButton(onClick = { vm.loadContent() }) {
+                                Text("Try Again", color = SashimiAccent)
+                            }
+                        }
+                    }
+                } else if (state.continueWatching.isEmpty() && state.libraries.isEmpty() && !state.isLoading) {
                     item {
                         Box(Modifier.fillMaxWidth().height(300.dp), Alignment.Center) {
                             Text("Start watching something to see it here.", color = SashimiTextTertiary)

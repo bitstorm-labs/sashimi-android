@@ -721,7 +721,16 @@ class PlayerViewModel(
                 // since that is a standing preference rather than a per-item pick.
                 userChoseSubtitle = false
                 desiredAudioIndex = null
-                prepare(next, startTicks = 0, QualityOption.AUTO, forceTranscode = false)
+                // Mirror loadInitial: prefer a completed download. Without this,
+                // auto-play-next always server-negotiated -- so with a whole
+                // season downloaded it could not fire on a plane at all, and
+                // online it streamed over cellular an episode already on disk.
+                val nextLocal = runCatching { downloads.localVideoFile(next.id) }.getOrNull()
+                if (nextLocal != null) {
+                    prepareLocal(next.id, nextLocal)
+                } else {
+                    prepare(next, startTicks = 0, QualityOption.AUTO, forceTranscode = false)
+                }
             } else {
                 _state.update { it.copy(playbackEnded = true) }
             }
@@ -737,7 +746,25 @@ class PlayerViewModel(
         val seasons = runCatching { client.getSeasons(seriesId) }.getOrDefault(emptyList())
         val nextSeason = AutoPlayNextResolver.nextSeasonId(seasonId, seasons) ?: return null
         val nextEps = runCatching { client.getEpisodes(seriesId, nextSeason) }.getOrDefault(emptyList())
-        return nextEps.firstOrNull()
+        return nextEps.firstOrNull() ?: nextDownloadedEpisode(current, seriesId)
+    }
+
+    /**
+     * Next episode resolved from the downloads database rather than the server.
+     *
+     * Every branch above needs getEpisodes/getSeasons, so offline they all
+     * return empty and auto-play-next simply never fired -- with a whole season
+     * downloaded, on the one occasion the feature matters most.
+     */
+    private suspend fun nextDownloadedEpisode(
+        current: BaseItemDto,
+        seriesId: String,
+    ): BaseItemDto? {
+        val rows = runCatching { downloads.allDownloads() }.getOrNull() ?: return null
+        val episodes = OfflineReconstruction.episodesForSeries(rows, seriesId, current.seriesName)
+        val position = episodes.indexOfFirst { it.itemId == current.id }
+        if (position < 0) return null
+        return episodes.getOrNull(position + 1)?.let(OfflineReconstruction::asBaseItemDto)
     }
 
     // MARK: - Titles
