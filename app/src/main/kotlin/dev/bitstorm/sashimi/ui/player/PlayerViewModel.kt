@@ -40,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -134,6 +135,9 @@ class PlayerViewModel(
 
     /** Jellyfin audio-stream index the user explicitly chose, if any. */
     private var desiredAudioIndex: Int? = null
+
+    /** The single in-flight re-negotiation, so a second one cannot race it. */
+    private var prepareJob: Job? = null
 
     private val playerListener =
         object : Player.Listener {
@@ -331,8 +335,12 @@ class PlayerViewModel(
     ) {
         _state.update { it.copy(isLoading = true, error = null, playbackEnded = false) }
         stopProgressLoop()
-        // Tear down any prior server transcode before re-negotiating (Swift teardown).
-        currentSource?.let { prior ->
+        // Tear down any prior server transcode before re-negotiating (Swift
+        // teardown). Captured and cleared here rather than read again later, so
+        // the source being torn down is unambiguously the one this call saw.
+        val priorSource = currentSource
+        currentSource = null
+        priorSource?.let { prior ->
             if (prior.isTranscoding) prior.playSessionId?.let { engine.stopTranscode(it) }
         }
 
@@ -554,7 +562,7 @@ class PlayerViewModel(
         val target = absoluteMs.coerceAtLeast(0)
         val item = currentItem
         if (item != null && ResumeTimeline.requiresRenegotiation(timelineOffsetMs, target)) {
-            viewModelScope.launch {
+            renegotiate {
                 prepare(item, target * TICKS_PER_MS, _state.value.selectedQuality, forceTranscode = false)
             }
             return
@@ -572,9 +580,35 @@ class PlayerViewModel(
     fun selectQuality(quality: QualityOption) {
         val item = currentItem ?: return
         val posTicks = absolutePositionMs * TICKS_PER_MS
-        viewModelScope.launch {
+        renegotiate {
             prepare(item, posTicks, quality, forceTranscode = quality.forcesTranscode)
         }
+    }
+
+    /**
+     * Runs a re-negotiation as the ONLY one in flight.
+     *
+     * Every re-negotiation mints a fresh playSessionId server-side, and prepare()
+     * tears down whatever currentSource happens to be at entry. Two overlapping
+     * calls therefore both tore down the ORIGINAL source, both started a
+     * transcode, and whichever playSessionId was not currentSource at teardown
+     * was never passed to stopTranscode -- an orphaned ffmpeg process on the
+     * server until it timed out, plus two overlapping sessions on the dashboard.
+     *
+     * That was easy to trigger because the settings sheet does not dismiss on
+     * selection and the loading spinner is hidden behind it, so tapping a second
+     * quality is the natural response to the first appearing to do nothing.
+     */
+    private fun renegotiate(block: suspend () -> Unit) {
+        val previous = prepareJob
+        prepareJob =
+            viewModelScope.launch {
+                // cancelAndJoin, not cancel: the prior call must be fully
+                // unwound before this one reads currentSource, or we are back to
+                // two coroutines tearing down the same source.
+                previous?.cancelAndJoin()
+                block()
+            }
     }
 
     fun selectAudioTrack(track: AudioTrack) {
@@ -590,7 +624,7 @@ class PlayerViewModel(
         if (source != null && item != null && source.isTranscoding) {
             // A transcode bakes the audio track server-side → re-negotiate.
             val posTicks = absolutePositionMs * TICKS_PER_MS
-            viewModelScope.launch {
+            renegotiate {
                 prepare(item, posTicks, _state.value.selectedQuality, forceTranscode = true, audioStreamIndex = track.index)
             }
         } else {

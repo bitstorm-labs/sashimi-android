@@ -110,6 +110,40 @@ class SessionManagerTest {
     }
 
     @Test
+    fun `isRestoring starts true so a signed-in user never sees the sign-in screen`() =
+        runTest {
+            val (sm, _, _) = manager()
+            // Before any restore: not authenticated, but that must NOT be read as
+            // "signed out" -- that conflation is what flashed Connect to Server
+            // on every cold launch.
+            assertTrue(sm.isRestoring.value)
+            assertFalse(sm.isAuthenticated.value)
+        }
+
+    @Test
+    fun `isRestoring clears even when there is no saved session to restore`() =
+        runTest {
+            val (sm, _, _) = manager()
+            sm.restoreSession()
+            // restoreSession early-returns when there is no server or no token,
+            // so the flag has to be cleared in a finally or the splash is
+            // permanent for a genuinely signed-out user.
+            assertFalse(sm.isRestoring.value)
+            assertFalse(sm.isAuthenticated.value)
+        }
+
+    @Test
+    fun `isRestoring clears after a successful restore`() =
+        runTest {
+            val (sm, _, _) = manager()
+            sm.login("https://media.example.com", "alice", "pw")
+            sm.restoreSession()
+
+            assertFalse(sm.isRestoring.value)
+            assertTrue(sm.isAuthenticated.value)
+        }
+
+    @Test
     fun `login adds server and authenticates`() =
         runTest {
             val (sm, _, stores) = manager()
