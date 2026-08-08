@@ -488,8 +488,14 @@ private fun LogoImage(
 @Composable
 private fun MetadataRow(item: BaseItemDto) {
     val parts = mutableListOf<String>()
-    Formatting.premiereDateLong(item.premiereDate)?.let { parts.add(it) }
-        ?: item.productionYear?.let { parts.add(it.toString()) }
+    // Movies lead with the release year (right before the runtime); episodes
+    // keep their full air date.
+    if (item.type == ItemType.MOVIE) {
+        item.productionYear?.let { parts.add(it.toString()) }
+    } else {
+        Formatting.premiereDateLong(item.premiereDate)?.let { parts.add(it) }
+            ?: item.productionYear?.let { parts.add(it.toString()) }
+    }
     item.runTimeTicks?.let { parts.add(Formatting.runtime(it)) }
     val endsAt = item.runTimeTicks?.let { Formatting.endsAt(it) }
 
