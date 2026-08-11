@@ -163,10 +163,8 @@ private fun episodeInfo(
     isYouTube: Boolean,
 ): String? {
     if (item.type != ItemType.EPISODE) return null
-    if (isYouTube && item.premiereDate != null) {
-        val date = Formatting.numericDate(item.premiereDate) ?: return item.name
-        return "$date - ${item.name}"
-    }
+    // YouTube: show just the video title (no date) : parity across platforms.
+    if (isYouTube) return item.name
     val season = item.parentIndexNumber ?: 1
     val episode = item.indexNumber ?: 1
     return "S$season:E$episode - ${item.name}"
