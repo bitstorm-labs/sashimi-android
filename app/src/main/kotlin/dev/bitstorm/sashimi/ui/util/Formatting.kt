@@ -49,9 +49,6 @@ object Formatting {
     /** "Nov 8, 2024" (short air date for episode rows). Port of shortAirDateText. */
     fun shortAirDate(raw: String?): String? = parse(raw)?.format(SHORT_DATE_FORMAT)
 
-    /** "M-d-yyyy" for YouTube episode captions. Port of MobileContinueWatchingCard.formatDate. */
-    fun numericDate(raw: String?): String? = parse(raw)?.format(NUMERIC_DATE_FORMAT)
-
     /** Codec wordmark used on media badges. Port of PhoneDetailView.formatCodec. */
     fun codec(codec: String): String =
         when (codec.uppercase(Locale.US)) {
@@ -94,5 +91,4 @@ object Formatting {
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
     private val LONG_DATE_FORMAT = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.US)
     private val SHORT_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
-    private val NUMERIC_DATE_FORMAT = DateTimeFormatter.ofPattern("M-d-yyyy", Locale.US)
 }
