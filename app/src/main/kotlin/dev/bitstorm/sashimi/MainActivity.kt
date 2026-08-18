@@ -69,6 +69,20 @@ class MainActivity : ComponentActivity() {
         ServiceLocator.downloadManager.syncNow()
     }
 
+    /**
+     * Theme songs stop when the app leaves the foreground.
+     *
+     * ON_STOP rather than ON_PAUSE, per the player lesson: a PiP window keeps
+     * the activity STARTED, and pausing on ON_PAUSE would also silence the
+     * theme for a transient dialog. `isChangingConfigurations` excludes the
+     * rotate/fold case, where the activity is torn down and immediately rebuilt
+     * and the user never actually left.
+     */
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) ServiceLocator.themeSongs.onAppBackgrounded()
+    }
+
     private fun stashDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme == "sashimi") ServiceLocator.setPendingDeepLink(data.toString())

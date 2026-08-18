@@ -609,6 +609,31 @@ class JellyfinClient(
     }
 
     /**
+     * The theme song item id for a series, or null when the server has none.
+     *
+     * A miss is the normal outcome — roughly 41% of a typical library has no
+     * theme — so the caller treats null as "stay silent", never as an error.
+     * Throws like every other call when the request itself fails, which lets
+     * the caller tell "definitely no theme" (cacheable) from "could not ask"
+     * (retry next visit).
+     */
+    suspend fun getThemeSongItemId(itemId: String): String? {
+        val data = execute("GET", "/Items/$itemId/ThemeMedia")
+        return decode<ThemeMediaResponse>(data).themeSongsResult?.items?.firstOrNull()?.id
+    }
+
+    /**
+     * Theme song audio stream URL for a theme item id resolved by
+     * [getThemeSongItemId]. Like [getPlaybackURL] the api_key stays in the URL:
+     * ExoPlayer fetches this itself and cannot carry the auth header.
+     */
+    fun themeAudioStreamUrl(themeItemId: String): String? {
+        val base = serverUrl?.toString() ?: return null
+        val token = accessToken ?: return null
+        return ThemeMediaUrlBuilder.audioStreamUrl(base, themeItemId, token)
+    }
+
+    /**
      * Ancestors of an item (used to resolve the owning library's name for the
      * Continue Watching row). Port of Swift getItemAncestors.
      */
