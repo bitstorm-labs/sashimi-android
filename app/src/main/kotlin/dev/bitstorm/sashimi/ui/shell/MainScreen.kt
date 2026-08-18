@@ -156,7 +156,10 @@ private fun AppShell(
     LaunchedEffect(pendingDeepLink) {
         val target = DeepLinkResolver.resolve(pendingDeepLink) ?: return@LaunchedEffect
         when (target) {
-            is DeepLinkTarget.Play -> navController.navigate(PlayerRoute(itemId = target.itemId))
+            is DeepLinkTarget.Play -> {
+                ServiceLocator.themeSongs.stopForPlayback()
+                navController.navigate(PlayerRoute(itemId = target.itemId))
+            }
             is DeepLinkTarget.Detail -> navController.navigate(DetailRoute(itemId = target.itemId))
         }
         ServiceLocator.consumePendingDeepLink()
@@ -216,7 +219,10 @@ private fun AppShell(
                     )
                 } else {
                     OfflineHomeScreen(
-                        onPlay = { id -> navController.navigate(PlayerRoute(itemId = id)) },
+                        onPlay = { id ->
+                            ServiceLocator.themeSongs.stopForPlayback()
+                            navController.navigate(PlayerRoute(itemId = id))
+                        },
                         onOpenSeries = { id -> navController.navigate(DetailRoute(id)) },
                     )
                 }
@@ -276,15 +282,22 @@ private fun AppShell(
                     onBack = { navController.popBackStack() },
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
                     onPlay = { playId, fromBeginning ->
+                        ServiceLocator.themeSongs.stopForPlayback()
                         navController.navigate(PlayerRoute(itemId = playId, startFromBeginning = fromBeginning))
                     },
                     onPlayTrailer = { trailerId ->
+                        ServiceLocator.themeSongs.stopForPlayback()
                         navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId))
                     },
                 )
             }
             composable<PlayerRoute> { entry ->
                 val route = entry.toRoute<PlayerRoute>()
+                // Backstop for the four navigate(PlayerRoute) call sites above:
+                // every route into video, including any added later, is composed
+                // here, and the theme must be silent before the player's audio
+                // starts. Cheap and idempotent when the theme is already gone.
+                LaunchedEffect(Unit) { ServiceLocator.themeSongs.stopForPlayback() }
                 PlayerScreen(
                     itemId = route.itemId,
                     startFromBeginning = route.startFromBeginning,

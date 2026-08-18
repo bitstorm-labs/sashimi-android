@@ -19,6 +19,7 @@ import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.themesong.ThemeSongService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,13 @@ object ServiceLocator {
         private set
 
     /**
+     * Owns theme-song playback and the show-visit state. App-level on purpose:
+     * screens report intent to it and never touch the player themselves.
+     */
+    lateinit var themeSongs: ThemeSongService
+        private set
+
+    /**
      * Scope for work that must outlive the UI that started it -- a mutation the
      * user has already committed to must not be cancelled just because they
      * navigated away or the row scrolled out of view.
@@ -101,6 +109,7 @@ object ServiceLocator {
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
         playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities()))
+        themeSongs = ThemeSongService(app, client, appSettings, appScope)
 
         networkMonitor = NetworkMonitor(app)
         downloadFileManager = DownloadFileManager(app)

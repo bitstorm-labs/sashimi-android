@@ -53,6 +53,10 @@ class AppSettings(context: Context) {
     private val _preferredSubtitleLanguage = MutableStateFlow(prefs.getString(KEY_PREF_SUB_LANG, "") ?: "")
     val preferredSubtitleLanguage: StateFlow<String> = _preferredSubtitleLanguage.asStateFlow()
 
+    /** Play a show's theme song on its detail page. Defaults on, like the other clients. */
+    private val _themeSongsEnabled = MutableStateFlow(prefs.getBoolean(KEY_THEME_SONGS, true))
+    val themeSongsEnabled: StateFlow<Boolean> = _themeSongsEnabled.asStateFlow()
+
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
 
     fun setShowReviewRatings(value: Boolean) = putBoolean(_showReviewRatings, KEY_REVIEW_RATINGS, value)
@@ -82,6 +86,8 @@ class AppSettings(context: Context) {
     fun setPreferredAudioLanguage(value: String) = putString(_preferredAudioLanguage, KEY_PREF_AUDIO_LANG, value)
 
     fun setPreferredSubtitleLanguage(value: String) = putString(_preferredSubtitleLanguage, KEY_PREF_SUB_LANG, value)
+
+    fun setThemeSongsEnabled(value: Boolean) = putBoolean(_themeSongsEnabled, KEY_THEME_SONGS, value)
 
     private fun putBoolean(
         flow: MutableStateFlow<Boolean>,
@@ -115,6 +121,7 @@ class AppSettings(context: Context) {
         private const val KEY_SUBTITLES_ENABLED = "subtitlesEnabled"
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
+        private const val KEY_THEME_SONGS = "themeSongsEnabled"
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which
