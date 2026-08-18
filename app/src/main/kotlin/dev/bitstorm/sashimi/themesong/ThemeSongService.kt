@@ -1,6 +1,8 @@
 package dev.bitstorm.sashimi.themesong
 
 import android.content.Context
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -11,6 +13,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.core.themesong.OtherAudioProbe
+import dev.bitstorm.sashimi.core.themesong.ThemeStartDecision
+import dev.bitstorm.sashimi.core.themesong.ThemeStartPolicy
 import dev.bitstorm.sashimi.core.themesong.ThemeVisitAction
 import dev.bitstorm.sashimi.core.themesong.ThemeVisitState
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
@@ -45,6 +50,18 @@ import kotlinx.coroutines.launch
  *  - [TARGET_VOLUME] of system volume;
  *  - every failure path is silence. No toasts, no snackbars, no dialogs.
  *
+ * **A theme song never takes audio away from anybody.** Decoration does not get
+ * to interrupt something the user deliberately started, so this class never
+ * holds `AUDIOFOCUS_GAIN`:
+ *
+ *  - if other audio is already playing, the theme silently does not happen at
+ *    all ([ThemeStartPolicy]);
+ *  - when it does play it requests `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` with
+ *    ExoPlayer's own focus handling switched **off**, so anything that starts
+ *    mid-theme ducks us instead of being stopped by us, and calls and navigation
+ *    prompts still interrupt us properly;
+ *  - focus is abandoned the moment the theme stops.
+ *
  * Commands are serialised through [submit] and every one of them runs on the
  * main dispatcher, which is both what ExoPlayer requires and what makes the
  * plain (unsynchronised) [ThemeVisitState] and cache safe.
@@ -76,23 +93,40 @@ class ThemeSongService(
     /** The single in-flight command, so a later one cannot race an earlier one. */
     private var command: Job? = null
 
+    private val audioManager = appContext.getSystemService(AudioManager::class.java)
+
+    /** The focus request currently held, so exactly it can be abandoned again. */
+    private var focusRequest: AudioFocusRequest? = null
+
+    private val startPolicy =
+        ThemeStartPolicy(
+            OtherAudioProbe { audioManager?.isMusicActive == true },
+        )
+
     private val listener =
         object : Player.Listener {
-            override fun onPlayWhenReadyChanged(
-                playWhenReady: Boolean,
-                reason: Int,
-            ) {
-                // Audio focus: a call, an alarm or another app's media took over.
-                // A theme song yields, and yields for good — silently resuming a
-                // show's title music after a three-minute phone call would be
-                // worse than never playing it.
-                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
-                    submit { cut(0) }
-                }
-            }
-
             override fun onPlayerError(error: PlaybackException) {
                 submit { cut(0) }
+            }
+        }
+
+    private val focusListener =
+        AudioManager.OnAudioFocusChangeListener { change ->
+            when (change) {
+                // Permanent loss, and transient loss (a call, a navigation
+                // prompt) alike: stop. A thirty-second theme is not worth
+                // resuming three minutes later, so there is deliberately no
+                // resume path — stopping *is* ending the visit's audio, and the
+                // depth bookkeeping keeps it from restarting on its own.
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                -> submit { cut(0) }
+                // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: the framework ducks us
+                // automatically (willPauseWhenDucked is left at its default
+                // false), and we do not fight it. Listed so the intent is
+                // explicit rather than an accident of the `when`.
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> Unit
+                else -> Unit
             }
         }
 
@@ -159,16 +193,30 @@ class ThemeSongService(
         seriesId: String,
         replacing: Boolean,
     ) {
-        if (!settings.themeSongsEnabled.value) return
+        // Captured before the cut below, because after it the answer is always
+        // "no" and the AudioManager probe would be looking at the tail of our
+        // own theme. See ThemeStartPolicy.
+        val alreadyOwnsAudio = player != null
+
         // Whatever the previous show was playing goes first.
-        if (player != null) cut(if (replacing) FADE_SHOW_CHANGE_MS else FADE_HARD_CUT_MS)
+        if (alreadyOwnsAudio) cut(if (replacing) FADE_SHOW_CHANGE_MS else FADE_HARD_CUT_MS)
 
         delay(START_DELAY_MS)
+
+        // Deferring to the user's own audio is checked here rather than earlier:
+        // after the delay, so a show flicked past never queries anything, and
+        // before the lookup, so a skipped visit costs no request either.
+        val decision = startPolicy.decide(settings.themeSongsEnabled.value, alreadyOwnsAudio)
+        if (decision != ThemeStartDecision.PLAY) return
 
         val themeId = resolveThemeId(seriesId) ?: return
         val url = client.themeAudioStreamUrl(themeId) ?: return
         // The visit can have moved on while the lookup was in flight.
         if (visits.currentKey != seriesId) return
+
+        // Denied focus is one more silent no-op: something more important than a
+        // theme song is using the audio.
+        if (!requestFocus()) return
 
         val active = obtainPlayer()
         active.volume = 0f
@@ -177,6 +225,40 @@ class ThemeSongService(
         active.play()
         fadeTo(TARGET_VOLUME, FADE_IN_MS)
         awaitEnd(active)
+    }
+
+    /**
+     * Requests **transient, duckable** focus — never `AUDIOFOCUS_GAIN`. The
+     * difference is the whole point: `GAIN` would stop the user's music or
+     * podcast outright and leave them to restart it by hand, whereas
+     * `GAIN_TRANSIENT_MAY_DUCK` means anything that starts while a theme is
+     * playing simply ducks it.
+     */
+    private fun requestFocus(): Boolean {
+        val manager = audioManager ?: return false
+        val request =
+            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(
+                    // The platform AudioAttributes, not Media3's — a focus
+                    // request takes android.media's type.
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener(focusListener)
+                .build()
+        val granted = manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        // Only a granted request is worth remembering; recording a denied one
+        // would leave [release] abandoning focus it never held.
+        focusRequest = if (granted) request else null
+        return granted
+    }
+
+    private fun abandonFocus() {
+        val request = focusRequest ?: return
+        focusRequest = null
+        audioManager?.abandonAudioFocusRequest(request)
     }
 
     /**
@@ -247,10 +329,12 @@ class ThemeSongService(
                             .setUsage(C.USAGE_MEDIA)
                             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                             .build(),
-                        // handleAudioFocus = true: requesting focus is what makes
-                        // the platform tell us when a call or another app takes
-                        // over, which the listener above turns into a stop.
-                        true,
+                        // handleAudioFocus = FALSE. ExoPlayer's built-in handler
+                        // derives AUDIOFOCUS_GAIN from USAGE_MEDIA and offers no
+                        // way to ask for anything gentler, so letting it manage
+                        // focus is exactly what would stop the user's music.
+                        // Focus is requested by hand in requestFocus() instead.
+                        false,
                     )
                     repeatMode = Player.REPEAT_MODE_OFF
                     addListener(listener)
@@ -261,8 +345,9 @@ class ThemeSongService(
 
     /**
      * Released rather than kept idle: a theme plays rarely and briefly, and
-     * releasing is what guarantees the audio focus request is handed back
-     * instead of leaving the user's music paused.
+     * tearing it down is what hands the transient focus back. Granting and
+     * building the player are adjacent and unsuspended in [play], so a held
+     * focus request always has a player to be released alongside it.
      */
     private fun release() {
         player?.let {
@@ -271,6 +356,7 @@ class ThemeSongService(
             it.release()
         }
         player = null
+        abandonFocus()
     }
 
     companion object {
