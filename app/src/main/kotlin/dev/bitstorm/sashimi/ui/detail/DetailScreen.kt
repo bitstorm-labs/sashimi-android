@@ -145,6 +145,12 @@ fun DetailScreen(
     }
 
     val item = state.item
+
+    // Theme songs: report that a detail screen for this show is on the back
+    // stack. Reporting only -- every decision (whether to play, the delay, the
+    // fades, stopping) belongs to the app-level ThemeSongService.
+    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(item)
+
     val onPlayMain: (Boolean) -> Unit = { fromBeginning ->
         vm.playTargetId()?.let { onPlay(it, fromBeginning) }
     }

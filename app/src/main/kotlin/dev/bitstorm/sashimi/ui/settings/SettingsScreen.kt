@@ -145,6 +145,13 @@ fun SettingsScreen(
                 SwitchRow("Show Review Ratings", showRatings, settings::setShowReviewRatings)
                 val useEpisodeRatings by settings.useEpisodeRatings.collectAsStateWithLifecycle()
                 SwitchRow("Use Episode Ratings", useEpisodeRatings, settings::setUseEpisodeRatings)
+                val themeSongs by settings.themeSongsEnabled.collectAsStateWithLifecycle()
+                SwitchRow(
+                    "Play theme songs",
+                    themeSongs,
+                    settings::setThemeSongsEnabled,
+                    subtitle = "Play a show's theme music while you browse its page.",
+                )
             }
 
             item { SectionHeader("DOWNLOADS") }
