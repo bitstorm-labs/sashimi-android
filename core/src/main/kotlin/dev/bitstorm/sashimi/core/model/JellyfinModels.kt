@@ -303,8 +303,37 @@ enum class MediaSegmentType(val displayName: String) {
                 "Recap" -> RECAP
                 else -> UNKNOWN
             }
+
+        /**
+         * Maps Jellyfin's own MediaSegmentType names. "Commercial" and "Unknown"
+         * land on UNKNOWN, which SegmentSkipTracker never offers to skip.
+         */
+        fun fromNativeType(type: String): MediaSegmentType =
+            when (type) {
+                "Intro" -> INTRO
+                "Outro" -> OUTRO
+                "Preview" -> PREVIEW
+                "Recap" -> RECAP
+                else -> UNKNOWN
+            }
     }
 }
+
+/** `GET /MediaSegments/{itemId}` (Jellyfin 10.10+): ticks, 10,000,000 per second. */
+@Serializable
+data class MediaSegmentsResponse(
+    @SerialName("Items") val items: List<MediaSegmentItem> = emptyList(),
+    @SerialName("TotalRecordCount") val totalRecordCount: Int = 0,
+)
+
+@Serializable
+data class MediaSegmentItem(
+    @SerialName("Id") val id: String,
+    @SerialName("ItemId") val itemId: String? = null,
+    @SerialName("Type") val type: String,
+    @SerialName("StartTicks") val startTicks: Long,
+    @SerialName("EndTicks") val endTicks: Long,
+)
 
 data class MediaSegmentDto(
     val id: String,

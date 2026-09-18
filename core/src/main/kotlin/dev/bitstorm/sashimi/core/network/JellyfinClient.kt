@@ -9,6 +9,7 @@ import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.model.LibraryViewsResponse
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.model.MediaSegmentType
+import dev.bitstorm.sashimi.core.model.MediaSegmentsResponse
 import dev.bitstorm.sashimi.core.model.PlaybackInfoResponse
 import dev.bitstorm.sashimi.core.model.PublicSystemInfo
 import dev.bitstorm.sashimi.core.playback.DeviceProfile
@@ -728,10 +729,39 @@ class JellyfinClient(
             "\"$key\":$jsonValue"
         }
 
-    // MARK: - Media segments (intro-skipper)
+    // MARK: - Media segments
 
+    /**
+     * Jellyfin's native `/MediaSegments` (10.10+) first, falling back to Intro Skipper's
+     * private `/Episode/{id}/IntroSkipperSegments` when the server predates it (404) or
+     * has nothing there. The plugin route has broken the skip button twice by moving
+     * underneath us; the native API is where the plugin writes its results anyway.
+     */
     suspend fun getMediaSegments(itemId: String): List<MediaSegmentDto> {
-        val data = execute("GET", "/Episode/$itemId/IntroSkipperSegments")
+        val native =
+            try {
+                val response: MediaSegmentsResponse = decode(execute("GET", "/MediaSegments/$itemId"))
+                response.items.map { item ->
+                    MediaSegmentDto(
+                        id = item.id,
+                        type = MediaSegmentType.fromNativeType(item.type),
+                        startSeconds = item.startTicks / TICKS_PER_SECOND,
+                        endSeconds = item.endTicks / TICKS_PER_SECOND,
+                    )
+                }
+            } catch (e: JellyfinError.HttpError) {
+                if (e.statusCode == 404) emptyList() else throw e
+            }
+        return native.ifEmpty { getIntroSkipperSegments(itemId) }
+    }
+
+    private suspend fun getIntroSkipperSegments(itemId: String): List<MediaSegmentDto> {
+        val data =
+            try {
+                execute("GET", "/Episode/$itemId/IntroSkipperSegments")
+            } catch (e: JellyfinError.HttpError) {
+                if (e.statusCode == 404) return emptyList() else throw e
+            }
         val segmentsDict: Map<String, IntroSkipperSegment> = decode(data)
         return segmentsDict.map { (key, segment) ->
             MediaSegmentDto(
@@ -814,6 +844,9 @@ class JellyfinClient(
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /** Jellyfin ticks are 100 ns; `Long / Double` keeps the fraction. */
+        private const val TICKS_PER_SECOND = 10_000_000.0
 
         /** A stable per-install device id, generated once and passed in. */
         fun newDeviceId(): String = UUID.randomUUID().toString()
