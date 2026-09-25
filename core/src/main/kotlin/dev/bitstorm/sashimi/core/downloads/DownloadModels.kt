@@ -76,7 +76,6 @@ enum class DownloadStatus(
     QUEUED("queued"),
     PREPARING("preparing"),
     DOWNLOADING("downloading"),
-    PAUSED("paused"),
     COMPLETED("completed"),
     FAILED("failed"),
     ;

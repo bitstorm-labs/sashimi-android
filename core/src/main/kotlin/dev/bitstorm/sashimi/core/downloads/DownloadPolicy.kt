@@ -43,7 +43,7 @@ object DownloadPolicy {
     }
 
     /**
-     * Whether re-enqueuing over an existing (non-duplicate, i.e. FAILED/PAUSED)
+     * Whether re-enqueuing over an existing (non-duplicate, i.e. FAILED)
      * row must delete its leftover partial file first.
      *
      * The partial (`video.part`) is quality-independent, so a re-enqueue at a
