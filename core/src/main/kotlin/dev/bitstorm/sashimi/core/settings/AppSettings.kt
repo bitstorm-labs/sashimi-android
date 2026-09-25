@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.core.settings
 
 import android.content.Context
+import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +58,10 @@ class AppSettings(context: Context) {
     private val _themeSongsEnabled = MutableStateFlow(prefs.getBoolean(KEY_THEME_SONGS, true))
     val themeSongsEnabled: StateFlow<Boolean> = _themeSongsEnabled.asStateFlow()
 
+    /** What a TV library's Shuffle button plays (sashimi-roku#141). */
+    private val _tvShuffleMode = MutableStateFlow(TvShuffleMode.fromKey(prefs.getString(KEY_TV_SHUFFLE_MODE, null)))
+    val tvShuffleMode: StateFlow<TvShuffleMode> = _tvShuffleMode.asStateFlow()
+
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
 
     fun setShowReviewRatings(value: Boolean) = putBoolean(_showReviewRatings, KEY_REVIEW_RATINGS, value)
@@ -88,6 +93,11 @@ class AppSettings(context: Context) {
     fun setPreferredSubtitleLanguage(value: String) = putString(_preferredSubtitleLanguage, KEY_PREF_SUB_LANG, value)
 
     fun setThemeSongsEnabled(value: Boolean) = putBoolean(_themeSongsEnabled, KEY_THEME_SONGS, value)
+
+    fun setTvShuffleMode(value: TvShuffleMode) {
+        _tvShuffleMode.value = value
+        prefs.edit().putString(KEY_TV_SHUFFLE_MODE, value.key).apply()
+    }
 
     private fun putBoolean(
         flow: MutableStateFlow<Boolean>,
@@ -122,6 +132,7 @@ class AppSettings(context: Context) {
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
         private const val KEY_THEME_SONGS = "themeSongsEnabled"
+        private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which
