@@ -51,6 +51,32 @@ data class RecentlyAddedRoute(
 data class DetailRoute(
     val itemId: String,
     val libraryName: String? = null,
+    /**
+     * Set when the item belongs to a specific saved server rather than whatever
+     * server is active (a title opened from a cross-server filmography). The
+     * screen then reads through that server's own client and never switches the
+     * active server. Null means "the active server", as before.
+     */
+    val serverId: String? = null,
+)
+
+/**
+ * A cast or crew member's page: name, image and filmography across every saved
+ * server. [originServerId] is the server the tapped cast row came from, the only
+ * server on which [personId] is meaningful. [excludeItemId] and
+ * [excludeTitleKey] identify the title the user came from, so it is not listed
+ * as "something else they're in".
+ */
+@Serializable
+data class PersonRoute(
+    val personId: String,
+    val name: String,
+    val role: String? = null,
+    val type: String? = null,
+    val primaryImageTag: String? = null,
+    val originServerId: String? = null,
+    val excludeItemId: String? = null,
+    val excludeTitleKey: String? = null,
 )
 
 /**

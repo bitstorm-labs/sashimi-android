@@ -197,6 +197,14 @@ data class BaseItemDto(
             }
         }
 
+    /**
+     * Release year for display and title matching. Jellyfin normally sends
+     * ProductionYear; some libraries only carry the full PremiereDate, so fall
+     * back to its leading year (sashimi-apple parity).
+     */
+    val displayYear: Int?
+        get() = productionYear ?: premiereDate?.takeIf { it.length >= 4 }?.take(4)?.toIntOrNull()
+
     /** Series + SxEy title for episodes; the plain name otherwise. */
     val displayTitle: String
         get() {

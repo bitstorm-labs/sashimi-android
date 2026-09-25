@@ -390,11 +390,15 @@ class DetailViewModel(
 
     fun consumeError() = _state.update { it.copy(error = null) }
 
+    /**
+     * [client] is the shared active-server client unless the route is pinned to
+     * another saved server, in which case it is that server's own client.
+     */
     class Factory(
         private val itemId: String,
+        private val client: JellyfinClient = ServiceLocator.client,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DetailViewModel(ServiceLocator.client, ServiceLocator.downloadManager, itemId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = DetailViewModel(client, ServiceLocator.downloadManager, itemId) as T
     }
 }
