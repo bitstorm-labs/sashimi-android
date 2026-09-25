@@ -40,4 +40,12 @@ class ServerUrlTest {
         assertNull(normalizeServerUrl(""))
         assertNull(normalizeServerUrl("   "))
     }
+
+    @Test
+    fun `only plain http servers are unencrypted`() {
+        org.junit.Assert.assertTrue(isUnencryptedServerUrl("http://192.168.1.5:8096"))
+        org.junit.Assert.assertTrue(isUnencryptedServerUrl(" HTTP://media.local "))
+        org.junit.Assert.assertFalse(isUnencryptedServerUrl("https://media.example.com"))
+        org.junit.Assert.assertFalse(isUnencryptedServerUrl(null))
+    }
 }
