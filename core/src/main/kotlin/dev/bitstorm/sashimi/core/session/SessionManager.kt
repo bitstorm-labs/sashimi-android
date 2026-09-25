@@ -86,6 +86,13 @@ class SessionManager(
 
     private fun tokenKey(id: String): String = "accessToken.$id"
 
+    /**
+     * The saved token for one server, or null when it has none (never signed in,
+     * or dropped by a past session expiry). Lets cross-server features build a
+     * client of their own for that server without touching the shared one.
+     */
+    fun tokenFor(serverId: String): String? = tokenStore.get(tokenKey(serverId))
+
     // MARK: - Session lifecycle
 
     suspend fun restoreSession() {

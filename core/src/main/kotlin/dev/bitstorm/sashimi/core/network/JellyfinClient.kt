@@ -12,8 +12,10 @@ import dev.bitstorm.sashimi.core.model.LibraryViewsResponse
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.model.MediaSegmentType
 import dev.bitstorm.sashimi.core.model.MediaSegmentsResponse
+import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.PlaybackInfoResponse
 import dev.bitstorm.sashimi.core.model.PublicSystemInfo
+import dev.bitstorm.sashimi.core.person.PersonFilmographyClient
 import dev.bitstorm.sashimi.core.playback.DeviceProfile
 import dev.bitstorm.sashimi.core.playback.NegotiationFlags
 import dev.bitstorm.sashimi.core.playback.PlaybackInfoRequest
@@ -47,8 +49,9 @@ class JellyfinClient(
     private val deviceName: String = "Sashimi Android",
     private val clientVersion: String = "0.1.0",
     private val httpClient: OkHttpClient = defaultHttpClient(),
-    signInTimeoutMillis: Long = TimeUnit.SECONDS.toMillis(SIGN_IN_TIMEOUT_SECONDS),
-) : JellyfinAuthGateway {
+    private val signInTimeoutMillis: Long = TimeUnit.SECONDS.toMillis(SIGN_IN_TIMEOUT_SECONDS),
+) : JellyfinAuthGateway,
+    PersonFilmographyClient {
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -396,6 +399,7 @@ class JellyfinClient(
         isPlayed: Boolean? = null,
         isFavorite: Boolean? = null,
         isResumable: Boolean? = null,
+        personIds: String? = null,
     ): ItemsResponse {
         val uid = requireUserId()
         val query =
@@ -417,6 +421,7 @@ class JellyfinClient(
         isPlayed?.let { query.add("IsPlayed" to if (it) "true" else "false") }
         if (isFavorite == true) query.add("IsFavorite" to "true")
         if (isResumable == true) query.add("Filters" to "IsResumable")
+        personIds?.let { query.add("PersonIds" to it) }
 
         val data = execute("GET", "/Users/$uid/Items", query)
         return decode(data)
@@ -446,6 +451,81 @@ class JellyfinClient(
             )
         return decode<ItemsResponse>(data).items
     }
+
+    // MARK: - People
+
+    /**
+     * Every Movie and Series visible to this user that credits [personId].
+     * `/Items` is paged, so follow the pages rather than silently cutting a long
+     * filmography off at the first [pageSize].
+     */
+    override suspend fun getPersonMedia(
+        personId: String,
+        pageSize: Int,
+    ): List<BaseItemDto> {
+        val size = pageSize.coerceAtLeast(1)
+        val media = mutableListOf<BaseItemDto>()
+        while (true) {
+            val page =
+                getItems(
+                    includeTypes = listOf(ItemType.MOVIE, ItemType.SERIES),
+                    limit = size,
+                    startIndex = media.size,
+                    personIds = personId,
+                )
+            if (page.items.isEmpty()) break
+            media += page.items
+            if (media.size >= page.totalRecordCount || page.items.size < size) break
+        }
+        return media
+    }
+
+    /**
+     * People on this server matching [name]. Person ids are server-scoped, so a
+     * person from another server has to be resolved here by name.
+     */
+    override suspend fun searchPeople(
+        name: String,
+        limit: Int,
+    ): List<PersonInfo> {
+        val uid = requireUserId()
+        val data =
+            execute(
+                "GET",
+                "/Persons",
+                query =
+                    listOf(
+                        "SearchTerm" to name,
+                        "UserId" to uid,
+                        "Limit" to "${limit.coerceAtLeast(1)}",
+                        "EnableImages" to "true",
+                    ),
+            )
+        return decode<ItemsResponse>(data).items.map { person ->
+            PersonInfo(id = person.id, name = person.name, primaryImageTag = person.imageTags?.get("Primary"))
+        }
+    }
+
+    /**
+     * A separate client bound to one saved server, sharing this client's device
+     * identity and OkHttp connection pool. Cross-server features use one of these
+     * per server instead of repointing the shared client (the source of the
+     * hardest bugs on the Apple side). It has no [sessionExpiredHandler]: a 401
+     * from a non-active server must never sign the user out of the active one.
+     */
+    fun forServer(
+        serverUrl: String,
+        accessToken: String,
+        userId: String,
+    ): JellyfinClient =
+        JellyfinClient(
+            deviceId = deviceId,
+            clientName = clientName,
+            deviceName = deviceName,
+            clientVersion = clientVersion,
+            httpClient = httpClient,
+            signInTimeoutMillis = signInTimeoutMillis,
+        ).also { it.configure(serverUrl = serverUrl, accessToken = accessToken, userId = userId) }
 
     /**
      * One random item for the Shuffle button. `parentId` is the library or

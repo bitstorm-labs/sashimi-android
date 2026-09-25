@@ -17,6 +17,7 @@ import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
 import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
+import dev.bitstorm.sashimi.core.session.ServerClientRegistry
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.themesong.ThemeSongService
@@ -39,6 +40,14 @@ object ServiceLocator {
         private set
 
     lateinit var session: SessionManager
+        private set
+
+    /**
+     * One client per saved server for cross-server work (person filmography and
+     * the detail routes opened from it). Never the shared [client], which always
+     * follows the active server.
+     */
+    lateinit var serverClients: ServerClientRegistry<JellyfinClient>
         private set
 
     lateinit var homeRowSettings: HomeRowSettings
@@ -105,6 +114,10 @@ object ServiceLocator {
                 tokenStore = EncryptedTokenStore(app),
                 scope = appScope,
             )
+        serverClients =
+            ServerClientRegistry { server, token ->
+                client.forServer(serverUrl = server.url, accessToken = token, userId = server.userId)
+            }
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
@@ -127,6 +140,16 @@ object ServiceLocator {
                 authenticated = session.isAuthenticated,
                 scope = appScope,
             )
+    }
+
+    /**
+     * The per-server client for a saved server, or null when that server is no
+     * longer saved or has no token (signed out, or dropped by a past expiry).
+     */
+    fun clientForServer(serverId: String): JellyfinClient? {
+        val server = session.servers.value.firstOrNull { it.id == serverId } ?: return null
+        val token = session.tokenFor(serverId) ?: return null
+        return serverClients.clientFor(server, token)
     }
 
     /** A UUID generated once per install and reused (mirrors the Swift deviceId). */

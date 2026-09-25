@@ -1,7 +1,9 @@
 package dev.bitstorm.sashimi.ui.util
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
+import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.di.ServiceLocator
 
 /**
@@ -9,9 +11,15 @@ import dev.bitstorm.sashimi.di.ServiceLocator
  * computed properties across the Swift views. Jellyfin image endpoints don't
  * require the auth header, so these plain URLs load directly in Coil (the Swift
  * app builds them the same way, straight off `serverURL`).
+ *
+ * Bound to one client: [ImageUrls] follows the shared (active-server) client;
+ * a screen showing another server's item builds its own over that server's
+ * client, since an item id means nothing on a different server.
  */
-object ImageUrls {
-    private val client get() = ServiceLocator.client
+open class ImageUrlBuilder(
+    private val clientProvider: () -> JellyfinClient,
+) {
+    private val client get() = clientProvider()
 
     fun primary(
         itemId: String,
@@ -86,3 +94,12 @@ object ImageUrls {
         return backdrop(id, 1280)
     }
 }
+
+/** Image URLs for the active server. */
+object ImageUrls : ImageUrlBuilder({ ServiceLocator.client })
+
+/**
+ * The image builder for the server the current screen belongs to. Defaults to
+ * the active server; a cross-server detail provides its own.
+ */
+val LocalImageUrls = staticCompositionLocalOf<ImageUrlBuilder> { ImageUrls }

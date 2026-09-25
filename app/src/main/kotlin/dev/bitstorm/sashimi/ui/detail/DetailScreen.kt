@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -48,17 +49,20 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -68,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,9 +87,14 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.cleanedYouTubeTitle
+import dev.bitstorm.sashimi.core.person.CastOrdering
+import dev.bitstorm.sashimi.core.person.ServerMediaGrouping
+import dev.bitstorm.sashimi.core.person.displayRole
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.components.isYouTube
+import dev.bitstorm.sashimi.ui.nav.DetailRoute
+import dev.bitstorm.sashimi.ui.nav.PersonRoute
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
@@ -93,7 +103,9 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.Formatting
+import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
 import dev.bitstorm.sashimi.ui.util.ImageUrls
+import dev.bitstorm.sashimi.ui.util.LocalImageUrls
 import kotlinx.coroutines.launch
 
 private val WatchedGreen = Color(red = 0.29f, green = 0.73f, blue = 0.47f)
@@ -117,8 +129,30 @@ fun DetailScreen(
     onOpenDetail: (itemId: String, libraryName: String?) -> Unit,
     onPlay: (playItemId: String, startFromBeginning: Boolean) -> Unit,
     onPlayTrailer: (trailerItemId: String) -> Unit,
+    onOpenPerson: (PersonRoute) -> Unit,
+    /** Pins the screen to one saved server; null = the active server. See [DetailRoute.serverId]. */
+    serverId: String? = null,
 ) {
-    val vm: DetailViewModel = viewModel(key = "detail-$itemId", factory = DetailViewModel.Factory(itemId))
+    // A pinned route reads through that server's own client, so opening a title
+    // from another server never repoints the shared client or switches servers.
+    val pinnedClient = remember(serverId) { serverId?.let { ServiceLocator.clientForServer(it) } }
+    if (serverId != null && pinnedClient == null) {
+        ServerUnavailable(onBack)
+        return
+    }
+    val images = remember(pinnedClient) { pinnedClient?.let { c -> ImageUrlBuilder { c } } ?: ImageUrls }
+    val activeServerId by ServiceLocator.session.activeServerId.collectAsStateWithLifecycle()
+    val servers by ServiceLocator.session.servers.collectAsStateWithLifecycle()
+    val foreignServer =
+        serverId?.takeIf { it != activeServerId }?.let { id ->
+            ForeignServer(id, servers.firstOrNull { it.id == id }?.name ?: "another server")
+        }
+
+    val vm: DetailViewModel =
+        viewModel(
+            key = "detail-${serverId ?: "active"}-$itemId",
+            factory = DetailViewModel.Factory(itemId, pinnedClient ?: ServiceLocator.client),
+        )
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -149,7 +183,13 @@ fun DetailScreen(
     // Theme songs: report that a detail screen for this show is on the back
     // stack. Reporting only -- every decision (whether to play, the delay, the
     // fades, stopping) belongs to the app-level ThemeSongService.
-    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(item)
+    // The theme service resolves ids against the active server, so a title from
+    // another server has no theme here.
+    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(if (foreignServer == null) item else null)
+
+    val openPerson: (PersonInfo) -> Unit = { person ->
+        item?.let { current -> onOpenPerson(personRoute(person, current, serverId ?: activeServerId)) }
+    }
 
     val onPlayMain: (Boolean) -> Unit = { fromBeginning ->
         vm.playTargetId()?.let { onPlay(it, fromBeginning) }
@@ -158,27 +198,114 @@ fun DetailScreen(
         scope.launch { vm.firstLocalTrailerId()?.let { onPlayTrailer(it) } }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            // Overflow actions now live in the detail action row's single labeled
-            // menu (iOS PhoneDetailView parity), so the top bar is just Back.
-            BackTopBar(title = "", onBack = onBack)
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                item == null && state.isLoading ->
-                    Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                item == null ->
-                    Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        Text("Could not load item.", color = SashimiTextSecondary)
-                    }
-                isCompact ->
-                    CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
-                else ->
-                    ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+    CompositionLocalProvider(
+        LocalImageUrls provides images,
+        LocalForeignServer provides foreignServer,
+        LocalOpenPerson provides openPerson,
+    ) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                // Overflow actions now live in the detail action row's single labeled
+                // menu (iOS PhoneDetailView parity), so the top bar is just Back.
+                BackTopBar(title = "", onBack = onBack)
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                when {
+                    item == null && state.isLoading ->
+                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                    item == null ->
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("Could not load item.", color = SashimiTextSecondary)
+                        }
+                    isCompact ->
+                        CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+                    else ->
+                        ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+                }
             }
+        }
+    }
+}
+
+/** The server a pinned detail belongs to, when that is not the active server. */
+private data class ForeignServer(
+    val id: String,
+    val name: String,
+)
+
+private val LocalForeignServer = staticCompositionLocalOf<ForeignServer?> { null }
+
+private val LocalOpenPerson = staticCompositionLocalOf<(PersonInfo) -> Unit> { {} }
+
+private fun personRoute(
+    person: PersonInfo,
+    item: BaseItemDto,
+    originServerId: String?,
+): PersonRoute {
+    // Don't list the title the user came from as "something else they're in".
+    // For an episode that is its series (the filmography lists movies and shows).
+    val isTitle = item.type == ItemType.MOVIE || item.type == ItemType.SERIES
+    return PersonRoute(
+        personId = person.id,
+        name = person.name,
+        role = person.role,
+        type = person.type,
+        primaryImageTag = person.primaryImageTag,
+        originServerId = originServerId,
+        excludeItemId = if (isTitle) item.id else item.seriesId,
+        excludeTitleKey = if (isTitle) ServerMediaGrouping.titleKey(item) else null,
+    )
+}
+
+@Composable
+private fun ServerUnavailable(onBack: () -> Unit) {
+    Scaffold(topBar = { BackTopBar(title = "", onBack = onBack) }) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Unable to Open Title", color = SashimiTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "The saved session for this server is unavailable. Reconnect it in Settings, then try again.",
+                color = SashimiTextSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Shown on a title from a server other than the active one. Browsing, watched
+ * state and favorites work against that server directly; playback and downloads
+ * still run through the active server's client, so they wait for an explicit
+ * switch rather than silently changing the user's server.
+ */
+@Composable
+private fun ForeignServerBanner(server: ForeignServer) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(SashimiCard)
+                .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Icons.Filled.Dns, contentDescription = null, tint = SashimiAccent, modifier = Modifier.size(16.dp))
+            Text("On ${server.name}", color = SashimiTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(
+            "Playing and downloading use your current server. Switch to ${server.name} to play this title.",
+            color = SashimiTextSecondary,
+            fontSize = 13.sp,
+        )
+        OutlinedButton(onClick = { ServiceLocator.session.switchServer(server.id) }) {
+            Text("Switch to ${server.name}")
         }
     }
 }
@@ -212,7 +339,7 @@ private fun CompactLayout(
                     !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
             Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
                 AsyncImage(
-                    model = ImageUrls.detailBackdrop(item, false),
+                    model = LocalImageUrls.current.detailBackdrop(item, false),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
@@ -247,7 +374,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
             Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
         ) {
             AsyncImage(
-                model = ImageUrls.banner(item.id),
+                model = LocalImageUrls.current.banner(item.id),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -260,7 +387,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
         }
         // Avatar centered on the banner's bottom edge (top offset = banner - r).
         AsyncImage(
-            model = ImageUrls.primary(item.id, 240),
+            model = LocalImageUrls.current.primary(item.id, 240),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier =
@@ -288,7 +415,7 @@ private fun ExpandedLayout(
     val ytSeries = yt && item.type == ItemType.SERIES
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
-            model = ImageUrls.detailBackdrop(item, ytSeries),
+            model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             alignment = Alignment.TopEnd,
@@ -334,6 +461,7 @@ private fun DetailContent(
         MetadataRow(item)
         RatingsAndMedia(state, item)
         if (item.type == ItemType.MOVIE) GenresCert(item)
+        LocalForeignServer.current?.let { ForeignServerBanner(it) }
         ActionButtons(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer)
         OverviewSection(item)
         if (state.isSeries || state.isEpisode) SeasonsSection(state, vm, onOpenDetail, libraryName)
@@ -366,7 +494,7 @@ private fun TitleBlock(
                 }
                 if (!yt && seriesId != null) {
                     LogoImage(
-                        logoUrl = ImageUrls.logo(seriesId),
+                        logoUrl = LocalImageUrls.current.logo(seriesId),
                         fallback = seriesNameText,
                         modifier = Modifier.heightIn(max = 60.dp).widthIn(max = 250.dp),
                     )
@@ -427,7 +555,7 @@ private fun LogoOrTitle(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AsyncImage(
-                    model = ImageUrls.primary(item.id, 240),
+                    model = LocalImageUrls.current.primary(item.id, 240),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(50.dp).clip(CircleShape).background(SashimiCard),
@@ -455,7 +583,7 @@ private fun LogoOrTitle(
         )
     }
     LogoImage(
-        logoUrl = ImageUrls.logo(item.id),
+        logoUrl = LocalImageUrls.current.logo(item.id),
         fallback = titleText,
         modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
     )
@@ -659,16 +787,19 @@ private fun ActionButtons(
 ) {
     val scope = rememberCoroutineScope()
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val canPlay = LocalForeignServer.current == null
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Play/Resume — prominent, fixed size so its label never wraps or shrinks.
-        val playLabel = playButtonLabel(state, item)
-        Button(onClick = { onPlay(false) }) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(playLabel, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+        if (canPlay) {
+            val playLabel = playButtonLabel(state, item)
+            Button(onClick = { onPlay(false) }) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(playLabel, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+            }
         }
 
         // Watched state is a server call — only offer the toggle when online (M4
@@ -685,7 +816,7 @@ private fun ActionButtons(
         }
 
         // Single-item download (movies + episodes). Series use the bulk season menu.
-        if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
+        if (canPlay && (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE)) {
             dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item)
         }
 
@@ -722,11 +853,12 @@ private fun DetailActionOverflow(
     var showFileInfo by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
+    val canPlay = LocalForeignServer.current == null
     val hasStartOver =
-        state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
+        canPlay && (state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0))
     val seriesId = item.seriesId
     val canGoToSeries = online && item.type == ItemType.EPISODE && seriesId != null
-    val hasTrailer = (item.localTrailerCount ?: 0) > 0
+    val hasTrailer = canPlay && (item.localTrailerCount ?: 0) > 0
 
     // Nothing to show (rare: offline movie with no progress/trailer) → no button.
     if (!hasStartOver && !canGoToSeries && !hasTrailer && !online) return
@@ -909,7 +1041,7 @@ private fun SeasonsSection(
                 )
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
-                    SeasonDownloadMenu(episodes = state.episodes)
+                    if (LocalForeignServer.current == null) SeasonDownloadMenu(episodes = state.episodes)
                     state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
                         SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
                     }
@@ -1027,7 +1159,7 @@ private fun EpisodeRow(
                 .background(SashimiCard),
         ) {
             AsyncImage(
-                model = ImageUrls.primary(episode.id, 400),
+                model = LocalImageUrls.current.primary(episode.id, 400),
                 contentDescription = episode.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -1074,28 +1206,44 @@ private fun EpisodeRow(
     }
 }
 
+/**
+ * Actors first, then crew, each tappable through to the person's filmography.
+ * Crew used to be dropped entirely; sashimi-apple keeps them behind the actors.
+ */
 @Composable
 private fun CastSection(item: BaseItemDto) {
-    val cast = item.people?.filter { it.type == "Actor" }?.take(15).orEmpty()
-    if (cast.isEmpty()) return
+    val people = CastOrdering.sortedForDisplay(item.people.orEmpty())
+    if (people.isEmpty()) return
+    val hasCrew = people.any { !it.type.equals("Actor", ignoreCase = true) }
+    val openPerson = LocalOpenPerson.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Cast", color = SashimiTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(if (hasCrew) "Cast & Crew" else "Cast", color = SashimiTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            cast.forEach { CastCard(it) }
+            people.forEach { person -> CastCard(person, onClick = { openPerson(person) }) }
         }
     }
 }
 
 @Composable
-private fun CastCard(person: PersonInfo) {
-    Column(modifier = Modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun CastCard(
+    person: PersonInfo,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .width(80.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button, onClickLabel = "Show filmography", onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Box(Modifier.size(70.dp).clip(CircleShape).background(SashimiCard)) {
             if (person.primaryImageTag != null) {
                 AsyncImage(
-                    model = ImageUrls.person(person.id),
+                    model = LocalImageUrls.current.person(person.id),
                     contentDescription = person.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -1111,7 +1259,7 @@ private fun CastCard(person: PersonInfo) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),
         )
-        person.role?.takeIf { it.isNotEmpty() }?.let {
+        person.displayRole?.let {
             Text(it, color = SashimiTextTertiary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
