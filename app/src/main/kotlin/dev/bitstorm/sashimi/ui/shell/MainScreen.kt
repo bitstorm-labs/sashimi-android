@@ -59,10 +59,12 @@ import dev.bitstorm.sashimi.ui.nav.HomeRoute
 import dev.bitstorm.sashimi.ui.nav.HomeRowOrderRoute
 import dev.bitstorm.sashimi.ui.nav.LibrariesRoute
 import dev.bitstorm.sashimi.ui.nav.LibraryBrowseRoute
+import dev.bitstorm.sashimi.ui.nav.PersonRoute
 import dev.bitstorm.sashimi.ui.nav.PlayerRoute
 import dev.bitstorm.sashimi.ui.nav.RecentlyAddedRoute
 import dev.bitstorm.sashimi.ui.nav.SearchRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
+import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.search.SearchScreen
 import dev.bitstorm.sashimi.ui.settings.SettingsScreen
@@ -278,9 +280,12 @@ private fun AppShell(
                 DetailScreen(
                     itemId = route.itemId,
                     libraryName = route.libraryName,
+                    serverId = route.serverId,
                     isCompact = isCompact,
                     onBack = { navController.popBackStack() },
-                    onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
+                    // Episodes, seasons and "Go to Series" stay on the same server.
+                    onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln, route.serverId)) },
+                    onOpenPerson = { navController.navigate(it) },
                     onPlay = { playId, fromBeginning ->
                         ServiceLocator.themeSongs.stopForPlayback()
                         navController.navigate(PlayerRoute(itemId = playId, startFromBeginning = fromBeginning))
@@ -288,6 +293,17 @@ private fun AppShell(
                     onPlayTrailer = { trailerId ->
                         ServiceLocator.themeSongs.stopForPlayback()
                         navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId))
+                    },
+                )
+            }
+            composable<PersonRoute> { entry ->
+                PersonScreen(
+                    route = entry.toRoute<PersonRoute>(),
+                    onBack = { navController.popBackStack() },
+                    // Always pinned to the source's server, even the active one, so
+                    // the detail keeps reading the right server if the user switches.
+                    onOpenSource = { source ->
+                        navController.navigate(DetailRoute(source.item.id, serverId = source.serverId))
                     },
                 )
             }
