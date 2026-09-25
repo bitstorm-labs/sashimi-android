@@ -157,6 +157,8 @@ fun SettingsScreen(
                     settings::setThemeSongsEnabled,
                     subtitle = "Play a show's theme music while you browse its page.",
                 )
+                val use24Hour by settings.use24HourTime.collectAsStateWithLifecycle()
+                SwitchRow("24-Hour Time", use24Hour, settings::setUse24HourTime)
             }
 
             item { SectionHeader("DOWNLOADS") }

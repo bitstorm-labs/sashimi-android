@@ -126,6 +126,22 @@ data class ChapterInfo(
         get() = startPositionTicks / 10_000_000.0
 }
 
+/**
+ * One trickplay resolution for one media source: [width]x[height] thumbnails
+ * packed row-major into [tileWidth]x[tileHeight] JPEG sheets, one thumbnail
+ * every [interval] ms. See core.trickplay.TrickplayMath.
+ */
+@Serializable
+data class TrickplayInfo(
+    @SerialName("Width") val width: Int = 0,
+    @SerialName("Height") val height: Int = 0,
+    @SerialName("TileWidth") val tileWidth: Int = 0,
+    @SerialName("TileHeight") val tileHeight: Int = 0,
+    @SerialName("ThumbnailCount") val thumbnailCount: Int = 0,
+    @SerialName("Interval") val interval: Int = 0,
+    @SerialName("Bandwidth") val bandwidth: Int = 0,
+)
+
 @Serializable
 data class BaseItemDto(
     @SerialName("Id") val id: String,
@@ -161,6 +177,8 @@ data class BaseItemDto(
     @SerialName("LocalTrailerCount") val localTrailerCount: Int? = null,
     // Present only when the item query requests Fields=MediaStreams.
     @SerialName("MediaStreams") val mediaStreams: List<MediaStream>? = null,
+    // Present when the query requests Fields=Trickplay: mediaSourceId -> width -> tile-sheet geometry.
+    @SerialName("Trickplay") val trickplay: Map<String, Map<String, TrickplayInfo>>? = null,
 ) {
     /**
      * Resolution chip for cover art: "4K", "HD", or "SD"; null when the item has

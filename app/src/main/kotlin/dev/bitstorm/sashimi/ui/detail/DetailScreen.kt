@@ -503,7 +503,8 @@ private fun MetadataRow(item: BaseItemDto) {
             ?: item.productionYear?.let { parts.add(it.toString()) }
     }
     item.runTimeTicks?.let { parts.add(Formatting.runtime(it)) }
-    val endsAt = item.runTimeTicks?.let { Formatting.endsAt(it) }
+    val use24Hour by ServiceLocator.appSettings.use24HourTime.collectAsStateWithLifecycle()
+    val endsAt = item.runTimeTicks?.let { Formatting.endsAt(it, use24Hour) }
 
     if (parts.isNotEmpty() || endsAt != null) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

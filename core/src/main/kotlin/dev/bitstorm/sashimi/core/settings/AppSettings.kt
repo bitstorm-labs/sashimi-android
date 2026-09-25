@@ -57,6 +57,13 @@ class AppSettings(context: Context) {
     private val _themeSongsEnabled = MutableStateFlow(prefs.getBoolean(KEY_THEME_SONGS, true))
     val themeSongsEnabled: StateFlow<Boolean> = _themeSongsEnabled.asStateFlow()
 
+    /**
+     * Show clock times as 24-hour ("21:45") instead of 12-hour ("9:45 PM").
+     * Defaults off, like the other clients. Read by [dev.bitstorm.sashimi.core.time.ClockFormat] callers.
+     */
+    private val _use24HourTime = MutableStateFlow(prefs.getBoolean(KEY_USE_24_HOUR_TIME, false))
+    val use24HourTime: StateFlow<Boolean> = _use24HourTime.asStateFlow()
+
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
 
     fun setShowReviewRatings(value: Boolean) = putBoolean(_showReviewRatings, KEY_REVIEW_RATINGS, value)
@@ -88,6 +95,8 @@ class AppSettings(context: Context) {
     fun setPreferredSubtitleLanguage(value: String) = putString(_preferredSubtitleLanguage, KEY_PREF_SUB_LANG, value)
 
     fun setThemeSongsEnabled(value: Boolean) = putBoolean(_themeSongsEnabled, KEY_THEME_SONGS, value)
+
+    fun setUse24HourTime(value: Boolean) = putBoolean(_use24HourTime, KEY_USE_24_HOUR_TIME, value)
 
     private fun putBoolean(
         flow: MutableStateFlow<Boolean>,
@@ -122,6 +131,7 @@ class AppSettings(context: Context) {
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
         private const val KEY_THEME_SONGS = "themeSongsEnabled"
+        private const val KEY_USE_24_HOUR_TIME = "use24HourTime"
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which
