@@ -92,12 +92,21 @@ fun PlayerScreen(
     startFromBeginning: Boolean,
     trailerItemId: String?,
     onExit: () -> Unit,
+    /** The item's saved server when it is not the active one; see [dev.bitstorm.sashimi.ui.nav.PlayerRoute.serverId]. */
+    serverId: String? = null,
 ) {
+    // Resolved once per route: a title from another server plays through that
+    // server's own client and never repoints the shared one or switches servers.
+    val client = remember(serverId) { ServiceLocator.playbackClientFor(serverId) }
+    if (client == null) {
+        PlayerServerUnavailable(onExit)
+        return
+    }
     val app = LocalActivity().application
     val vm: PlayerViewModel =
         viewModel(
-            key = "player-$itemId-${trailerItemId ?: ""}",
-            factory = PlayerViewModel.Factory(app, itemId, startFromBeginning, trailerItemId),
+            key = "player-${serverId ?: "active"}-$itemId-${trailerItemId ?: ""}",
+            factory = PlayerViewModel.Factory(app, client, itemId, startFromBeginning, trailerItemId),
         )
     val state by vm.state.collectAsStateWithLifecycle()
 
@@ -368,7 +377,7 @@ private fun Scrubber(
     val trickplay by vm.trickplay.collectAsStateWithLifecycle()
     Column(modifier) {
         if (scrubbing) {
-            TrickplayPreview(trickplay, scrubValue.toLong(), durationMs, Modifier.fillMaxWidth().padding(bottom = 8.dp))
+            TrickplayPreview(vm.client, trickplay, scrubValue.toLong(), durationMs, Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
         Slider(
             value = if (scrubbing) scrubValue else positionMs.toFloat(),
@@ -560,4 +569,24 @@ private fun Context.findActivity(): Activity {
         ctx = ctx.baseContext
     }
     error("PlayerScreen must be hosted in an Activity")
+}
+
+/**
+ * The item's server is no longer saved or has no session. Playing it through
+ * the active server instead would ask the wrong server for an id that means
+ * nothing there, so say so and offer the way out.
+ */
+@Composable
+private fun PlayerServerUnavailable(onExit: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding().padding(24.dp)) {
+        IconButton(onClick = onExit, modifier = Modifier.align(Alignment.TopStart)) {
+            Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+        }
+        Text(
+            "The saved session for this title's server is unavailable. Reconnect it in Settings, then try again.",
+            color = Color.White,
+            fontSize = 15.sp,
+            modifier = Modifier.align(Alignment.Center),
+        )
+    }
 }

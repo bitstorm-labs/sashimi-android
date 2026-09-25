@@ -45,6 +45,13 @@ data class DownloadedItemEntity(
     val pendingProgressSync: Boolean = false,
     val dateAdded: Long = 0,
     val dateCompleted: Long? = null,
+    /**
+     * The saved server this item was downloaded from. The download, its
+     * artwork and subtitles, and later progress sync all go to this server,
+     * whichever server is active by then. Null on rows written before
+     * downloads carried a server (they keep using the active server).
+     */
+    val serverId: String? = null,
 ) {
     val downloadStatus: DownloadStatus get() = DownloadStatus.fromWire(status)
     val downloadQuality: DownloadQuality get() = DownloadQuality.fromWire(quality)

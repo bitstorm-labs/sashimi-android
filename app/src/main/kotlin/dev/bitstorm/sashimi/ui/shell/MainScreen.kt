@@ -221,6 +221,9 @@ private fun AppShell(
                     )
                 } else {
                     OfflineHomeScreen(
+                        // No serverId: these are local files, which need no server
+                        // to play, and their progress syncs to the server each
+                        // download came from (DownloadedItemEntity.serverId).
                         onPlay = { id ->
                             ServiceLocator.themeSongs.stopForPlayback()
                             navController.navigate(PlayerRoute(itemId = id))
@@ -286,13 +289,16 @@ private fun AppShell(
                     // Episodes, seasons and "Go to Series" stay on the same server.
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln, route.serverId)) },
                     onOpenPerson = { navController.navigate(it) },
+                    // Playback stays on the title's server too, without switching servers.
                     onPlay = { playId, fromBeginning ->
                         ServiceLocator.themeSongs.stopForPlayback()
-                        navController.navigate(PlayerRoute(itemId = playId, startFromBeginning = fromBeginning))
+                        navController.navigate(
+                            PlayerRoute(itemId = playId, startFromBeginning = fromBeginning, serverId = route.serverId),
+                        )
                     },
                     onPlayTrailer = { trailerId ->
                         ServiceLocator.themeSongs.stopForPlayback()
-                        navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId))
+                        navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId, serverId = route.serverId))
                     },
                 )
             }
@@ -318,6 +324,7 @@ private fun AppShell(
                     itemId = route.itemId,
                     startFromBeginning = route.startFromBeginning,
                     trailerItemId = route.trailerItemId,
+                    serverId = route.serverId,
                     onExit = { navController.popBackStack() },
                 )
             }

@@ -6,6 +6,8 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -60,7 +62,22 @@ interface DownloadDao {
     suspend fun clearSyncFlag(itemId: String)
 }
 
-@Database(entities = [DownloadedItemEntity::class], version = 2, exportSchema = false)
+@Database(entities = [DownloadedItemEntity::class], version = 3, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
+
+    companion object {
+        /**
+         * Adds [DownloadedItemEntity.serverId]. A real migration, not a
+         * destructive one: the database falls back to destructive migration,
+         * which would drop every row, and the orphan sweep in DownloadManager
+         * would then delete the user's downloaded files along with them.
+         */
+        val MIGRATION_2_3: Migration =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE downloaded_items ADD COLUMN serverId TEXT")
+                }
+            }
+    }
 }

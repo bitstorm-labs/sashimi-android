@@ -16,6 +16,7 @@ import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.themesong.OtherAudioProbe
 import dev.bitstorm.sashimi.core.themesong.ThemeStartDecision
 import dev.bitstorm.sashimi.core.themesong.ThemeStartPolicy
+import dev.bitstorm.sashimi.core.themesong.ThemeTarget
 import dev.bitstorm.sashimi.core.themesong.ThemeVisitAction
 import dev.bitstorm.sashimi.core.themesong.ThemeVisitState
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
@@ -69,7 +70,12 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 class ThemeSongService(
     context: Context,
-    private val client: JellyfinClient,
+    /**
+     * The client for a show's server (null = the active server). A title opened
+     * from another server resolves and streams its theme from that server,
+     * without switching the active one.
+     */
+    private val clientFor: (serverId: String?) -> JellyfinClient?,
     private val settings: AppSettings,
     appScope: CoroutineScope,
 ) {
@@ -87,6 +93,9 @@ class ThemeSongService(
      * "could not ask", not "there is none".
      */
     private val resolved = mutableMapOf<String, String?>()
+
+    /** The show (and its server) behind each visit key seen so far. */
+    private val targets = mutableMapOf<String, ThemeTarget>()
 
     private var player: ExoPlayer? = null
 
@@ -141,17 +150,18 @@ class ThemeSongService(
 
     // MARK: - Intent reported by screens
 
-    /** A detail screen for [seriesId] joined the back stack. */
-    fun detailAppeared(seriesId: String) {
-        val action = visits.appeared(seriesId)
+    /** A detail screen for [target]'s show joined the back stack. */
+    fun detailAppeared(target: ThemeTarget) {
+        targets[target.visitKey] = target
+        val action = visits.appeared(target.visitKey)
         if (action is ThemeVisitAction.Start) {
             submit { play(action.seriesId, replacing = action.replacing != null) }
         }
     }
 
-    /** A detail screen for [seriesId] left the back stack for good. */
-    fun detailDisappeared(seriesId: String) {
-        if (visits.disappeared(seriesId) is ThemeVisitAction.Stop) {
+    /** A detail screen for [target]'s show left the back stack for good. */
+    fun detailDisappeared(target: ThemeTarget) {
+        if (visits.disappeared(target.visitKey) is ThemeVisitAction.Stop) {
             submit { cut(FADE_SHOW_CHANGE_MS) }
         }
     }
@@ -189,8 +199,9 @@ class ThemeSongService(
             }
     }
 
+    /** [visitKey] is a [ThemeTarget.visitKey]; see [targets]. */
     private suspend fun play(
-        seriesId: String,
+        visitKey: String,
         replacing: Boolean,
     ) {
         // Captured before the cut below, because after it the answer is always
@@ -209,10 +220,13 @@ class ThemeSongService(
         val decision = startPolicy.decide(settings.themeSongsEnabled.value, alreadyOwnsAudio)
         if (decision != ThemeStartDecision.PLAY) return
 
-        val themeId = resolveThemeId(seriesId) ?: return
+        val target = targets[visitKey] ?: return
+        // A server that has since been removed or signed out is one more silence.
+        val client = clientFor(target.serverId) ?: return
+        val themeId = resolveThemeId(visitKey, target.seriesId, client) ?: return
         val url = client.themeAudioStreamUrl(themeId) ?: return
         // The visit can have moved on while the lookup was in flight.
-        if (visits.currentKey != seriesId) return
+        if (visits.currentKey != visitKey) return
 
         // Denied focus is one more silent no-op: something more important than a
         // theme song is using the audio.
@@ -266,12 +280,16 @@ class ThemeSongService(
      * answer from the server is cached; a thrown request is left uncached so a
      * transient failure does not permanently mute a show.
      */
-    private suspend fun resolveThemeId(seriesId: String): String? {
-        if (resolved.containsKey(seriesId)) return resolved[seriesId]
+    private suspend fun resolveThemeId(
+        visitKey: String,
+        seriesId: String,
+        client: JellyfinClient,
+    ): String? {
+        if (resolved.containsKey(visitKey)) return resolved[visitKey]
         val result = runCatchingCancellable { client.getThemeSongItemId(seriesId) }
         if (result.isFailure) return null
         val id = result.getOrNull()
-        resolved[seriesId] = id
+        resolved[visitKey] = id
         return id
     }
 

@@ -27,6 +27,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
 import dev.bitstorm.sashimi.di.ServiceLocator
 
@@ -41,6 +42,10 @@ private val Success = Color(0xFF4CAF50)
 @Composable
 fun DownloadButton(
     item: BaseItemDto,
+    /** The saved server [item] is on; the download fetches from it. */
+    serverId: String?,
+    /** That server's client, for the Original-quality probe. */
+    client: JellyfinClient,
     modifier: Modifier = Modifier,
 ) {
     val manager = ServiceLocator.downloadManager
@@ -65,10 +70,11 @@ fun DownloadButton(
     if (showQualityDialog) {
         QualityDialog(
             item = item,
+            client = client,
             onDismiss = { showQualityDialog = false },
             onPick = { quality ->
                 showQualityDialog = false
-                notificationGate { manager.enqueueDownload(item, quality) }
+                notificationGate { manager.enqueueDownload(item, quality, serverId) }
             },
         )
     }
@@ -128,6 +134,8 @@ private fun DownloadButtonIcon(row: DownloadedItemEntity?) {
 @Composable
 fun QualityDialog(
     item: BaseItemDto,
+    /** The item's own server (not necessarily the active one). */
+    client: JellyfinClient,
     onDismiss: () -> Unit,
     onPick: (DownloadQuality) -> Unit,
     seasonProxyItemId: String? = null,
@@ -138,7 +146,7 @@ fun QualityDialog(
         val probeId = seasonProxyItemId ?: item.id
         originalAllowed =
             runCatching {
-                val source = ServiceLocator.client.getPlaybackInfo(probeId).mediaSources?.firstOrNull()
+                val source = client.getPlaybackInfo(probeId).mediaSources?.firstOrNull()
                 source != null &&
                     DeviceMediaCompatibility.canDirectPlayOnDevice(
                         source,
