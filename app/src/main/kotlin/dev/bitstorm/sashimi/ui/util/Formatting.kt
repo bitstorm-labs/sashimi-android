@@ -1,5 +1,7 @@
 package dev.bitstorm.sashimi.ui.util
 
+import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.time.ClockFormat
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -51,6 +53,22 @@ object Formatting {
 
     /** "Nov 8, 2024" (short air date for episode rows). Port of shortAirDateText. */
     fun shortAirDate(raw: String?): String? = parse(raw)?.format(SHORT_DATE_FORMAT)
+
+    /**
+     * The detail metadata line before "Ends at": "2023 • 3h 0m" for a movie
+     * (release year, then runtime), "November 8, 2024 • 45 min" for an episode.
+     * A movie whose library carries only PremiereDate still gets its year
+     * (displayYear), rather than nothing. Port of PhoneDetailView.metadataParts.
+     */
+    fun detailMetadata(item: BaseItemDto): List<String> =
+        buildList {
+            if (item.type == ItemType.MOVIE) {
+                item.displayYear?.let { add(it.toString()) }
+            } else {
+                (premiereDateLong(item.premiereDate) ?: item.productionYear?.toString())?.let { add(it) }
+            }
+            item.runTimeTicks?.let { add(runtime(it)) }
+        }
 
     /** Codec wordmark used on media badges. Port of PhoneDetailView.formatCodec. */
     fun codec(codec: String): String =
