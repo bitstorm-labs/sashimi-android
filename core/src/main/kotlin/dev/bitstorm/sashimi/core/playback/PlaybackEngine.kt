@@ -100,6 +100,13 @@ class PlaybackEngine(
         )
     }
 
+    /**
+     * The same negotiation bound to [other]: a title from a non-active server
+     * negotiates, streams, and tears down its transcode on that server. The
+     * device profile is the device's, so it is shared.
+     */
+    fun withClient(other: JellyfinClient): PlaybackEngine = if (other === client) this else PlaybackEngine(other, profileBuilder)
+
     fun subtitleStreamUrl(
         itemId: String,
         subtitleStreamIndex: Int,

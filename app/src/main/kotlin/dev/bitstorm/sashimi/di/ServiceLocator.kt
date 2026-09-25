@@ -17,7 +17,7 @@ import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
 import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
-import dev.bitstorm.sashimi.core.session.ServerClientRegistry
+import dev.bitstorm.sashimi.core.session.ServerScopedClients
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.themesong.ThemeSongService
@@ -43,11 +43,12 @@ object ServiceLocator {
         private set
 
     /**
-     * One client per saved server for cross-server work (person filmography and
-     * the detail routes opened from it). Never the shared [client], which always
-     * follows the active server.
+     * Clients for work tied to one saved server: the person filmography, a
+     * detail route opened from it, and that title's playback, downloads and
+     * theme song. Other servers get their own client; the shared [client]
+     * always follows the active server and is never repointed.
      */
-    lateinit var serverClients: ServerClientRegistry<JellyfinClient>
+    lateinit var serverClients: ServerScopedClients<JellyfinClient>
         private set
 
     lateinit var homeRowSettings: HomeRowSettings
@@ -115,19 +116,25 @@ object ServiceLocator {
                 scope = appScope,
             )
         serverClients =
-            ServerClientRegistry { server, token ->
+            ServerScopedClients(
+                shared = client,
+                activeServerId = { session.activeServerId.value },
+                servers = { session.servers.value },
+                tokenFor = session::tokenFor,
+            ) { server, token ->
                 client.forServer(serverUrl = server.url, accessToken = token, userId = server.userId)
             }
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
         playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities()))
-        themeSongs = ThemeSongService(app, client, appSettings, appScope)
+        themeSongs = ThemeSongService(app, serverClients::clientFor, appSettings, appScope)
 
         networkMonitor = NetworkMonitor(app)
         downloadFileManager = DownloadFileManager(app)
         val db =
             Room.databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")
+                .addMigrations(DownloadDatabase.MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
         downloadManager =
@@ -135,7 +142,7 @@ object ServiceLocator {
                 context = app,
                 repository = DownloadRepository(db.downloadDao()),
                 fileManager = downloadFileManager,
-                client = client,
+                clientFor = serverClients::forRecord,
                 networkMonitor = networkMonitor,
                 authenticated = session.isAuthenticated,
                 scope = appScope,
@@ -146,11 +153,14 @@ object ServiceLocator {
      * The per-server client for a saved server, or null when that server is no
      * longer saved or has no token (signed out, or dropped by a past expiry).
      */
-    fun clientForServer(serverId: String): JellyfinClient? {
-        val server = session.servers.value.firstOrNull { it.id == serverId } ?: return null
-        val token = session.tokenFor(serverId) ?: return null
-        return serverClients.clientFor(server, token)
-    }
+    fun clientForServer(serverId: String): JellyfinClient? = serverClients.dedicated(serverId)
+
+    /**
+     * The client to play a title from [serverId] with: the shared client for
+     * the active server (or null), that server's own client otherwise. Null when
+     * that server is no longer saved or has no token.
+     */
+    fun playbackClientFor(serverId: String?): JellyfinClient? = serverClients.clientFor(serverId)
 
     /** A UUID generated once per install and reused (mirrors the Swift deviceId). */
     private fun stableDeviceId(context: Context): String {

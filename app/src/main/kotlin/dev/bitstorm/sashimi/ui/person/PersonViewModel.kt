@@ -110,7 +110,7 @@ class PersonViewModel(
                 PersonFilmographyService(
                     servers = { session.servers.value },
                     tokenFor = { session.tokenFor(it.id) },
-                    clientFor = { server, token -> ServiceLocator.serverClients.clientFor(server, token) },
+                    clientFor = { server, token -> ServiceLocator.serverClients.dedicated(server, token) },
                 )
             return PersonViewModel(
                 route = route,

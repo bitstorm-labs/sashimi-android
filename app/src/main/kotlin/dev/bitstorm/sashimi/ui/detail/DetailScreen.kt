@@ -26,7 +26,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -49,7 +48,6 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -87,6 +85,7 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.cleanedYouTubeTitle
+import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.person.CastOrdering
 import dev.bitstorm.sashimi.core.person.ServerMediaGrouping
 import dev.bitstorm.sashimi.core.person.displayRole
@@ -142,11 +141,9 @@ fun DetailScreen(
     }
     val images = remember(pinnedClient) { pinnedClient?.let { c -> ImageUrlBuilder { c } } ?: ImageUrls }
     val activeServerId by ServiceLocator.session.activeServerId.collectAsStateWithLifecycle()
-    val servers by ServiceLocator.session.servers.collectAsStateWithLifecycle()
-    val foreignServer =
-        serverId?.takeIf { it != activeServerId }?.let { id ->
-            ForeignServer(id, servers.firstOrNull { it.id == id }?.name ?: "another server")
-        }
+    // Downloads are stamped with the item's server so they (and their later
+    // progress sync) keep going there after the user switches servers.
+    val itemServer = ItemServer(downloadServerId = serverId ?: activeServerId, client = pinnedClient ?: ServiceLocator.client)
 
     val vm: DetailViewModel =
         viewModel(
@@ -182,10 +179,9 @@ fun DetailScreen(
 
     // Theme songs: report that a detail screen for this show is on the back
     // stack. Reporting only -- every decision (whether to play, the delay, the
-    // fades, stopping) belongs to the app-level ThemeSongService.
-    // The theme service resolves ids against the active server, so a title from
-    // another server has no theme here.
-    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(if (foreignServer == null) item else null)
+    // fades, stopping) belongs to the app-level ThemeSongService, which resolves
+    // a title from another server against that server.
+    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(item, serverId = serverId?.takeIf { it != activeServerId })
 
     val openPerson: (PersonInfo) -> Unit = { person ->
         item?.let { current -> onOpenPerson(personRoute(person, current, serverId ?: activeServerId)) }
@@ -200,7 +196,7 @@ fun DetailScreen(
 
     CompositionLocalProvider(
         LocalImageUrls provides images,
-        LocalForeignServer provides foreignServer,
+        LocalItemServer provides itemServer,
         LocalOpenPerson provides openPerson,
     ) {
         Scaffold(
@@ -229,13 +225,17 @@ fun DetailScreen(
     }
 }
 
-/** The server a pinned detail belongs to, when that is not the active server. */
-private data class ForeignServer(
-    val id: String,
-    val name: String,
+/**
+ * The server this detail's item lives on. [downloadServerId] is stamped on new
+ * downloads (null only when signed out); [client] is that server's client, for
+ * the download quality probe.
+ */
+private data class ItemServer(
+    val downloadServerId: String?,
+    val client: JellyfinClient,
 )
 
-private val LocalForeignServer = staticCompositionLocalOf<ForeignServer?> { null }
+private val LocalItemServer = staticCompositionLocalOf { ItemServer(null, ServiceLocator.client) }
 
 private val LocalOpenPerson = staticCompositionLocalOf<(PersonInfo) -> Unit> { {} }
 
@@ -274,38 +274,6 @@ private fun ServerUnavailable(onBack: () -> Unit) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 8.dp),
             )
-        }
-    }
-}
-
-/**
- * Shown on a title from a server other than the active one. Browsing, watched
- * state and favorites work against that server directly; playback and downloads
- * still run through the active server's client, so they wait for an explicit
- * switch rather than silently changing the user's server.
- */
-@Composable
-private fun ForeignServerBanner(server: ForeignServer) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(SashimiCard)
-                .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Filled.Dns, contentDescription = null, tint = SashimiAccent, modifier = Modifier.size(16.dp))
-            Text("On ${server.name}", color = SashimiTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        }
-        Text(
-            "Playing and downloading use your current server. Switch to ${server.name} to play this title.",
-            color = SashimiTextSecondary,
-            fontSize = 13.sp,
-        )
-        OutlinedButton(onClick = { ServiceLocator.session.switchServer(server.id) }) {
-            Text("Switch to ${server.name}")
         }
     }
 }
@@ -461,7 +429,6 @@ private fun DetailContent(
         MetadataRow(item)
         RatingsAndMedia(state, item)
         if (item.type == ItemType.MOVIE) GenresCert(item)
-        LocalForeignServer.current?.let { ForeignServerBanner(it) }
         ActionButtons(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer)
         OverviewSection(item)
         if (state.isSeries || state.isEpisode) SeasonsSection(state, vm, onOpenDetail, libraryName)
@@ -787,19 +754,15 @@ private fun ActionButtons(
 ) {
     val scope = rememberCoroutineScope()
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
-    val canPlay = LocalForeignServer.current == null
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Play/Resume — prominent, fixed size so its label never wraps or shrinks.
-        if (canPlay) {
-            val playLabel = playButtonLabel(state, item)
-            Button(onClick = { onPlay(false) }) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(playLabel, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
-            }
+        Button(onClick = { onPlay(false) }) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(playButtonLabel(state, item), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
         }
 
         // Watched state is a server call — only offer the toggle when online (M4
@@ -816,8 +779,9 @@ private fun ActionButtons(
         }
 
         // Single-item download (movies + episodes). Series use the bulk season menu.
-        if (canPlay && (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE)) {
-            dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item)
+        if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
+            val server = LocalItemServer.current
+            dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
         }
 
         // Shuffle stays visible for series (a primary series action on iOS).
@@ -853,12 +817,11 @@ private fun DetailActionOverflow(
     var showFileInfo by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    val canPlay = LocalForeignServer.current == null
     val hasStartOver =
-        canPlay && (state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0))
+        state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
     val seriesId = item.seriesId
     val canGoToSeries = online && item.type == ItemType.EPISODE && seriesId != null
-    val hasTrailer = canPlay && (item.localTrailerCount ?: 0) > 0
+    val hasTrailer = (item.localTrailerCount ?: 0) > 0
 
     // Nothing to show (rare: offline movie with no progress/trailer) → no button.
     if (!hasStartOver && !canGoToSeries && !hasTrailer && !online) return
@@ -1041,7 +1004,7 @@ private fun SeasonsSection(
                 )
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
-                    if (LocalForeignServer.current == null) SeasonDownloadMenu(episodes = state.episodes)
+                    SeasonDownloadMenu(episodes = state.episodes)
                     state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
                         SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
                     }
@@ -1120,15 +1083,17 @@ private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
     }
 
     val notificationGate = dev.bitstorm.sashimi.ui.downloads.rememberNotificationPermissionGate()
+    val server = LocalItemServer.current
     pendingEpisodes?.let { eps ->
         if (eps.isNotEmpty()) {
             dev.bitstorm.sashimi.ui.downloads.QualityDialog(
                 item = eps.first(),
+                client = server.client,
                 seasonProxyItemId = eps.first().id,
                 onDismiss = { pendingEpisodes = null },
                 onPick = { quality ->
                     pendingEpisodes = null
-                    notificationGate { ServiceLocator.downloadManager.downloadSeason(eps, quality) }
+                    notificationGate { ServiceLocator.downloadManager.downloadSeason(eps, quality, server.downloadServerId) }
                 },
             )
         }

@@ -97,3 +97,27 @@ fun themeKeyFor(
         ItemType.SEASON, ItemType.EPISODE -> seriesId
         else -> null
     }
+
+/**
+ * A show's theme on a specific saved server. Item ids only mean something on
+ * their own server, and two servers over the same media folders can even mint
+ * the same id, so a visit to a title from another server is keyed by both.
+ * [serverId] is null for the active server, which keeps active-server visit
+ * keys exactly the bare series id they have always been.
+ */
+data class ThemeTarget(
+    val serverId: String?,
+    val seriesId: String,
+) {
+    /** The [ThemeVisitState] key for this show. */
+    val visitKey: String
+        get() = serverId?.let { "$it/$seriesId" } ?: seriesId
+}
+
+/** The theme target for a detail item on [serverId] (null = the active server), or null when it has none. */
+fun themeTargetFor(
+    type: ItemType?,
+    itemId: String,
+    seriesId: String?,
+    serverId: String?,
+): ThemeTarget? = themeKeyFor(type, itemId, seriesId)?.let { ThemeTarget(serverId, it) }

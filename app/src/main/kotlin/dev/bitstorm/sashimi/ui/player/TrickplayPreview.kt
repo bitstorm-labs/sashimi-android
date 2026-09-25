@@ -28,9 +28,9 @@ import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
+import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
-import dev.bitstorm.sashimi.di.ServiceLocator
 
 private val ThumbWidth = 160.dp
 
@@ -44,10 +44,13 @@ private val TrackInset = 10.dp
  * loaded yet -- an empty frame reads as a broken thumbnail.
  *
  * Sheets load through Coil with the token in an `X-Emby-Token` header (the
- * trickplay endpoint requires auth; the artwork endpoints do not).
+ * trickplay endpoint requires auth; the artwork endpoints do not). [client] is
+ * the item's own server, which is not the active one for a title opened from
+ * another server.
  */
 @Composable
 fun TrickplayPreview(
+    client: JellyfinClient,
     track: TrickplayTrack?,
     positionMs: Long,
     durationMs: Long,
@@ -56,7 +59,7 @@ fun TrickplayPreview(
     if (track == null || durationMs <= 0) return
     val info = track.info
     val frame = TrickplayMath.frameAt(info, positionMs)
-    val sheet = rememberTrickplaySheet(track, frame.sheetIndex) ?: return
+    val sheet = rememberTrickplaySheet(client, track, frame.sheetIndex) ?: return
 
     BoxWithConstraints(modifier) {
         val thumbHeight = ThumbWidth * info.height.toFloat() / info.width.toFloat()
@@ -90,6 +93,7 @@ fun TrickplayPreview(
 /** Loads one tile sheet at full size; null until it arrives or if it fails. */
 @Composable
 private fun rememberTrickplaySheet(
+    client: JellyfinClient,
     track: TrickplayTrack,
     sheetIndex: Int,
 ): ImageBitmap? {
@@ -97,7 +101,6 @@ private fun rememberTrickplaySheet(
     val key = Triple(track.itemId, track.info.width, sheetIndex)
     var loaded by remember(track) { mutableStateOf<Pair<Triple<String, Int, Int>, ImageBitmap>?>(null) }
     LaunchedEffect(key) {
-        val client = ServiceLocator.client
         val url = client.trickplayTileURL(track.itemId, track.info.width, sheetIndex, track.mediaSourceId) ?: return@LaunchedEffect
         val token = client.currentAccessToken ?: return@LaunchedEffect
         val request =
