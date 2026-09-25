@@ -43,6 +43,13 @@ val PersonInfo.displayRole: String?
 
 object CastOrdering {
     /**
+     * On screen rather than behind the camera. Jellyfin types an episode's guest
+     * actors as GuestStar, so Actor alone sorted them in with the crew.
+     */
+    fun isCast(person: PersonInfo): Boolean =
+        person.type.equals("Actor", ignoreCase = true) || person.type.equals("GuestStar", ignoreCase = true)
+
+    /**
      * Actors lead the roster, crew follow, each alphabetical, de-duplicated by id
      * (a person credited twice would otherwise render twice). Port of
      * sashimi-apple `PersonInfo.sortedForDisplay`.
@@ -53,7 +60,7 @@ object CastOrdering {
     ): List<PersonInfo> =
         people
             .sortedWith(
-                compareBy<PersonInfo> { !it.type.equals("Actor", ignoreCase = true) }
+                compareBy<PersonInfo> { !isCast(it) }
                     .thenBy { it.name.lowercase(Locale.ROOT) },
             ).distinctBy { it.id }
             .take(limit.coerceAtLeast(0))

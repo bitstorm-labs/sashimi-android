@@ -1214,7 +1214,7 @@ private fun EpisodeRow(
 private fun CastSection(item: BaseItemDto) {
     val people = CastOrdering.sortedForDisplay(item.people.orEmpty())
     if (people.isEmpty()) return
-    val hasCrew = people.any { !it.type.equals("Actor", ignoreCase = true) }
+    val hasCrew = people.any { !CastOrdering.isCast(it) }
     val openPerson = LocalOpenPerson.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (hasCrew) "Cast & Crew" else "Cast", color = SashimiTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
