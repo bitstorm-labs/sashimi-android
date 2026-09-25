@@ -31,7 +31,6 @@ import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
 import dev.bitstorm.sashimi.di.ServiceLocator
 
 private val Success = Color(0xFF4CAF50)
-private val Warning = Color(0xFFFF9800)
 
 /**
  * Per-item download control, ported from the Swift `DownloadButton` state
@@ -57,7 +56,7 @@ fun DownloadButton(
             null -> showQualityDialog = true
             DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING -> manager.cancel(item.id)
             DownloadStatus.COMPLETED -> showRemoveConfirm = true
-            DownloadStatus.FAILED, DownloadStatus.PAUSED -> notificationGate { manager.retry(item.id) }
+            DownloadStatus.FAILED -> notificationGate { manager.retry(item.id) }
         }
     }, modifier = modifier) {
         DownloadButtonIcon(row)
@@ -118,8 +117,6 @@ private fun DownloadButtonIcon(row: DownloadedItemEntity?) {
             Icon(Icons.Filled.CheckCircle, contentDescription = "Downloaded", tint = Success)
         DownloadStatus.FAILED ->
             Icon(Icons.Filled.ErrorOutline, contentDescription = "Retry download", tint = Color.Red)
-        DownloadStatus.PAUSED ->
-            Icon(Icons.Filled.Download, contentDescription = "Resume download", tint = Warning)
     }
 }
 

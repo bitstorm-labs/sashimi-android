@@ -16,8 +16,6 @@ android {
         targetSdk = 36
         versionCode = 13
         versionName = "0.7.1"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // Upload signing, read from env vars (CI) or gradle properties (local). When
@@ -86,7 +84,6 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3.window.size)
@@ -108,10 +105,5 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.session)
 
-    debugImplementation(libs.androidx.compose.ui.tooling)
-
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.test.ext.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
 }
