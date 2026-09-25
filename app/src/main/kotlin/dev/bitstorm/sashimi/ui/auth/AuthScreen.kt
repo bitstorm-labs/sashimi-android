@@ -79,6 +79,7 @@ fun AuthScreen(
                 isConnecting = state.isConnecting,
                 onServerUrlChange = viewModel::onServerUrlChange,
                 onConnect = viewModel::connect,
+                onCancelAttempt = viewModel::cancelAttempt,
                 fieldModifier = fieldModifier,
             )
         } else {
@@ -90,11 +91,14 @@ fun AuthScreen(
                 onPasswordChange = viewModel::onPasswordChange,
                 onSignIn = { viewModel.signIn(onComplete) },
                 onUseDifferentServer = viewModel::useDifferentServer,
+                onCancelAttempt = viewModel::cancelAttempt,
                 fieldModifier = fieldModifier,
             )
         }
 
-        if (onCancel != null) {
+        // Hidden mid-attempt so there is only ever one Cancel on screen: the
+        // attempt's own, which stops the request rather than closing the sheet.
+        if (onCancel != null && !state.isConnecting) {
             TextButton(onClick = onCancel, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Cancel")
             }
@@ -119,6 +123,7 @@ private fun ServerEntry(
     isConnecting: Boolean,
     onServerUrlChange: (String) -> Unit,
     onConnect: () -> Unit,
+    onCancelAttempt: () -> Unit,
     fieldModifier: Modifier,
 ) {
     Text(
@@ -148,6 +153,7 @@ private fun ServerEntry(
             Text("Connect")
         }
     }
+    if (isConnecting) CancelAttemptButton(onCancelAttempt, fieldModifier)
 }
 
 @Composable
@@ -159,6 +165,7 @@ private fun LoginEntry(
     onPasswordChange: (String) -> Unit,
     onSignIn: () -> Unit,
     onUseDifferentServer: () -> Unit,
+    onCancelAttempt: () -> Unit,
     fieldModifier: Modifier,
 ) {
     Text(
@@ -196,10 +203,28 @@ private fun LoginEntry(
             Text("Sign In")
         }
     }
+    if (isConnecting) {
+        CancelAttemptButton(onCancelAttempt, fieldModifier)
+    } else {
+        TextButton(
+            onClick = onUseDifferentServer,
+            modifier = fieldModifier.padding(top = 4.dp),
+        ) {
+            Text("Use Different Server")
+        }
+    }
+}
+
+/** Stops the connect or sign-in request in flight (#59), so a slow server never reads as frozen. */
+@Composable
+private fun CancelAttemptButton(
+    onCancelAttempt: () -> Unit,
+    fieldModifier: Modifier,
+) {
     TextButton(
-        onClick = onUseDifferentServer,
+        onClick = onCancelAttempt,
         modifier = fieldModifier.padding(top = 4.dp),
     ) {
-        Text("Use Different Server")
+        Text("Cancel")
     }
 }
