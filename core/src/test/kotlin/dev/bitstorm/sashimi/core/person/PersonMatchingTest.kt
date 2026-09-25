@@ -63,6 +63,17 @@ class PersonMatchingTest {
     }
 
     @Test
+    fun `episode guest stars sort with the cast`() {
+        val people =
+            listOf(
+                PersonInfo("director", "Antonio Negret", type = "Director"),
+                PersonInfo("writer", "James Thorpe", type = "Writer"),
+                PersonInfo("guest", "Rekha Sharma", role = "Dr. Tsing", type = "GuestStar"),
+            )
+        assertEquals(listOf("guest", "director", "writer"), CastOrdering.sortedForDisplay(people).map { it.id })
+    }
+
+    @Test
     fun `display year falls back from production year to premiere date`() {
         assertEquals(2024, BaseItemDto(id = "1", productionYear = 2024, premiereDate = "2023-01-01T00:00:00Z").displayYear)
         assertEquals(2023, BaseItemDto(id = "1", premiereDate = "2023-11-17T00:00:00.0000000Z").displayYear)
