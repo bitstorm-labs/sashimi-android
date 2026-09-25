@@ -1,5 +1,8 @@
 package dev.bitstorm.sashimi.core.downloads
 
+import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
+
 /**
  * Pure download-queue decisions, factored out of the Android [DownloadManager]
  * orchestration so the semantics are unit-testable without WorkManager or Room:
@@ -86,4 +89,53 @@ object StorageAccounting {
  */
 object PendingProgressSync {
     fun itemsToSync(items: List<DownloadedItemEntity>): List<DownloadedItemEntity> = items.filter { it.pendingProgressSync }
+
+    /**
+     * Reports each pending row's stashed position to the server that row was
+     * downloaded from, and returns the item ids that were reported (the caller
+     * clears their flags). A row whose server can't be resolved (removed, or
+     * signed out) or whose report fails stays pending for a later attempt,
+     * rather than being posted to whichever server happens to be active.
+     */
+    suspend fun <C : Any> sync(
+        items: List<DownloadedItemEntity>,
+        clientFor: (serverId: String?) -> C?,
+        report: suspend (client: C, itemId: String, positionTicks: Long) -> Unit,
+    ): List<String> =
+        itemsToSync(items).mapNotNull { row ->
+            val client = clientFor(row.serverId) ?: return@mapNotNull null
+            val result = runCatchingCancellable { report(client, row.itemId, row.localPositionTicks) }
+            if (result.isSuccess) row.itemId else null
+        }
+}
+
+/** Builds download rows. Pure, so what a new download records is unit-testable. */
+object DownloadRecords {
+    /**
+     * A freshly queued row for [item], stamped with the saved server it comes
+     * from so the download and every later report go to that server.
+     */
+    fun queued(
+        item: BaseItemDto,
+        quality: DownloadQuality,
+        serverId: String?,
+        now: Long,
+    ): DownloadedItemEntity =
+        DownloadedItemEntity(
+            itemId = item.id,
+            name = item.name,
+            seriesName = item.seriesName,
+            seriesId = item.seriesId,
+            seasonId = item.seasonId,
+            seasonNumber = item.parentIndexNumber,
+            episodeNumber = item.indexNumber,
+            overview = item.overview,
+            itemType = item.type?.wireName,
+            runTimeTicks = item.runTimeTicks,
+            productionYear = item.productionYear,
+            status = DownloadStatus.QUEUED.wireName,
+            quality = quality.wireName,
+            dateAdded = now,
+            serverId = serverId,
+        )
 }

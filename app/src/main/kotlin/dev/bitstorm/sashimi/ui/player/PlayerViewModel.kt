@@ -41,7 +41,7 @@ import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
 import dev.bitstorm.sashimi.di.ServiceLocator
-import dev.bitstorm.sashimi.ui.util.ImageUrls
+import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -91,7 +91,13 @@ data class PlayerUiState(
 @OptIn(UnstableApi::class)
 class PlayerViewModel(
     app: Application,
-    private val client: JellyfinClient,
+    /**
+     * The item's server: the shared client for the active server, or a
+     * dedicated one for a title opened from another server. Everything the
+     * player asks of a server (the item, PlaybackInfo, stream and subtitle
+     * URLs, progress/start/stop, segments, next episode, trickplay) goes here.
+     */
+    val client: JellyfinClient,
     private val engine: PlaybackEngine,
     private val settings: AppSettings,
     private val downloads: DownloadManager,
@@ -99,6 +105,9 @@ class PlayerViewModel(
     private val startFromBeginning: Boolean,
     private val trailerItemId: String?,
 ) : AndroidViewModel(app) {
+    /** Artwork for the system media surfaces, from the item's own server. */
+    private val images = ImageUrlBuilder { client }
+
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
@@ -514,7 +523,7 @@ class PlayerViewModel(
 
     /** What the MediaSession, and so every system media surface, shows. */
     private fun mediaMetadataFor(item: BaseItemDto): MediaMetadata {
-        val now = NowPlaying.from(item) { ImageUrls.cardPoster(it, ARTWORK_WIDTH) }
+        val now = NowPlaying.from(item) { images.cardPoster(it, ARTWORK_WIDTH) }
         return MediaMetadata.Builder()
             .setTitle(now.title)
             .setDisplayTitle(now.title)
@@ -921,6 +930,7 @@ class PlayerViewModel(
 
     class Factory(
         private val app: Application,
+        private val client: JellyfinClient,
         private val itemId: String,
         private val startFromBeginning: Boolean,
         private val trailerItemId: String?,
@@ -929,8 +939,8 @@ class PlayerViewModel(
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
             PlayerViewModel(
                 app = app,
-                client = ServiceLocator.client,
-                engine = ServiceLocator.playbackEngine,
+                client = client,
+                engine = ServiceLocator.playbackEngine.withClient(client),
                 settings = ServiceLocator.appSettings,
                 downloads = ServiceLocator.downloadManager,
                 itemId = itemId,

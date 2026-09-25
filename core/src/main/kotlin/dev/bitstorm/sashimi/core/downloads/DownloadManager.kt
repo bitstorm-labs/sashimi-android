@@ -41,7 +41,12 @@ class DownloadManager(
     context: Context,
     private val repository: DownloadRepository,
     private val fileManager: DownloadFileManager,
-    private val client: JellyfinClient,
+    /**
+     * The client for a row's [DownloadedItemEntity.serverId]: a download always
+     * talks to the server it came from, never to whichever server is active.
+     * Null when that server is gone or signed out.
+     */
+    private val clientFor: (serverId: String?) -> JellyfinClient?,
     private val networkMonitor: NetworkMonitor,
     /**
      * Emits true once a session is restored. The first sync used to fire
@@ -108,12 +113,14 @@ class DownloadManager(
 
     // MARK: - Enqueue
 
+    /** Queues [item] from the saved server [serverId] (the active one, or the title's own). */
     fun enqueueDownload(
         item: BaseItemDto,
         quality: DownloadQuality,
+        serverId: String?,
     ) {
         scope.launch {
-            insertQueued(item, quality)
+            insertQueued(item, quality, serverId)
             promote()
         }
     }
@@ -121,9 +128,10 @@ class DownloadManager(
     fun downloadSeason(
         episodes: List<BaseItemDto>,
         quality: DownloadQuality,
+        serverId: String?,
     ) {
         scope.launch {
-            episodes.forEach { insertQueued(it, quality) }
+            episodes.forEach { insertQueued(it, quality, serverId) }
             promote()
         }
     }
@@ -131,6 +139,7 @@ class DownloadManager(
     private suspend fun insertQueued(
         item: BaseItemDto,
         quality: DownloadQuality,
+        serverId: String?,
     ) {
         val existing = repository.get(item.id)
         if (DownloadPolicy.isDuplicate(existing)) return
@@ -139,24 +148,7 @@ class DownloadManager(
         if (DownloadPolicy.shouldDeletePartialOnReenqueue(existing, quality)) {
             fileManager.partialFile(item.id).delete()
         }
-        repository.upsert(
-            DownloadedItemEntity(
-                itemId = item.id,
-                name = item.name,
-                seriesName = item.seriesName,
-                seriesId = item.seriesId,
-                seasonId = item.seasonId,
-                seasonNumber = item.parentIndexNumber,
-                episodeNumber = item.indexNumber,
-                overview = item.overview,
-                itemType = item.type?.wireName,
-                runTimeTicks = item.runTimeTicks,
-                productionYear = item.productionYear,
-                status = DownloadStatus.QUEUED.wireName,
-                quality = quality.wireName,
-                dateAdded = System.currentTimeMillis(),
-            ),
-        )
+        repository.upsert(DownloadRecords.queued(item, quality, serverId, now = System.currentTimeMillis()))
     }
 
     // MARK: - Cancel / delete / retry
@@ -278,18 +270,19 @@ class DownloadManager(
         withContext(Dispatchers.IO) {
             val row = repository.get(itemId) ?: return@withContext androidx.work.ListenableWorker.Result.success()
             val notifyTitle = row.displayTitle
-            val server = client.currentServerUrl
-            val token = client.currentAccessToken
-            if (server == null || token == null) {
-                fail(itemId, "Not signed in")
+            val client = clientFor(row.serverId)
+            if (client == null) {
+                fail(itemId, "This download's server is signed out. Reconnect it in Settings, then retry.")
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
             val quality = row.downloadQuality
-            val url = DownloadUrlBuilder.downloadUrl(server, itemId, client.currentDeviceId, quality)
-            if (url == null) {
-                fail(itemId, "Could not build download URL")
+            val spec = DownloadUrlBuilder.requestFor(client, itemId, quality)
+            if (spec == null) {
+                fail(itemId, if (client.isConfigured) "Could not build download URL" else "Not signed in")
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
+            val url = spec.url
+            val token = spec.accessToken
 
             val partial = fileManager.partialFile(itemId)
             val startOffset = if (partial.exists()) partial.length() else 0L
@@ -351,7 +344,7 @@ class DownloadManager(
                         }
                     }
 
-                    finalize(itemId, partial, quality)
+                    finalize(itemId, partial, quality, client)
                     onWorkFinished()
                     androidx.work.ListenableWorker.Result.success()
                 }
@@ -369,6 +362,7 @@ class DownloadManager(
         itemId: String,
         partial: File,
         quality: DownloadQuality,
+        client: JellyfinClient,
     ) {
         val ext = if (quality == DownloadQuality.ORIGINAL) "mkv" else "mp4"
         val videoName = "video.$ext"
@@ -376,8 +370,8 @@ class DownloadManager(
         target.delete()
         partial.renameTo(target)
 
-        downloadImages(itemId)
-        val subtitles = downloadSubtitles(itemId)
+        downloadImages(itemId, client)
+        val subtitles = downloadSubtitles(itemId, client)
 
         val size = fileManager.itemSize(itemId)
         val row = repository.get(itemId)
@@ -418,7 +412,10 @@ class DownloadManager(
     }
 
     /** Best-effort poster/backdrop/series-poster fetch (Swift OfflineImageHelper). */
-    private suspend fun downloadImages(itemId: String) {
+    private suspend fun downloadImages(
+        itemId: String,
+        client: JellyfinClient,
+    ) {
         val token = client.currentAccessToken ?: return
         val row = repository.get(itemId)
         fetchImage(client.imageURL(itemId, "Primary", 400), token, fileManager.imageFile(itemId, DownloadFileManager.POSTER_NAME))
@@ -441,7 +438,10 @@ class DownloadManager(
      * skipped — they can't be rendered as text and the VTT endpoint can't extract
      * them. Returns the persisted descriptors for the completed row.
      */
-    private suspend fun downloadSubtitles(itemId: String): List<DownloadedSubtitle> {
+    private suspend fun downloadSubtitles(
+        itemId: String,
+        client: JellyfinClient,
+    ): List<DownloadedSubtitle> {
         val server = client.currentServerUrl ?: return emptyList()
         val token = client.currentAccessToken ?: return emptyList()
         val info = runCatching { client.getPlaybackInfo(itemId) }.getOrNull() ?: return emptyList()
@@ -532,12 +532,13 @@ class DownloadManager(
 
     // MARK: - Pending progress sync
 
+    /** Posts stashed offline positions, each to the server its download came from. */
     suspend fun syncPendingProgress() {
-        val pending = PendingProgressSync.itemsToSync(repository.all())
-        for (item in pending) {
-            val ok = runCatching { client.reportPlaybackStopped(item.itemId, item.localPositionTicks) }.isSuccess
-            if (ok) repository.clearSyncFlag(item.itemId)
-        }
+        val synced =
+            PendingProgressSync.sync(repository.all(), clientFor) { client, itemId, ticks ->
+                client.reportPlaybackStopped(itemId, ticks)
+            }
+        synced.forEach { repository.clearSyncFlag(it) }
     }
 
     /** Absolute local file for a downloaded subtitle, or null if missing. */

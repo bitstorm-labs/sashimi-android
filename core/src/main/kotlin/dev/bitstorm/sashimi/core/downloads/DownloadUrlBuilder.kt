@@ -1,6 +1,13 @@
 package dev.bitstorm.sashimi.core.downloads
 
+import dev.bitstorm.sashimi.core.network.JellyfinClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
+/** Where a download fetches from, and the token it authenticates with. */
+data class DownloadRequestSpec(
+    val url: String,
+    val accessToken: String,
+)
 
 /**
  * Builds the download stream URL for a given quality, ported from the Swift
@@ -16,6 +23,22 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * the request (see [DownloadWorker]), matching the Swift `authorizedRequest`.
  */
 object DownloadUrlBuilder {
+    /**
+     * The request for [itemId] against whatever server [client] is bound to:
+     * its URL, its token, the shared device id. Null when the client has no
+     * server or token.
+     */
+    fun requestFor(
+        client: JellyfinClient,
+        itemId: String,
+        quality: DownloadQuality,
+    ): DownloadRequestSpec? {
+        val server = client.currentServerUrl ?: return null
+        val token = client.currentAccessToken ?: return null
+        val url = downloadUrl(server, itemId, client.currentDeviceId, quality) ?: return null
+        return DownloadRequestSpec(url, token)
+    }
+
     fun downloadUrl(
         serverUrl: String,
         itemId: String,

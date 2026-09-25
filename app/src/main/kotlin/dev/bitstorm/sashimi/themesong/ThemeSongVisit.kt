@@ -5,7 +5,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.bitstorm.sashimi.core.model.BaseItemDto
-import dev.bitstorm.sashimi.core.themesong.themeKeyFor
+import dev.bitstorm.sashimi.core.themesong.ThemeTarget
+import dev.bitstorm.sashimi.core.themesong.themeTargetFor
 import dev.bitstorm.sashimi.di.ServiceLocator
 
 /**
@@ -46,11 +47,15 @@ import dev.bitstorm.sashimi.di.ServiceLocator
  *  - leaving the show for good: → 0, stop.
  */
 @Composable
-fun ThemeSongVisitEffect(item: BaseItemDto?) {
+fun ThemeSongVisitEffect(
+    item: BaseItemDto?,
+    /** The item's saved server when it is not the active one; null = active. */
+    serverId: String? = null,
+) {
     val tracker: ThemeSongVisitViewModel = viewModel()
-    val key = item?.let { themeKeyFor(it.type, it.id, it.seriesId) }
-    LaunchedEffect(key) {
-        if (key != null) tracker.bind(key)
+    val target = item?.let { themeTargetFor(it.type, it.id, it.seriesId, serverId) }
+    LaunchedEffect(target) {
+        if (target != null) tracker.bind(target)
     }
 }
 
@@ -59,14 +64,14 @@ fun ThemeSongVisitEffect(item: BaseItemDto?) {
  * show that destination belongs to and releases it when the entry is popped.
  */
 class ThemeSongVisitViewModel : ViewModel() {
-    private var boundKey: String? = null
+    private var boundKey: ThemeTarget? = null
 
-    fun bind(seriesId: String) {
+    fun bind(target: ThemeTarget) {
         // The key is resolved from the loaded item, so this can be called again
         // on a reload or a re-composition after a pop. One entry, one visit.
         if (boundKey != null) return
-        boundKey = seriesId
-        ServiceLocator.themeSongs.detailAppeared(seriesId)
+        boundKey = target
+        ServiceLocator.themeSongs.detailAppeared(target)
     }
 
     override fun onCleared() {

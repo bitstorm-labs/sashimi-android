@@ -90,4 +90,11 @@ data class PlayerRoute(
     val itemId: String,
     val startFromBeginning: Boolean = false,
     val trailerItemId: String? = null,
+    /**
+     * The saved server the item belongs to, when it was opened from a server
+     * other than the active one ([DetailRoute.serverId]). The player then
+     * negotiates, streams and reports progress against that server without
+     * switching the active one. Null means the active server.
+     */
+    val serverId: String? = null,
 )
