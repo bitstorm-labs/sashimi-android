@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -77,12 +78,16 @@ private val LanguageOptions =
         "Chinese" to "zh",
     )
 
+/** Also the URL filed in Play Console (App content → Privacy policy). */
+private const val PRIVACY_POLICY_URL = "https://github.com/bitstorm-labs/sashimi-android/blob/main/PRIVACY.md"
+
 /**
  * Settings: the real Servers section plus the playback preferences that M3's
  * player now honours (max bitrate, auto-play next, auto-skip intro/credits,
  * force direct play, resume threshold, audio/subtitle languages) and the quality
  * badge toggle.
  */
+
 @Composable
 fun SettingsScreen(
     session: SessionManager,
@@ -192,6 +197,8 @@ fun SettingsScreen(
                     }
                 InfoRow("Version", versionName ?: "?")
                 InfoRow("Build", versionCode.toString())
+                val uriHandler = LocalUriHandler.current
+                NavRow("Privacy Policy") { uriHandler.openUri(PRIVACY_POLICY_URL) }
             }
 
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
