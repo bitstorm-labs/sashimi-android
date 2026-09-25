@@ -9,6 +9,10 @@ import dev.bitstorm.sashimi.core.browse.SortDirection
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.shuffle.JellyfinTvShuffleSource
+import dev.bitstorm.sashimi.core.shuffle.TvShuffle
+import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +48,7 @@ class LibraryBrowseViewModel(
     private val client: JellyfinClient,
     private val libraryId: String,
     private val collectionType: String?,
+    private val tvShuffleMode: () -> TvShuffleMode,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryBrowseUiState())
     val state: StateFlow<LibraryBrowseUiState> = _state.asStateFlow()
@@ -81,10 +86,15 @@ class LibraryBrowseViewModel(
 
     fun setSearchText(text: String) = _state.update { it.copy(searchText = text) }
 
-    /** One random movie/episode for the Shuffle button (navigates to detail in M2). */
+    /**
+     * The Shuffle button's item (navigates to detail): a random movie, or for a
+     * TV library whatever the TV Shuffle setting picks.
+     */
     suspend fun shuffleItem(): BaseItemDto? {
         val types = if (collectionType == "tvshows") listOf(ItemType.EPISODE) else listOf(ItemType.MOVIE)
-        return runCatching { client.getRandomItem(parentId = libraryId, includeTypes = types) }.getOrNull()
+        return runCatchingCancellable {
+            TvShuffle.pick(libraryId, types, tvShuffleMode(), JellyfinTvShuffleSource(client))
+        }.getOrNull()
     }
 
     fun refreshAfterAction() = reload()
@@ -144,7 +154,12 @@ class LibraryBrowseViewModel(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LibraryBrowseViewModel(ServiceLocator.client, libraryId, collectionType) as T
+            LibraryBrowseViewModel(
+                ServiceLocator.client,
+                libraryId,
+                collectionType,
+                tvShuffleMode = { ServiceLocator.appSettings.tvShuffleMode.value },
+            ) as T
     }
 
     companion object {
