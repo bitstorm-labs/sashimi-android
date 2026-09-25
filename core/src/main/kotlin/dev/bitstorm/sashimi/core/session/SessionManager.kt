@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.core.session
 
 import dev.bitstorm.sashimi.core.model.UserDto
 import dev.bitstorm.sashimi.core.network.JellyfinAuthGateway
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -166,7 +167,7 @@ class SessionManager(
         }
 
         var serverName = hostOf(serverUrl) ?: "Jellyfin"
-        runCatching { gateway.getPublicSystemInfo() }.getOrNull()?.serverName?.let { serverName = it }
+        runCatchingCancellable { gateway.getPublicSystemInfo() }.getOrNull()?.serverName?.let { serverName = it }
 
         val config =
             ServerConfig(
