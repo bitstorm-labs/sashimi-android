@@ -1,6 +1,8 @@
 package dev.bitstorm.sashimi.core.settings
 
 import android.content.Context
+import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
+import dev.bitstorm.sashimi.core.playback.ViewModeDefaultPersistence
 import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +70,22 @@ class AppSettings(context: Context) {
     /** What a TV library's Shuffle button plays (sashimi-roku#141). */
     private val _tvShuffleMode = MutableStateFlow(TvShuffleMode.fromKey(prefs.getString(KEY_TV_SHUFFLE_MODE, null)))
     val tvShuffleMode: StateFlow<TvShuffleMode> = _tvShuffleMode.asStateFlow()
+
+    /**
+     * Video view mode (Normal / Zoom / Stretch): the saved default plus this
+     * app session's player pick. Change the default only through this store,
+     * never the pref directly, because setting it must also clear the session pick.
+     */
+    val videoViewModes =
+        VideoViewModeStore(
+            object : ViewModeDefaultPersistence {
+                override fun load(): String? = prefs.getString(KEY_DEFAULT_VIEW_MODE, null)
+
+                override fun save(key: String) {
+                    prefs.edit().putString(KEY_DEFAULT_VIEW_MODE, key).apply()
+                }
+            },
+        )
 
     fun setShowQualityBadges(value: Boolean) = putBoolean(_showQualityBadges, KEY_QUALITY_BADGES, value)
 
@@ -143,6 +161,7 @@ class AppSettings(context: Context) {
         private const val KEY_THEME_SONGS = "themeSongsEnabled"
         private const val KEY_USE_24_HOUR_TIME = "use24HourTime"
         private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
+        private const val KEY_DEFAULT_VIEW_MODE = "defaultViewMode"
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which
