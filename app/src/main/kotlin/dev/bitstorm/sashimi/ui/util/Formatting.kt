@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.ui.util
 
+import dev.bitstorm.sashimi.core.time.ClockFormat
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -36,12 +37,14 @@ object Formatting {
         return if (hours > 0) "${hours}h ${minutes}m left" else "${minutes}m left"
     }
 
-    /** "Ends at 9:41 PM" from now + runtime. Port of endsAtText (accent-colored in UI). */
-    fun endsAt(ticks: Long): String? {
-        if (ticks <= 0) return null
-        val end = Instant.now().plusSeconds(ticks / TICKS_PER_SECOND).atZone(ZoneId.systemDefault())
-        return "Ends at ${end.format(TIME_FORMAT)}"
-    }
+    /**
+     * "Ends at 9:41 PM" (or "Ends at 21:41" with 24-Hour Time) from now +
+     * runtime. Port of endsAtText (accent-colored in UI).
+     */
+    fun endsAt(
+        ticks: Long,
+        use24Hour: Boolean,
+    ): String? = ClockFormat.endTime(ticks, use24Hour)?.let { "Ends at $it" }
 
     /** "November 8, 2024" (long premiere date). Port of premiereDateLongText. */
     fun premiereDateLong(raw: String?): String? = parse(raw)?.format(LONG_DATE_FORMAT)
@@ -88,7 +91,6 @@ object Formatting {
     }
 
     private val URL_REGEX = Regex("https?://\\S+")
-    private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
     private val LONG_DATE_FORMAT = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.US)
     private val SHORT_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
 }

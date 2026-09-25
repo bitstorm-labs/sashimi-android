@@ -47,6 +47,7 @@ class JellyfinClient(
     private val deviceName: String = "Sashimi Android",
     private val clientVersion: String = "0.1.0",
     private val httpClient: OkHttpClient = defaultHttpClient(),
+    signInTimeoutMillis: Long = TimeUnit.SECONDS.toMillis(SIGN_IN_TIMEOUT_SECONDS),
 ) : JellyfinAuthGateway {
     private val json =
         Json {
@@ -71,6 +72,20 @@ class JellyfinClient(
             // never used except to satisfy Retrofit's builder validation.
             .baseUrl("http://localhost/")
             .client(httpClient)
+            .build()
+            .create(JellyfinApi::class.java)
+
+    // Sign-in steps get their own bounded call (#59). newBuilder() shares the
+    // browsing client's connection pool and dispatcher; only the budget differs,
+    // and the browsing client's timeouts are untouched.
+    private val signInApi: JellyfinApi =
+        Retrofit.Builder()
+            .baseUrl("http://localhost/")
+            .client(
+                httpClient.newBuilder()
+                    .callTimeout(signInTimeoutMillis, TimeUnit.MILLISECONDS)
+                    .build(),
+            )
             .build()
             .create(JellyfinApi::class.java)
 
@@ -160,6 +175,8 @@ class JellyfinClient(
      *    dead session). On any other request → notify the session-expiry handler
      *    (SessionManager gates the actual logout on the active server) and throw
      *    SessionExpired.
+     *  - [isSignInStep] uses the sign-in call budget and never retries: a retried
+     *    probe would multiply the budget the user is sitting through (#59).
      */
     private suspend fun execute(
         method: String,
@@ -167,31 +184,33 @@ class JellyfinClient(
         query: List<Pair<String, String>> = emptyList(),
         jsonBody: String? = null,
         isAuthRequest: Boolean = false,
+        isSignInStep: Boolean = false,
         retryCount: Int = 0,
     ): String {
         val url = buildUrl(path, query)
         val auth = authorizationHeader()
-        val isIdempotent = method == "GET" || method == "DELETE"
+        val mayRetry = !isSignInStep && (method == "GET" || method == "DELETE")
+        val service = if (isSignInStep) signInApi else api
 
         val response: Response<okhttp3.ResponseBody> =
             try {
                 when (method) {
-                    "GET" -> api.get(url, auth)
-                    "DELETE" -> api.delete(url, auth)
+                    "GET" -> service.get(url, auth)
+                    "DELETE" -> service.delete(url, auth)
                     "POST" ->
                         if (jsonBody != null) {
-                            api.post(url, auth, jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+                            service.post(url, auth, jsonBody.toRequestBody(JSON_MEDIA_TYPE))
                         } else {
-                            api.postEmpty(url, auth)
+                            service.postEmpty(url, auth)
                         }
                     else -> throw JellyfinError.InvalidResponse
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isIdempotent && retryCount < maxRetries) {
+                if (mayRetry && retryCount < maxRetries) {
                     delay(backoffMillis(retryCount))
-                    return execute(method, path, query, jsonBody, isAuthRequest, retryCount + 1)
+                    return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, retryCount + 1)
                 }
                 throw JellyfinError.NetworkError(e)
             }
@@ -205,10 +224,10 @@ class JellyfinClient(
             throw JellyfinError.SessionExpired
         }
 
-        if (code in 500..599 && isIdempotent && retryCount < maxRetries) {
+        if (code in 500..599 && mayRetry && retryCount < maxRetries) {
             response.errorBody()?.close()
             delay(backoffMillis(retryCount))
-            return execute(method, path, query, jsonBody, isAuthRequest, retryCount + 1)
+            return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, retryCount + 1)
         }
 
         if (code !in 200..299) {
@@ -241,6 +260,7 @@ class JellyfinClient(
                 path = "/Users/AuthenticateByName",
                 jsonBody = body,
                 isAuthRequest = true,
+                isSignInStep = true,
             )
         val result: AuthenticationResult = decode(data)
         accessToken = result.accessToken
@@ -249,7 +269,7 @@ class JellyfinClient(
     }
 
     override suspend fun getPublicSystemInfo(): PublicSystemInfo {
-        val data = execute("GET", "/System/Info/Public")
+        val data = execute("GET", "/System/Info/Public", isSignInStep = true)
         return decode(data)
     }
 
@@ -280,24 +300,24 @@ class JellyfinClient(
         return decode<ItemsResponse>(data).items
     }
 
-    suspend fun getNextUp(limit: Int = 50): List<BaseItemDto> {
+    suspend fun getNextUp(
+        limit: Int = 50,
+        seriesId: String? = null,
+    ): List<BaseItemDto> {
         val uid = requireUserId()
-        val data =
-            execute(
-                "GET",
-                "/Shows/NextUp",
-                query =
-                    listOf(
-                        "UserId" to uid,
-                        "Limit" to "$limit",
-                        "Fields" to
-                            "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
-                            "Genres,Taglines,UserData,ParentBackdropImageTags,Path,MediaStreams",
-                        "EnableImageTypes" to "Primary,Backdrop,Thumb",
-                        "EnableRewatching" to "false",
-                        "DisableFirstEpisode" to "false",
-                    ),
+        val query =
+            mutableListOf(
+                "UserId" to uid,
+                "Limit" to "$limit",
+                "Fields" to
+                    "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
+                    "Genres,Taglines,UserData,ParentBackdropImageTags,Path,MediaStreams",
+                "EnableImageTypes" to "Primary,Backdrop,Thumb",
+                "EnableRewatching" to "false",
+                "DisableFirstEpisode" to "false",
             )
+        seriesId?.let { query.add("SeriesId" to it) }
+        val data = execute("GET", "/Shows/NextUp", query = query)
         // A special is never next while regular episodes are left (sashimi-roku#134).
         return decode<ItemsResponse>(data).items.map { item ->
             val seriesId = item.seriesId
@@ -455,7 +475,7 @@ class JellyfinClient(
                         "Fields" to
                             "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
                             "Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags," +
-                            "RemoteTrailers,LocalTrailerCount",
+                            "RemoteTrailers,LocalTrailerCount,Trickplay",
                         "EnableImageTypes" to "Primary,Backdrop,Thumb",
                     ),
             )
@@ -485,7 +505,9 @@ class JellyfinClient(
         val query =
             mutableListOf(
                 "UserId" to uid,
-                "Fields" to "Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,PremiereDate,MediaStreams",
+                // Trickplay so an auto-play-next episode (resolved from this list)
+                // still has scrub thumbnails.
+                "Fields" to "Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,PremiereDate,MediaStreams,Trickplay",
                 "EnableImageTypes" to "Primary,Thumb",
             )
         seasonId?.let { query.add("SeasonId" to it) }
@@ -823,6 +845,26 @@ class JellyfinClient(
         return base.newBuilder()
             .addPathSegments("Items/$personId/Images/Primary")
             .addQueryParameter("maxWidth", "$maxWidth")
+            .build()
+            .toString()
+    }
+
+    /**
+     * One trickplay tile sheet (a JPEG grid of scrub thumbnails). Unlike the
+     * artwork endpoints this one requires auth, and the token is deliberately
+     * NOT in the URL: callers attach [currentAccessToken] as an `X-Emby-Token`
+     * header (Coil supports request headers), keeping it out of image-cache keys.
+     */
+    fun trickplayTileURL(
+        itemId: String,
+        width: Int,
+        sheetIndex: Int,
+        mediaSourceId: String?,
+    ): String? {
+        val base = serverUrl ?: return null
+        return base.newBuilder()
+            .addPathSegments("Videos/$itemId/Trickplay/$width/$sheetIndex.jpg")
+            .apply { mediaSourceId?.let { addQueryParameter("MediaSourceId", it) } }
             .build()
             .toString()
     }

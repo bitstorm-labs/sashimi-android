@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +47,7 @@ import dev.bitstorm.sashimi.core.downloads.StorageAccounting
 import dev.bitstorm.sashimi.core.session.ServerConfig
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.downloads.formatBytes
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -62,6 +64,9 @@ private val ResumeThresholdOptions =
         "5 minutes" to 300,
     )
 
+// What a TV library's Shuffle plays. A series' own Shuffle is always random.
+private val TvShuffleOptions = TvShuffleMode.entries.associateBy { it.label }
+
 // Empty string = "Device default" (no preference).
 private val LanguageOptions =
     linkedMapOf(
@@ -77,12 +82,16 @@ private val LanguageOptions =
         "Chinese" to "zh",
     )
 
+/** Also the URL filed in Play Console (App content → Privacy policy). */
+private const val PRIVACY_POLICY_URL = "https://github.com/bitstorm-labs/sashimi-android/blob/main/PRIVACY.md"
+
 /**
  * Settings: the real Servers section plus the playback preferences that M3's
  * player now honours (max bitrate, auto-play next, auto-skip intro/credits,
  * force direct play, resume threshold, audio/subtitle languages) and the quality
  * badge toggle.
  */
+
 @Composable
 fun SettingsScreen(
     session: SessionManager,
@@ -152,6 +161,8 @@ fun SettingsScreen(
                     settings::setThemeSongsEnabled,
                     subtitle = "Play a show's theme music while you browse its page.",
                 )
+                val use24Hour by settings.use24HourTime.collectAsStateWithLifecycle()
+                SwitchRow("24-Hour Time", use24Hour, settings::setUse24HourTime)
             }
 
             item { SectionHeader("DOWNLOADS") }
@@ -192,6 +203,8 @@ fun SettingsScreen(
                     }
                 InfoRow("Version", versionName ?: "?")
                 InfoRow("Build", versionCode.toString())
+                val uriHandler = LocalUriHandler.current
+                NavRow("Privacy Policy") { uriHandler.openUri(PRIVACY_POLICY_URL) }
             }
 
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
@@ -276,6 +289,7 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
     val subtitlesEnabled by settings.subtitlesEnabled.collectAsStateWithLifecycle()
     val audioLang by settings.preferredAudioLanguage.collectAsStateWithLifecycle()
     val subLang by settings.preferredSubtitleLanguage.collectAsStateWithLifecycle()
+    val tvShuffleMode by settings.tvShuffleMode.collectAsStateWithLifecycle()
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         DropdownRow("Maximum bitrate", AppSettings.MAX_BITRATE_OPTIONS, maxBitrate, settings::setMaxBitrate)
@@ -289,6 +303,7 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
             subtitle = "Play the untouched file; never convert quality.",
         )
         DropdownRow("Resume threshold", ResumeThresholdOptions, resumeThreshold, settings::setResumeThresholdSeconds)
+        DropdownRow("TV Shuffle", TvShuffleOptions, tvShuffleMode, settings::setTvShuffleMode)
         SwitchRow("Subtitles on by default", subtitlesEnabled, settings::setSubtitlesEnabled)
         DropdownRow("Preferred audio language", LanguageOptions, audioLang, settings::setPreferredAudioLanguage)
         DropdownRow("Preferred subtitle language", LanguageOptions, subLang, settings::setPreferredSubtitleLanguage)

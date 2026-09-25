@@ -38,6 +38,8 @@ import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
 import dev.bitstorm.sashimi.core.playback.SubtitleTrack
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
+import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import kotlinx.coroutines.CoroutineScope
@@ -133,7 +135,19 @@ class PlayerViewModel(
             .setId("sashimi-player-${sessionCounter.incrementAndGet()}")
             .build()
 
+    private val _trickplay = MutableStateFlow<TrickplayTrack?>(null)
+
+    /** Scrub-thumbnail geometry for the current item, or null (show nothing). */
+    val trickplay: StateFlow<TrickplayTrack?> = _trickplay.asStateFlow()
+
     private var currentItem: BaseItemDto? = null
+        set(value) {
+            field = value
+            // Every item change (initial load, local playback, auto-play-next)
+            // re-resolves the scrub thumbnails; null when it has none.
+            _trickplay.value = value?.let { TrickplayMath.select(it.id, it.trickplay, preferredMediaSourceId = it.id) }
+        }
+
     private var currentSource: PlaybackSource? = null
     private var reporter: ProgressReporter? = null
     private var segmentTracker: SegmentSkipTracker? = null

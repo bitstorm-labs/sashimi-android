@@ -348,7 +348,11 @@ private fun Scrubber(
         }
     }
 
+    val trickplay by vm.trickplay.collectAsStateWithLifecycle()
     Column(modifier) {
+        if (scrubbing) {
+            TrickplayPreview(trickplay, scrubValue.toLong(), durationMs, Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        }
         Slider(
             value = if (scrubbing) scrubValue else positionMs.toFloat(),
             onValueChange = {
