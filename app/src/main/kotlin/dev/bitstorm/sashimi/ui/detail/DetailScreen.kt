@@ -909,6 +909,9 @@ private fun SeasonsSection(
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
                     SeasonDownloadMenu(episodes = state.episodes)
+                    state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
+                        SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
+                    }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

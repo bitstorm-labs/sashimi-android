@@ -278,6 +278,56 @@ class DetailViewModel(
         }
     }
 
+    /**
+     * Marks every episode of [seasonId] played or unplayed with one server call
+     * (sashimi-roku#137), then refreshes what depends on it: the series' own
+     * watched flag, the season list, the Next Up / Play target and, if it is still
+     * the one on screen, the season's episode list. Idempotent server-side.
+     */
+    fun setSeasonPlayed(
+        seasonId: String,
+        played: Boolean,
+    ) {
+        val item = _state.value.item ?: return
+        val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
+        viewModelScope.launch {
+            val ok =
+                runCatchingCancellable {
+                    if (played) client.markPlayed(seasonId) else client.markUnplayed(seasonId)
+                }.isSuccess
+            if (!ok) {
+                val verb = if (played) "watched" else "unwatched"
+                _state.update { it.copy(error = "Failed to mark season $verb.") }
+                return@launch
+            }
+            refreshAfterSeasonChange(item.id, seriesId)
+        }
+    }
+
+    private suspend fun refreshAfterSeasonChange(
+        itemId: String,
+        seriesId: String,
+    ) {
+        val generation = loadGeneration
+        val fresh = runCatchingCancellable { client.getItem(itemId) }.getOrNull()
+        val seasons = runCatchingCancellable { client.getSeasons(seriesId) }.getOrNull()
+        val next = findNextEpisode(seriesId, seasons ?: _state.value.seasons)
+        if (generation != loadGeneration) return
+        _state.update {
+            it.copy(
+                item = fresh ?: it.item,
+                isWatched = fresh?.userData?.played ?: it.isWatched,
+                hasProgress = fresh?.let { f -> f.progressPercent > 0 } ?: it.hasProgress,
+                seasons = seasons ?: it.seasons,
+                nextEpisode = next,
+            )
+        }
+        // Reload whichever season is selected now (the user may have switched).
+        val selected = _state.value.selectedSeasonId ?: return
+        episodesJob?.cancel()
+        episodesJob = viewModelScope.launch { loadEpisodesForSeason(seriesId, selected, generation) }
+    }
+
     /** Favorite toggle (from the overflow menu). */
     fun toggleFavorite() {
         val item = _state.value.item ?: return
