@@ -33,12 +33,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Deep links: sashimi://item/{id} → detail, sashimi://play/{id} → player. -->
+            <!-- Deep links: sashimi://item/{id} → detail (reachable from a browser);
+                 sashimi://play/{id} → player. Play is not BROWSABLE: a web page
+                 must not be able to start playback, and a transcode, on the
+                 user's server (#34). -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="sashimi" android:host="item" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="sashimi" android:host="play" />
             </intent-filter>
         </activity>

@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.bitstorm.sashimi.core.network.isUnencryptedServerUrl
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 
@@ -86,6 +87,7 @@ fun AuthScreen(
             LoginEntry(
                 username = state.username,
                 password = state.password,
+                isUnencrypted = isUnencryptedServerUrl(state.normalizedUrl),
                 isConnecting = state.isConnecting,
                 onUsernameChange = viewModel::onUsernameChange,
                 onPasswordChange = viewModel::onPasswordChange,
@@ -160,6 +162,7 @@ private fun ServerEntry(
 private fun LoginEntry(
     username: String,
     password: String,
+    isUnencrypted: Boolean,
     isConnecting: Boolean,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
@@ -190,6 +193,12 @@ private fun LoginEntry(
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+        supportingText =
+            if (isUnencrypted) {
+                { Text("This server uses http://, so your password is sent unencrypted.") }
+            } else {
+                null
+            },
         modifier = fieldModifier.padding(top = 12.dp),
     )
     Button(
