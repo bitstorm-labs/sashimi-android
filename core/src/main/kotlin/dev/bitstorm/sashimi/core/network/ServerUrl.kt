@@ -21,3 +21,6 @@ fun normalizeServerUrl(input: String): String? {
     }
     return s
 }
+
+/** True for a plain `http://` server: sign-in and streams cross the network unencrypted (#34). */
+fun isUnencryptedServerUrl(url: String?): Boolean = url?.trim()?.lowercase()?.startsWith("http://") == true
