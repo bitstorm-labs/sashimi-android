@@ -32,7 +32,7 @@ jobs:
         run: ./gradlew ktlintCheck
 
       - name: Unit tests
-        run: ./gradlew :core:test
+        run: ./gradlew :core:test :app:testDebugUnitTest
 
       # Android Lint on the RELEASE variant, which is where API-level and
       # minification problems surface. It was never run in CI, so a
