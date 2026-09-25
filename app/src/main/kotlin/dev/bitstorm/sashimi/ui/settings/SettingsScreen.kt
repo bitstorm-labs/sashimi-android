@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.downloads.StorageAccounting
+import dev.bitstorm.sashimi.core.playback.VideoViewMode
 import dev.bitstorm.sashimi.core.session.ServerConfig
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
@@ -66,6 +67,9 @@ private val ResumeThresholdOptions =
 
 // What a TV library's Shuffle plays. A series' own Shuffle is always random.
 private val TvShuffleOptions = TvShuffleMode.entries.associateBy { it.label }
+
+// Normal / Zoom / Stretch, in the same order as the player and the other clients.
+private val ViewModeOptions = VideoViewMode.entries.associateBy { it.label }
 
 // Empty string = "Device default" (no preference).
 private val LanguageOptions =
@@ -290,6 +294,7 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
     val audioLang by settings.preferredAudioLanguage.collectAsStateWithLifecycle()
     val subLang by settings.preferredSubtitleLanguage.collectAsStateWithLifecycle()
     val tvShuffleMode by settings.tvShuffleMode.collectAsStateWithLifecycle()
+    val defaultViewMode by settings.videoViewModes.defaultMode.collectAsStateWithLifecycle()
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         DropdownRow("Maximum bitrate", AppSettings.MAX_BITRATE_OPTIONS, maxBitrate, settings::setMaxBitrate)
@@ -302,6 +307,9 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
             settings::setForceDirectPlay,
             subtitle = "Play the untouched file; never convert quality.",
         )
+        // Through the store, not a raw pref: a new default also clears the
+        // player's session pick, so the change is visible on the next video.
+        DropdownRow("Default View Mode", ViewModeOptions, defaultViewMode, settings.videoViewModes::setDefault)
         DropdownRow("Resume threshold", ResumeThresholdOptions, resumeThreshold, settings::setResumeThresholdSeconds)
         DropdownRow("TV Shuffle", TvShuffleOptions, tvShuffleMode, settings::setTvShuffleMode)
         SwitchRow("Subtitles on by default", subtitlesEnabled, settings::setSubtitlesEnabled)
