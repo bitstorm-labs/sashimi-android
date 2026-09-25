@@ -13,10 +13,13 @@ the other two — several have been found in all three.
 
 - **`:core`** — networking (`JellyfinClient`, Retrofit + OkHttp), session/token
   storage, playback negotiation (`PlaybackEngine`, `DeviceProfile`), downloads
-  (`DownloadManager`, Room). Pure Kotlin/Android-library, no Compose. **All 234
+  (`DownloadManager`, Room). Pure Kotlin/Android-library, no Compose. **Almost all
   tests live here.**
-- **`:app`** — Compose UI, ViewModels, navigation, the Media3 player.
-  **Has no test source set at all** — `app/src/` contains only `main/`.
+- **`:app`** — Compose UI, ViewModels, navigation, the Media3 player and its
+  MediaSession/PiP glue. A small JVM test set lives in `app/src/test/` for pure
+  logic pulled out of the player (`NowPlaying`, `PipActions`); keep anything
+  touching `android.net.Uri` or Media3 builders out of it, since unit tests run
+  against the stubbed android.jar.
 
 `:core` must stay TV-ready: no phone-only assumptions, since a TV client would
 reuse it.
@@ -29,7 +32,7 @@ export ANDROID_HOME=~/Library/Android/sdk
 
 ./gradlew ktlintFormat            # autofix formatting
 ./gradlew ktlintCheck             # CI runs this
-./gradlew :core:test              # the whole test suite
+./gradlew :core:test :app:testDebugUnitTest   # the whole test suite
 ./gradlew :app:lintRelease        # CI runs this — see below
 ./gradlew :app:assembleRelease    # minified (R8) — CI runs this
 ./gradlew :app:bundleRelease      # the AAB Play actually ships

@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -14,7 +15,9 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.model.BaseItemDto
@@ -38,6 +41,7 @@ import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.ui.util.ImageUrls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,6 +54,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 data class PlayerUiState(
     val isLoading: Boolean = true,
@@ -67,6 +72,8 @@ data class PlayerUiState(
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val playbackEnded: Boolean = false,
+    /** Media3's Util.shouldShowPlayButton: true while paused, ended or idle. */
+    val showPlayButton: Boolean = true,
 ) {
     companion object {
         const val OFF_SUBTITLE = -1
@@ -98,6 +105,11 @@ class PlayerViewModel(
     val player: ExoPlayer =
         ExoPlayer.Builder(app)
             .setHandleAudioBecomingNoisy(true)
+            // The chrome's seek icons are Replay10/Forward10, and the same
+            // increments back the PiP actions and the MediaSession's seek
+            // commands. The Media3 defaults are 5s back and 15s forward.
+            .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
+            .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
             .build()
             .apply {
                 setAudioAttributes(
@@ -109,6 +121,19 @@ class PlayerViewModel(
                     true,
                 )
             }
+
+    /**
+     * Exposes the player to the system: Bluetooth/headset media buttons, the
+     * output switcher, and on API 33+ the PiP window's controls. There is
+     * deliberately no MediaSessionService: playback pauses when the app is
+     * backgrounded (#17), so there is nothing to keep alive or notify about.
+     * Ids must be unique per process, and two player VMs can briefly coexist
+     * (one route replacing another), hence the counter.
+     */
+    private val mediaSession: MediaSession =
+        MediaSession.Builder(app, player)
+            .setId("sashimi-player-${sessionCounter.incrementAndGet()}")
+            .build()
 
     private val _trickplay = MutableStateFlow<TrickplayTrack?>(null)
 
@@ -174,6 +199,14 @@ class PlayerViewModel(
 
             override fun onPlayerError(error: PlaybackException) {
                 _state.update { it.copy(isLoading = false, error = error.errorCodeName) }
+            }
+
+            override fun onEvents(
+                player: Player,
+                events: Player.Events,
+            ) {
+                val showPlay = Util.shouldShowPlayButton(player)
+                if (showPlay != _state.value.showPlayButton) _state.update { it.copy(showPlayButton = showPlay) }
             }
         }
 
@@ -285,6 +318,7 @@ class PlayerViewModel(
             MediaItem.Builder()
                 .setUri(android.net.Uri.fromFile(localFile))
                 .setSubtitleConfigurations(subConfigs)
+                .setMediaMetadata(mediaMetadataFor(item))
                 .build()
         player.setMediaItem(mediaItem, startTicks / TICKS_PER_MS)
         player.prepare()
@@ -393,7 +427,7 @@ class PlayerViewModel(
             desiredSubtitleIndex = initialSubtitleSelection(item, source)
         }
 
-        val mediaItem = buildMediaItem(item.id, source)
+        val mediaItem = buildMediaItem(item, source)
         player.setMediaItem(mediaItem, source.playerStartPositionMs)
         player.prepare()
         applyTrackSelections()
@@ -456,9 +490,10 @@ class PlayerViewModel(
 
     /** Sideloads every external subtitle as a selectable VTT track (id "sub-<index>"). */
     private fun buildMediaItem(
-        playbackItemId: String,
+        item: BaseItemDto,
         source: PlaybackSource,
     ): MediaItem {
+        val playbackItemId = item.id
         val subConfigs =
             source.subtitleTracks
                 .filter { !it.isOff && it.isExternal }
@@ -473,6 +508,28 @@ class PlayerViewModel(
         return MediaItem.Builder()
             .setUri(source.streamUrl)
             .setSubtitleConfigurations(subConfigs)
+            .setMediaMetadata(mediaMetadataFor(item))
+            .build()
+    }
+
+    /** What the MediaSession, and so every system media surface, shows. */
+    private fun mediaMetadataFor(item: BaseItemDto): MediaMetadata {
+        val now = NowPlaying.from(item) { ImageUrls.cardPoster(it, ARTWORK_WIDTH) }
+        return MediaMetadata.Builder()
+            .setTitle(now.title)
+            .setDisplayTitle(now.title)
+            .setSubtitle(now.subtitle)
+            // Most system surfaces render the artist line, not the subtitle.
+            .setArtist(now.subtitle)
+            .setArtworkUri(now.artworkUrl?.let(android.net.Uri::parse))
+            .setMediaType(
+                when {
+                    trailerItemId != null -> MediaMetadata.MEDIA_TYPE_TRAILER
+                    item.type == ItemType.EPISODE -> MediaMetadata.MEDIA_TYPE_TV_SHOW
+                    item.type == ItemType.MOVIE -> MediaMetadata.MEDIA_TYPE_MOVIE
+                    else -> MediaMetadata.MEDIA_TYPE_VIDEO
+                },
+            )
             .build()
     }
 
@@ -858,6 +915,7 @@ class PlayerViewModel(
             }
         }
         player.removeListener(playerListener)
+        mediaSession.release()
         player.release()
     }
 
@@ -886,6 +944,9 @@ class PlayerViewModel(
         private const val TICKS_PER_SECOND = 10_000_000L
         private const val SEGMENT_POLL_MS = 500L
         private const val CONNECT_WATCHDOG_MS = 5_000L
+        private const val SEEK_INCREMENT_MS = 10_000L
+        private const val ARTWORK_WIDTH = 300
+        private val sessionCounter = AtomicLong()
         private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         fun subtitleTrackId(index: Int): String = "sub-$index"
