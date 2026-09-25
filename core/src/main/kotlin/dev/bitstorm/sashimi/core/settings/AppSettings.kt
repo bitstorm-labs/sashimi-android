@@ -58,6 +58,13 @@ class AppSettings(context: Context) {
     private val _themeSongsEnabled = MutableStateFlow(prefs.getBoolean(KEY_THEME_SONGS, true))
     val themeSongsEnabled: StateFlow<Boolean> = _themeSongsEnabled.asStateFlow()
 
+    /**
+     * Show clock times as 24-hour ("21:45") instead of 12-hour ("9:45 PM").
+     * Defaults off, like the other clients. Read by [dev.bitstorm.sashimi.core.time.ClockFormat] callers.
+     */
+    private val _use24HourTime = MutableStateFlow(prefs.getBoolean(KEY_USE_24_HOUR_TIME, false))
+    val use24HourTime: StateFlow<Boolean> = _use24HourTime.asStateFlow()
+
     /** What a TV library's Shuffle button plays (sashimi-roku#141). */
     private val _tvShuffleMode = MutableStateFlow(TvShuffleMode.fromKey(prefs.getString(KEY_TV_SHUFFLE_MODE, null)))
     val tvShuffleMode: StateFlow<TvShuffleMode> = _tvShuffleMode.asStateFlow()
@@ -93,6 +100,8 @@ class AppSettings(context: Context) {
     fun setPreferredSubtitleLanguage(value: String) = putString(_preferredSubtitleLanguage, KEY_PREF_SUB_LANG, value)
 
     fun setThemeSongsEnabled(value: Boolean) = putBoolean(_themeSongsEnabled, KEY_THEME_SONGS, value)
+
+    fun setUse24HourTime(value: Boolean) = putBoolean(_use24HourTime, KEY_USE_24_HOUR_TIME, value)
 
     fun setTvShuffleMode(value: TvShuffleMode) {
         _tvShuffleMode.value = value
@@ -132,6 +141,7 @@ class AppSettings(context: Context) {
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
         private const val KEY_THEME_SONGS = "themeSongsEnabled"
+        private const val KEY_USE_24_HOUR_TIME = "use24HourTime"
         private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
 
         /**

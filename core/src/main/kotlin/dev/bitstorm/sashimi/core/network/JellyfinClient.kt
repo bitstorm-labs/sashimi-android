@@ -475,7 +475,7 @@ class JellyfinClient(
                         "Fields" to
                             "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
                             "Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags," +
-                            "RemoteTrailers,LocalTrailerCount",
+                            "RemoteTrailers,LocalTrailerCount,Trickplay",
                         "EnableImageTypes" to "Primary,Backdrop,Thumb",
                     ),
             )
@@ -505,7 +505,9 @@ class JellyfinClient(
         val query =
             mutableListOf(
                 "UserId" to uid,
-                "Fields" to "Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,PremiereDate,MediaStreams",
+                // Trickplay so an auto-play-next episode (resolved from this list)
+                // still has scrub thumbnails.
+                "Fields" to "Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,PremiereDate,MediaStreams,Trickplay",
                 "EnableImageTypes" to "Primary,Thumb",
             )
         seasonId?.let { query.add("SeasonId" to it) }
@@ -843,6 +845,26 @@ class JellyfinClient(
         return base.newBuilder()
             .addPathSegments("Items/$personId/Images/Primary")
             .addQueryParameter("maxWidth", "$maxWidth")
+            .build()
+            .toString()
+    }
+
+    /**
+     * One trickplay tile sheet (a JPEG grid of scrub thumbnails). Unlike the
+     * artwork endpoints this one requires auth, and the token is deliberately
+     * NOT in the URL: callers attach [currentAccessToken] as an `X-Emby-Token`
+     * header (Coil supports request headers), keeping it out of image-cache keys.
+     */
+    fun trickplayTileURL(
+        itemId: String,
+        width: Int,
+        sheetIndex: Int,
+        mediaSourceId: String?,
+    ): String? {
+        val base = serverUrl ?: return null
+        return base.newBuilder()
+            .addPathSegments("Videos/$itemId/Trickplay/$width/$sheetIndex.jpg")
+            .apply { mediaSourceId?.let { addQueryParameter("MediaSourceId", it) } }
             .build()
             .toString()
     }
