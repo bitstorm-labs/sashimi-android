@@ -1,10 +1,8 @@
 package dev.bitstorm.sashimi.ui.player
 
 import android.app.Activity
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
-import android.util.Rational
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -107,9 +105,10 @@ fun PlayerScreen(
     // Nothing else stops playback when the app leaves the foreground: the player
     // is owned by the VM and released only in onCleared(), which back-navigation
     // triggers but backgrounding does not. Without this, pressing Home left the
-    // decoder running and audio playing indefinitely -- and with no MediaSession
-    // there is no notification, so no way to stop it short of relaunching or
-    // force-stopping the app.
+    // decoder running and audio playing indefinitely -- and there is no
+    // MediaSessionService (the MediaSession lives only as long as this route), so
+    // no notification and no way to stop it short of relaunching or
+    // force-stopping the app. Background playback would be a product decision.
     //
     // ON_STOP is the right signal rather than ON_PAUSE: a PiP window keeps the
     // activity STARTED, so PiP playback keeps running while a genuine background
@@ -132,8 +131,16 @@ fun PlayerScreen(
     val inPip by (playerActivity as? MainActivity)?.isInPip?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(false) }
 
+    PipEffects(activity = playerActivity, player = vm.player, state = state)
+
     var overlayVisible by remember { mutableStateOf(true) }
     var showSettings by remember { mutableStateOf(false) }
+
+    // The settings dialog is a separate window; it would otherwise float over
+    // the PiP thumbnail (or be left open behind it).
+    LaunchedEffect(inPip) {
+        if (inPip) showSettings = false
+    }
 
     // Auto-hide the overlay 5s after it is shown (while playing).
     LaunchedEffect(overlayVisible, showSettings) {
@@ -258,7 +265,7 @@ private fun PlayerOverlay(
                     state.streamInfo?.let { StreamChip(it) }
                 }
                 val activity = LocalActivity()
-                IconButton(onClick = { activity.enterPip(state.videoWidth, state.videoHeight) }) {
+                IconButton(onClick = { activity.enterPip(state) }) {
                     Icon(Icons.Filled.PictureInPicture, contentDescription = "Picture in picture", tint = Color.White)
                 }
                 IconButton(onClick = onOpenSettings) {
@@ -516,19 +523,4 @@ private fun Context.findActivity(): Activity {
         ctx = ctx.baseContext
     }
     error("PlayerScreen must be hosted in an Activity")
-}
-
-private fun Activity.enterPip(
-    videoWidth: Int,
-    videoHeight: Int,
-) {
-    val aspect =
-        if (videoWidth > 0 && videoHeight > 0) {
-            Rational(videoWidth.coerceAtMost(videoHeight * 239 / 100), videoHeight)
-        } else {
-            Rational(16, 9)
-        }
-    runCatching {
-        enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(aspect).build())
-    }
 }
