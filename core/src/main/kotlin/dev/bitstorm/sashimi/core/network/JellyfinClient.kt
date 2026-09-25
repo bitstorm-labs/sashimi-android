@@ -280,24 +280,24 @@ class JellyfinClient(
         return decode<ItemsResponse>(data).items
     }
 
-    suspend fun getNextUp(limit: Int = 50): List<BaseItemDto> {
+    suspend fun getNextUp(
+        limit: Int = 50,
+        seriesId: String? = null,
+    ): List<BaseItemDto> {
         val uid = requireUserId()
-        val data =
-            execute(
-                "GET",
-                "/Shows/NextUp",
-                query =
-                    listOf(
-                        "UserId" to uid,
-                        "Limit" to "$limit",
-                        "Fields" to
-                            "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
-                            "Genres,Taglines,UserData,ParentBackdropImageTags,Path,MediaStreams",
-                        "EnableImageTypes" to "Primary,Backdrop,Thumb",
-                        "EnableRewatching" to "false",
-                        "DisableFirstEpisode" to "false",
-                    ),
+        val query =
+            mutableListOf(
+                "UserId" to uid,
+                "Limit" to "$limit",
+                "Fields" to
+                    "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
+                    "Genres,Taglines,UserData,ParentBackdropImageTags,Path,MediaStreams",
+                "EnableImageTypes" to "Primary,Backdrop,Thumb",
+                "EnableRewatching" to "false",
+                "DisableFirstEpisode" to "false",
             )
+        seriesId?.let { query.add("SeriesId" to it) }
+        val data = execute("GET", "/Shows/NextUp", query = query)
         // A special is never next while regular episodes are left (sashimi-roku#134).
         return decode<ItemsResponse>(data).items.map { item ->
             val seriesId = item.seriesId

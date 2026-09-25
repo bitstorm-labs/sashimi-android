@@ -46,6 +46,7 @@ import dev.bitstorm.sashimi.core.downloads.StorageAccounting
 import dev.bitstorm.sashimi.core.session.ServerConfig
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.downloads.formatBytes
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -61,6 +62,9 @@ private val ResumeThresholdOptions =
         "2 minutes" to 120,
         "5 minutes" to 300,
     )
+
+// What a TV library's Shuffle plays. A series' own Shuffle is always random.
+private val TvShuffleOptions = TvShuffleMode.entries.associateBy { it.label }
 
 // Empty string = "Device default" (no preference).
 private val LanguageOptions =
@@ -276,6 +280,7 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
     val subtitlesEnabled by settings.subtitlesEnabled.collectAsStateWithLifecycle()
     val audioLang by settings.preferredAudioLanguage.collectAsStateWithLifecycle()
     val subLang by settings.preferredSubtitleLanguage.collectAsStateWithLifecycle()
+    val tvShuffleMode by settings.tvShuffleMode.collectAsStateWithLifecycle()
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         DropdownRow("Maximum bitrate", AppSettings.MAX_BITRATE_OPTIONS, maxBitrate, settings::setMaxBitrate)
@@ -289,6 +294,7 @@ private fun PlaybackSettingsSection(settings: AppSettings) {
             subtitle = "Play the untouched file; never convert quality.",
         )
         DropdownRow("Resume threshold", ResumeThresholdOptions, resumeThreshold, settings::setResumeThresholdSeconds)
+        DropdownRow("TV Shuffle", TvShuffleOptions, tvShuffleMode, settings::setTvShuffleMode)
         SwitchRow("Subtitles on by default", subtitlesEnabled, settings::setSubtitlesEnabled)
         DropdownRow("Preferred audio language", LanguageOptions, audioLang, settings::setPreferredAudioLanguage)
         DropdownRow("Preferred subtitle language", LanguageOptions, subLang, settings::setPreferredSubtitleLanguage)
