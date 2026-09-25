@@ -1,5 +1,7 @@
 package dev.bitstorm.sashimi.core.network
 
+import dev.bitstorm.sashimi.core.home.NextUpSelector
+import dev.bitstorm.sashimi.core.home.isSpecial
 import dev.bitstorm.sashimi.core.model.AuthenticationResult
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.IntroSkipperSegment
@@ -296,7 +298,14 @@ class JellyfinClient(
                         "DisableFirstEpisode" to "false",
                     ),
             )
-        return decode<ItemsResponse>(data).items
+        // A special is never next while regular episodes are left (sashimi-roku#134).
+        return decode<ItemsResponse>(data).items.map { item ->
+            val seriesId = item.seriesId
+            if (!item.isSpecial || seriesId == null) return@map item
+            runCatching {
+                NextUpSelector.firstRegular(getEpisodes(seriesId))?.let { getItem(it.id) }
+            }.getOrNull() ?: item
+        }
     }
 
     /**

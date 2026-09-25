@@ -129,7 +129,7 @@ class DetailViewModel(
         _state.update { it.copy(nextEpisode = next) }
 
         val season =
-            next?.seasonId?.let { sid -> seasons.firstOrNull { it.id == sid } } ?: seasons.firstOrNull()
+            next?.seasonId?.let { sid -> seasons.firstOrNull { it.id == sid } } ?: NextUpSelector.specialsLast(seasons).firstOrNull()
         if (season != null) {
             // Only pick a default season if the user has not already chosen one.
             // Writing it unconditionally is what yanked a fully-watched 6-season
@@ -250,14 +250,14 @@ class DetailViewModel(
         _state.update { it.copy(episodes = episodes, isLoadingEpisodes = false) }
     }
 
-    /** Next-up: server Next Up for this series, else first unwatched across seasons. */
+    /** Next-up: server Next Up for this series, else first unwatched across seasons (Specials last). */
     private suspend fun findNextEpisode(
         seriesId: String,
         seasons: List<BaseItemDto>,
     ): BaseItemDto? {
         val nextUp = runCatching { client.getNextUp(limit = 50) }.getOrDefault(emptyList())
         NextUpSelector.fromNextUp(nextUp, seriesId)?.let { return it }
-        for (season in seasons) {
+        for (season in NextUpSelector.specialsLast(seasons)) {
             val eps = runCatching { client.getEpisodes(seriesId, season.id) }.getOrDefault(emptyList())
             NextUpSelector.firstUnwatched(eps)?.let { return it }
         }
