@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
@@ -64,13 +65,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.bitstorm.sashimi.MainActivity
 import dev.bitstorm.sashimi.core.playback.AudioTrack
 import dev.bitstorm.sashimi.core.playback.QualityOption
 import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
+import dev.bitstorm.sashimi.core.playback.VideoViewMode
+import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
+import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.delay
 
 private val SpeedOptions = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
@@ -79,7 +82,7 @@ private val SpeedOptions = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
  * Full-screen Media3 player route. Custom chrome (Media3's built-in controller
  * is disabled) ported from MobilePlayerView: tap toggles a 5s auto-hiding
  * overlay with a close button, title/subtitle, the stream-info chip, a settings
- * sheet (Quality / Audio / Subtitles / Speed), a Skip Intro/Credits button, PiP,
+ * sheet (Quality / Audio / Subtitles / Speed / View Mode), a Skip Intro/Credits button, PiP,
  * and transport controls. Auto-play-next and resume are driven by the VM.
  */
 @OptIn(UnstableApi::class)
@@ -133,6 +136,13 @@ fun PlayerScreen(
 
     PipEffects(activity = playerActivity, player = vm.player, state = state)
 
+    // View mode: this session's player pick, else the saved default. Both are
+    // observed so a pick (or a default change) resizes the picture at once.
+    val viewModes = ServiceLocator.appSettings.videoViewModes
+    val sessionViewMode by viewModes.sessionMode.collectAsStateWithLifecycle()
+    val defaultViewMode by viewModes.defaultMode.collectAsStateWithLifecycle()
+    val activeViewMode = VideoViewModeStore.resolve(sessionViewMode, defaultViewMode)
+
     var overlayVisible by remember { mutableStateOf(true) }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -162,10 +172,13 @@ fun PlayerScreen(
                     player = vm.player
                     useController = false
                     keepScreenOn = true
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
+            // Only the view's resize mode changes, so a switch is instant: no
+            // re-negotiation, and it survives quality, audio and subtitle
+            // changes because the PlayerView outlives them.
+            update = { it.resizeMode = ViewModeResize.resizeModeFor(activeViewMode, inPip) },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -221,6 +234,10 @@ fun PlayerScreen(
             },
             onSubtitle = vm::selectSubtitle,
             onSpeed = vm::setSpeed,
+            activeViewMode = activeViewMode,
+            defaultViewMode = defaultViewMode,
+            onViewMode = viewModes::selectForSession,
+            onUseForAllVideos = viewModes::useForAllVideos,
         )
     }
 }
@@ -429,6 +446,10 @@ private fun SettingsSheet(
     onAudio: (AudioTrack) -> Unit,
     onSubtitle: (Int) -> Unit,
     onSpeed: (Float) -> Unit,
+    activeViewMode: VideoViewMode,
+    defaultViewMode: VideoViewMode,
+    onViewMode: (VideoViewMode) -> Unit,
+    onUseForAllVideos: () -> Unit,
 ) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         androidx.compose.material3.Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1F1F24)) {
@@ -463,6 +484,18 @@ private fun SettingsSheet(
                     SpeedOptions.forEach { s ->
                         ChoiceChip(if (s == 1f) "1×" else "$s×", selected = state.speed == s) { onSpeed(s) }
                     }
+                }
+                // Kept open on a pick, like Speed: the change needs no
+                // re-negotiation, so the picture resizes behind the sheet at once.
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SettingsGroup(Icons.Filled.AspectRatio, "View Mode: ${activeViewMode.label}") {
+                        VideoViewMode.entries.forEach { mode ->
+                            ChoiceChip(mode.label, selected = activeViewMode == mode) { onViewMode(mode) }
+                        }
+                        // Checked once the active mode already is the default, as on Apple.
+                        ChoiceChip("Use for All Videos", selected = activeViewMode == defaultViewMode, onClick = onUseForAllVideos)
+                    }
+                    Text("Default: ${defaultViewMode.label}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                 }
             }
         }
