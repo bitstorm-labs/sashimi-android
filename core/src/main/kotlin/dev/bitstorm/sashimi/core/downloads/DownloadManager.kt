@@ -126,13 +126,17 @@ class DownloadManager(
         }
     }
 
-    fun downloadSeason(
-        episodes: List<BaseItemDto>,
+    /**
+     * Queues every item in [items] (a season, a whole series) at one quality,
+     * skipping any already downloaded, queued or downloading.
+     */
+    fun enqueueDownloads(
+        items: List<BaseItemDto>,
         quality: DownloadQuality,
         serverId: String?,
     ) {
         scope.launch {
-            episodes.forEach { insertQueued(it, quality, serverId) }
+            items.forEach { insertQueued(it, quality, serverId) }
             promote()
         }
     }
