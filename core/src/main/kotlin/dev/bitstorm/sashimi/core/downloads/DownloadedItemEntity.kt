@@ -1,23 +1,23 @@
 package dev.bitstorm.sashimi.core.downloads
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
  * Room mirror of the Swift `DownloadedItem` SwiftData model. One row per
- * downloaded (or downloading) Jellyfin item, keyed by its item id. Enums are
+ * downloaded (or downloading) Jellyfin item, keyed by [serverId] + [itemId]
+ * (see [DownloadKey]); the item id alone is not unique across servers. Enums are
  * stored as their lowercase wire strings so a schema stays legible and forgiving.
  *
  * [progress] carries the Swift `-1` sentinel meaning "in progress, total size
  * unknown" (transcoded streams report no Content-Length) — the UI must render
  * that as an indeterminate spinner rather than 0 %.
  */
-@Entity(tableName = "downloaded_items")
+@Entity(tableName = "downloaded_items", primaryKeys = ["serverId", "itemId"])
 data class DownloadedItemEntity(
-    @PrimaryKey val itemId: String,
+    val itemId: String,
     val name: String,
     val seriesName: String? = null,
     val seriesId: String? = null,
@@ -48,10 +48,14 @@ data class DownloadedItemEntity(
     /**
      * The saved server this item was downloaded from. The download, its
      * artwork and subtitles, and later progress sync all go to this server,
-     * whichever server is active by then. Null on rows written before
-     * downloads carried a server (they keep using the active server).
+     * whichever server is active by then. Part of the primary key.
+     *
+     * Rows from before downloads carried a server were stamped by migration 3
+     * to 4 with the server that was active then, which is where their progress
+     * was already syncing. [DownloadKey.UNKNOWN_SERVER] only when no server was
+     * saved at all; that resolves to the active server.
      */
-    val serverId: String? = null,
+    val serverId: String = DownloadKey.UNKNOWN_SERVER,
 ) {
     val downloadStatus: DownloadStatus get() = DownloadStatus.fromWire(status)
     val downloadQuality: DownloadQuality get() = DownloadQuality.fromWire(quality)

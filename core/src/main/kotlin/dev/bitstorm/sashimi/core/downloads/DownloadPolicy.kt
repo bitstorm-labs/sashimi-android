@@ -22,17 +22,17 @@ object DownloadPolicy {
      */
     fun nextToStart(
         items: List<DownloadedItemEntity>,
-        runningIds: Set<String>,
+        running: Set<DownloadKey>,
         maxConcurrent: Int = MAX_CONCURRENT,
-    ): List<String> {
-        val activeCount = items.count { it.itemId in runningIds }
+    ): List<DownloadKey> {
+        val activeCount = items.count { it.key in running }
         val slots = (maxConcurrent - activeCount).coerceAtLeast(0)
         if (slots == 0) return emptyList()
         return items
-            .filter { it.downloadStatus == DownloadStatus.QUEUED && it.itemId !in runningIds }
+            .filter { it.downloadStatus == DownloadStatus.QUEUED && it.key !in running }
             .sortedBy { it.dateAdded }
             .take(slots)
-            .map { it.itemId }
+            .map { it.key }
     }
 
     /**
@@ -92,7 +92,7 @@ object PendingProgressSync {
 
     /**
      * Reports each pending row's stashed position to the server that row was
-     * downloaded from, and returns the item ids that were reported (the caller
+     * downloaded from, and returns the keys of the rows reported (the caller
      * clears their flags). A row whose server can't be resolved (removed, or
      * signed out) or whose report fails stays pending for a later attempt,
      * rather than being posted to whichever server happens to be active.
@@ -101,11 +101,11 @@ object PendingProgressSync {
         items: List<DownloadedItemEntity>,
         clientFor: (serverId: String?) -> C?,
         report: suspend (client: C, itemId: String, positionTicks: Long) -> Unit,
-    ): List<String> =
+    ): List<DownloadKey> =
         itemsToSync(items).mapNotNull { row ->
             val client = clientFor(row.serverId) ?: return@mapNotNull null
             val result = runCatchingCancellable { report(client, row.itemId, row.localPositionTicks) }
-            if (result.isSuccess) row.itemId else null
+            if (result.isSuccess) row.key else null
         }
 }
 
@@ -136,6 +136,6 @@ object DownloadRecords {
             status = DownloadStatus.QUEUED.wireName,
             quality = quality.wireName,
             dateAdded = now,
-            serverId = serverId,
+            serverId = serverId ?: DownloadKey.UNKNOWN_SERVER,
         )
 }

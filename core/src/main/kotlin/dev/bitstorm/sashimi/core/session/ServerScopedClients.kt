@@ -43,10 +43,11 @@ class ServerScopedClients<C : Any>(
 
     /**
      * The client for a stored record (a download) stamped with [serverId].
-     * Records made before downloads carried a server have a null id and keep
-     * their old behaviour: the shared client.
+     * A record with no server (null, or the empty id a download is stamped
+     * with when no saved server could be attributed to it) keeps the old
+     * behaviour: the shared client.
      */
-    fun forRecord(serverId: String?): C? = if (serverId == null) shared else dedicated(serverId)
+    fun forRecord(serverId: String?): C? = if (serverId.isNullOrEmpty()) shared else dedicated(serverId)
 
     /** The dedicated client for a server whose config and token the caller already holds. */
     fun dedicated(

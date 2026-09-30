@@ -223,10 +223,11 @@ private fun AppShell(
                     OfflineHomeScreen(
                         // No serverId: these are local files, which need no server
                         // to play, and their progress syncs to the server each
-                        // download came from (DownloadedItemEntity.serverId).
-                        onPlay = { id ->
+                        // download came from (DownloadedItemEntity.serverId). The
+                        // download's server still picks WHICH copy to play.
+                        onPlay = { key ->
                             ServiceLocator.themeSongs.stopForPlayback()
-                            navController.navigate(PlayerRoute(itemId = id))
+                            navController.navigate(PlayerRoute(itemId = key.itemId, downloadServerId = key.serverId))
                         },
                         onOpenSeries = { id -> navController.navigate(DetailRoute(id)) },
                     )
@@ -292,8 +293,18 @@ private fun AppShell(
                     // Playback stays on the title's server too, without switching servers.
                     onPlay = { playId, fromBeginning ->
                         ServiceLocator.themeSongs.stopForPlayback()
+                        // Online, a detail belongs to a server, so only that
+                        // server's download of the item plays. Offline, the
+                        // detail was rebuilt from the download store with no
+                        // server, and any copy of the item will do.
+                        val downloadServerId = route.serverId ?: session.activeServerId.value.takeIf { isOnline }
                         navController.navigate(
-                            PlayerRoute(itemId = playId, startFromBeginning = fromBeginning, serverId = route.serverId),
+                            PlayerRoute(
+                                itemId = playId,
+                                startFromBeginning = fromBeginning,
+                                serverId = route.serverId,
+                                downloadServerId = downloadServerId,
+                            ),
                         )
                     },
                     onPlayTrailer = { trailerId ->
@@ -325,6 +336,7 @@ private fun AppShell(
                     startFromBeginning = route.startFromBeginning,
                     trailerItemId = route.trailerItemId,
                     serverId = route.serverId,
+                    downloadServerId = route.downloadServerId,
                     onExit = { navController.popBackStack() },
                 )
             }
