@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.ui.downloads
 
 import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
+import dev.bitstorm.sashimi.core.downloads.DownloadKey
 import dev.bitstorm.sashimi.di.ServiceLocator
 import java.io.File
 import java.util.Locale
@@ -14,25 +15,24 @@ object OfflineImages {
     private val files: DownloadFileManager get() = ServiceLocator.downloadFileManager
 
     /** Local poster for a downloaded item (series poster wins for episodes), or null. */
-    fun localPoster(itemId: String): File? =
-        firstExisting(
-            files.imageFile(itemId, DownloadFileManager.SERIES_POSTER_NAME),
-            files.imageFile(itemId, DownloadFileManager.POSTER_NAME),
-        )
+    fun localPoster(key: DownloadKey): File? =
+        files.localFile(key, DownloadFileManager.SERIES_POSTER_NAME)
+            ?: files.localFile(key, DownloadFileManager.POSTER_NAME)
 
-    fun localBackdrop(itemId: String): File? =
-        firstExisting(
-            files.imageFile(itemId, DownloadFileManager.BACKDROP_NAME),
-            files.imageFile(itemId, DownloadFileManager.POSTER_NAME),
-        )
+    fun localBackdrop(key: DownloadKey): File? =
+        files.localFile(key, DownloadFileManager.BACKDROP_NAME)
+            ?: files.localFile(key, DownloadFileManager.POSTER_NAME)
 
-    /** Coil model: the local poster file when present, else the server image URL. */
+    /**
+     * Coil model: the local poster file when present, else the image URL on
+     * the server the download came from.
+     */
     fun posterModel(
-        itemId: String,
-        fallbackImageItemId: String = itemId,
-    ): Any? = localPoster(itemId) ?: ServiceLocator.client.imageURL(fallbackImageItemId, "Primary", 400)
-
-    private fun firstExisting(vararg candidates: File): File? = candidates.firstOrNull { it.exists() }
+        key: DownloadKey,
+        fallbackImageItemId: String = key.itemId,
+    ): Any? =
+        localPoster(key)
+            ?: ServiceLocator.serverClients.forRecord(key.serverId)?.imageURL(fallbackImageItemId, "Primary", 400)
 }
 
 /** Human-readable file size (decimal units), matching the iOS ByteCountFormatter .file style. */

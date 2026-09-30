@@ -18,6 +18,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import dev.bitstorm.sashimi.core.downloads.DownloadKey
+import dev.bitstorm.sashimi.core.downloads.DownloadLookup
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.model.BaseItemDto
@@ -104,6 +106,14 @@ class PlayerViewModel(
     private val itemId: String,
     private val startFromBeginning: Boolean,
     private val trailerItemId: String?,
+    /**
+     * The server whose download of the item to play, when one exists. Null
+     * when the route has no server context (the offline library's series
+     * page, a deep link); see [DownloadLookup.playable].
+     */
+    private val downloadServerId: String?,
+    /** The active server when the route opened, for an unscoped lookup. */
+    private val activeServerId: () -> String?,
 ) : AndroidViewModel(app) {
     /** Artwork for the system media surfaces, from the item's own server. */
     private val images = ImageUrlBuilder { client }
@@ -166,8 +176,15 @@ class PlayerViewModel(
     private var watchdogJob: Job? = null
     private var isHandlingEnd = false
 
-    /** Set when playing a completed local download — drives local position save + skips server reporting. */
-    private var isLocalPlayback = false
+    /**
+     * The download being played from local storage, or null when streaming.
+     * Drives the local position save and skips server reporting. Positions are
+     * saved against this key, never a bare item id: the same item id can be
+     * downloaded from two servers (#86).
+     */
+    private var localKey: DownloadKey? = null
+
+    private val isLocalPlayback: Boolean get() = localKey != null
 
     // Desired track selections, (re)applied whenever the player's track list
     // changes (tracks aren't known until after prepare).
@@ -230,10 +247,10 @@ class PlayerViewModel(
         // Prefer a completed local download whenever one exists — even online
         // (matches the Swift MobilePlayerView localFileURL gate). Trailers never
         // play locally.
-        val localFile = if (trailerItemId == null) runCatching { downloads.localVideoFile(playbackTargetId) }.getOrNull() else null
+        val localFile = if (trailerItemId == null) runCatching { localDownload(playbackTargetId) }.getOrNull() else null
 
         if (localFile != null) {
-            prepareLocal(playbackTargetId, localFile)
+            prepareLocal(localFile.first, localFile.second)
             return
         }
 
@@ -274,21 +291,29 @@ class PlayerViewModel(
             }
     }
 
+    /** The download to play for [id] and its video file, or null to stream. */
+    private suspend fun localDownload(id: String): Pair<DownloadKey, java.io.File>? {
+        val key = downloads.playableDownload(id, downloadServerId, activeServerId()) ?: return null
+        val file = downloads.localVideoFile(key) ?: return null
+        return key to file
+    }
+
     /**
      * Plays a completed download from local storage: no negotiation, restore the
      * locally-saved position (preferring it over the server's when larger), and
      * defer all progress reporting to the offline sync path.
      */
     private suspend fun prepareLocal(
-        playbackItemId: String,
+        key: DownloadKey,
         localFile: java.io.File,
     ) {
-        isLocalPlayback = true
+        val playbackItemId = key.itemId
+        localKey = key
         // Reconstruct the item from the server when reachable, else from the store.
         val serverItem = runCatching { client.getItem(playbackItemId) }.getOrNull()
         val item =
             serverItem
-                ?: downloads.downloadedItem(playbackItemId)?.let { OfflineReconstruction.asBaseItemDto(it) }
+                ?: downloads.downloadedItem(key)?.let { OfflineReconstruction.asBaseItemDto(it) }
                 ?: run {
                     _state.update { it.copy(isLoading = false, error = "Could not load download.") }
                     return
@@ -296,16 +321,16 @@ class PlayerViewModel(
         currentItem = item
 
         val serverTicks = if (startFromBeginning) 0 else item.userData?.playbackPositionTicks ?: 0
-        val localTicks = downloads.offlinePlaybackPositionTicks(playbackItemId) ?: 0
+        val localTicks = downloads.offlinePlaybackPositionTicks(key) ?: 0
         val startTicks = if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
 
         // Side-load any subtitles that were downloaded alongside the video as
         // local VTT tracks (Swift MobilePlayerView local subtitle configs).
-        val entity = downloads.downloadedItem(playbackItemId)
+        val entity = downloads.downloadedItem(key)
         val subConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
         val subTracks = mutableListOf<SubtitleTrack>()
         for (sub in entity?.subtitles.orEmpty()) {
-            val file = downloads.localSubtitleFile(playbackItemId, sub.fileName) ?: continue
+            val file = downloads.localSubtitleFile(key, sub.fileName) ?: continue
             subConfigs.add(
                 MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(file))
                     .setMimeType(MimeTypes.TEXT_VTT)
@@ -777,8 +802,9 @@ class PlayerViewModel(
         // onCleared. Streaming checkpointed every 5s while offline viewing had
         // no safety net at all, so an OS reclaim or a crash mid-item lost the
         // position entirely and the item restarted from zero.
-        if (isLocalPlayback && trailerItemId == null) {
-            currentItem?.id?.let { downloads.savePlaybackPosition(it, posTicks) }
+        val local = localKey
+        if (local != null && trailerItemId == null) {
+            downloads.savePlaybackPosition(local, posTicks)
             return
         }
         val r = reporter ?: return
@@ -817,12 +843,13 @@ class PlayerViewModel(
             // only the REMAINING runtime, which would report a resumed item as
             // having finished far short of its real length.
             val durationTicks = absoluteDurationMs * TICKS_PER_MS
-            if (isLocalPlayback && trailerItemId == null) {
+            val local = localKey
+            if (local != null && trailerItemId == null) {
                 // No ProgressReporter exists for local playback, so markPlayed is
                 // unreachable. Stash the full runtime instead: the pending-sync
                 // path posts it as the stopped position, which the server scores
                 // as watched.
-                currentItem?.id?.let { downloads.savePlaybackPosition(it, durationTicks) }
+                downloads.savePlaybackPosition(local, durationTicks)
             }
             runCatching { reporter?.reportEndOfPlayback(durationTicks) }
 
@@ -839,10 +866,13 @@ class PlayerViewModel(
                 // auto-play-next always server-negotiated -- so with a whole
                 // season downloaded it could not fire on a plane at all, and
                 // online it streamed over cellular an episode already on disk.
-                val nextLocal = runCatching { downloads.localVideoFile(next.id) }.getOrNull()
+                val nextLocal = runCatching { localDownload(next.id) }.getOrNull()
                 if (nextLocal != null) {
-                    prepareLocal(next.id, nextLocal)
+                    prepareLocal(nextLocal.first, nextLocal.second)
                 } else {
+                    // Streaming now: positions must stop going to the previous
+                    // episode's download row.
+                    localKey = null
                     prepare(next, startTicks = 0, QualityOption.AUTO, forceTranscode = false)
                 }
             } else {
@@ -874,7 +904,9 @@ class PlayerViewModel(
         current: BaseItemDto,
         seriesId: String,
     ): BaseItemDto? {
-        val rows = runCatching { downloads.allDownloads() }.getOrNull() ?: return null
+        val all = runCatching { downloads.allDownloads() }.getOrNull() ?: return null
+        // Stay on the server whose download is playing.
+        val rows = localKey?.let { key -> all.filter { it.serverId == key.serverId } } ?: all
         val episodes = OfflineReconstruction.episodesForSeries(rows, seriesId, current.seriesName)
         val position = episodes.indexOfFirst { it.itemId == current.id }
         if (position < 0) return null
@@ -903,15 +935,16 @@ class PlayerViewModel(
         // Local playback: stash the position for later server sync (Swift
         // savePlaybackPosition → syncPendingProgress). Trailers are never saved.
         //
-        // Keyed on currentItem, NOT the constructor's itemId: auto-play-next
+        // Keyed on localKey, which follows currentItem, NOT the constructor's itemId: auto-play-next
         // advances currentItem while itemId stays pinned to the episode the user
         // originally opened. Saving against itemId wrote the NEXT episode's
         // position onto the PREVIOUS episode's row, and since savePlaybackPosition
         // also sets pendingProgressSync, that wrong position was then POSTed to
         // the server as the previous episode's stopped position, clobbering its
         // correct finished state.
-        if (isLocalPlayback && trailerItemId == null) {
-            downloads.savePlaybackPosition(currentItem?.id ?: itemId, posTicks)
+        val local = localKey
+        if (local != null && trailerItemId == null) {
+            downloads.savePlaybackPosition(local, posTicks)
         }
         // Fire the stopped report + transcode teardown on a detached scope so it
         // survives the ViewModel being cleared, then release the player.
@@ -934,6 +967,7 @@ class PlayerViewModel(
         private val itemId: String,
         private val startFromBeginning: Boolean,
         private val trailerItemId: String?,
+        private val downloadServerId: String?,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
@@ -946,6 +980,8 @@ class PlayerViewModel(
                 itemId = itemId,
                 startFromBeginning = startFromBeginning,
                 trailerItemId = trailerItemId,
+                downloadServerId = downloadServerId,
+                activeServerId = { ServiceLocator.session.activeServerId.value },
             ) as T
     }
 

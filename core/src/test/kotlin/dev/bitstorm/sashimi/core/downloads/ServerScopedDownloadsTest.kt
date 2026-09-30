@@ -81,7 +81,7 @@ class ServerScopedDownloadsTest {
                 ),
                 reported,
             )
-            assertEquals(listOf("on-b", "legacy"), synced)
+            assertEquals(listOf("on-b", "legacy"), synced.map { it.itemId })
         }
 
     @Test
@@ -94,7 +94,7 @@ class ServerScopedDownloadsTest {
             val synced = PendingProgressSync.sync(rows, clients::forRecord) { client, _, _ -> reported += client.currentServerUrl }
 
             assertEquals(emptyList<String?>(), reported)
-            assertEquals(emptyList<String>(), synced)
+            assertEquals(emptyList<DownloadKey>(), synced)
         }
 
     @Test
@@ -102,6 +102,6 @@ class ServerScopedDownloadsTest {
         runBlocking {
             val rows = listOf(DownloadedItemEntity(itemId = "on-b", name = "x", serverId = "b", pendingProgressSync = true))
             val synced = PendingProgressSync.sync(rows, clients::forRecord) { _, _, _ -> error("offline") }
-            assertEquals(emptyList<String>(), synced)
+            assertEquals(emptyList<DownloadKey>(), synced)
         }
 }

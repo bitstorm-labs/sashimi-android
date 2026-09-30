@@ -97,4 +97,12 @@ data class PlayerRoute(
      * switching the active one. Null means the active server.
      */
     val serverId: String? = null,
+    /**
+     * Whose local download to play, when one exists (downloads are keyed by
+     * server + item, #86). Kept apart from [serverId] because playing a file
+     * needs no server: the offline library sets this without pinning the
+     * player to a server that may be signed out. Null: no server context, see
+     * [dev.bitstorm.sashimi.core.downloads.DownloadLookup.playable].
+     */
+    val downloadServerId: String? = null,
 )

@@ -33,8 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import dev.bitstorm.sashimi.core.downloads.DownloadKey
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
+import dev.bitstorm.sashimi.core.downloads.key
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
@@ -52,7 +54,7 @@ private val OfflineWarning = Color(0xFFFF9800)
  */
 @Composable
 fun OfflineHomeScreen(
-    onPlay: (itemId: String) -> Unit,
+    onPlay: (key: DownloadKey) -> Unit,
     onOpenSeries: (seriesId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -80,8 +82,8 @@ fun OfflineHomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
                     ) {
-                        items(continueWatching, key = { it.itemId }) { row ->
-                            ContinueCard(row, onClick = { onPlay(row.itemId) })
+                        items(continueWatching, key = { it.listKey }) { row ->
+                            ContinueCard(row, onClick = { onPlay(row.key) })
                         }
                     }
                 }
@@ -95,8 +97,8 @@ fun OfflineHomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
                     ) {
-                        items(movies, key = { it.itemId }) { row ->
-                            PosterCard(row.itemId, row.name, onClick = { onPlay(row.itemId) })
+                        items(movies, key = { it.listKey }) { row ->
+                            PosterCard(row.key, row.name, onClick = { onPlay(row.key) })
                         }
                     }
                 }
@@ -112,7 +114,7 @@ fun OfflineHomeScreen(
                     ) {
                         items(series, key = { it.seriesId }) { group ->
                             PosterCard(
-                                imageItemId = group.representative.itemId,
+                                imageKey = group.representative.key,
                                 title = group.seriesName,
                                 badge = "${group.episodes.size}",
                                 onClick = { onOpenSeries(group.seriesId) },
@@ -183,7 +185,7 @@ private fun ContinueCard(
     Column(Modifier.width(240.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.fillMaxWidth().height(135.dp).clip(RoundedCornerShape(8.dp)).background(SashimiCard)) {
             AsyncImage(
-                model = OfflineImages.localBackdrop(row.itemId),
+                model = OfflineImages.localBackdrop(row.key),
                 contentDescription = row.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -199,7 +201,7 @@ private fun ContinueCard(
 
 @Composable
 private fun PosterCard(
-    imageItemId: String,
+    imageKey: DownloadKey,
     title: String,
     badge: String? = null,
     onClick: () -> Unit,
@@ -207,7 +209,7 @@ private fun PosterCard(
     Column(Modifier.width(110.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.width(110.dp).height(165.dp).clip(RoundedCornerShape(8.dp)).background(SashimiCard)) {
             AsyncImage(
-                model = OfflineImages.localPoster(imageItemId),
+                model = OfflineImages.localPoster(imageKey),
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

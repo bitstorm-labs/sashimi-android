@@ -6,39 +6,65 @@ import java.io.File
 
 /**
  * On-disk layout + storage accounting for downloads, ported from the Swift
- * `DownloadFileManager`. Files live under app-private storage
- * (`filesDir/downloads/{itemId}/`) so they never touch shared storage and are
- * cleaned up on uninstall.
+ * `DownloadFileManager`. Files live under app-private storage so they never
+ * touch shared storage and are cleaned up on uninstall. The layout itself
+ * (`filesDir/downloads/servers/{serverId}/{itemId}/`, formerly
+ * `filesDir/downloads/{itemId}/`) is defined by [DownloadLayout].
+ *
+ * Writes always go to the current layout. Reads ([localFile], [itemSize]) fall
+ * back to the legacy directory, so a download whose move failed still plays.
  */
 class DownloadFileManager(context: Context) {
     private val appContext = context.applicationContext
     private val root: File = File(appContext.filesDir, "downloads")
 
-    fun itemDirectory(itemId: String): File = File(root, itemId).apply { mkdirs() }
+    /** The current-layout directory for [key], created on demand. */
+    fun itemDirectory(key: DownloadKey): File = File(root, DownloadLayout.itemPath(key)).apply { mkdirs() }
 
     fun videoFile(
-        itemId: String,
+        key: DownloadKey,
         fileName: String,
-    ): File = File(itemDirectory(itemId), fileName)
+    ): File = File(itemDirectory(key), fileName)
 
     /** The in-progress partial file a resumable download streams into. */
-    fun partialFile(itemId: String): File = File(itemDirectory(itemId), PARTIAL_NAME)
+    fun partialFile(key: DownloadKey): File = File(itemDirectory(key), PARTIAL_NAME)
 
     fun imageFile(
-        itemId: String,
+        key: DownloadKey,
         fileName: String,
-    ): File = File(itemDirectory(itemId), fileName)
+    ): File = File(itemDirectory(key), fileName)
 
     /** The per-item `subtitles/` directory (created on demand). */
-    fun subtitlesDirectory(itemId: String): File = File(itemDirectory(itemId), "subtitles").apply { mkdirs() }
+    fun subtitlesDirectory(key: DownloadKey): File = File(itemDirectory(key), SUBTITLES_DIR).apply { mkdirs() }
 
     fun subtitleFile(
-        itemId: String,
+        key: DownloadKey,
         fileName: String,
-    ): File = File(subtitlesDirectory(itemId), fileName)
+    ): File = File(subtitlesDirectory(key), fileName)
 
-    fun deleteItemDirectory(itemId: String) {
-        File(root, itemId).deleteRecursively()
+    /**
+     * An existing file of [key]'s download at [relativePath] (e.g. `video.mp4`,
+     * `subtitles/2_eng.vtt`), from the current layout or, failing that, the
+     * legacy one. Null when neither has it. Creates nothing.
+     */
+    fun localFile(
+        key: DownloadKey,
+        relativePath: String,
+    ): File? =
+        File(File(root, DownloadLayout.itemPath(key)), relativePath).takeIf { it.exists() }
+            ?: File(File(root, DownloadLayout.legacyItemPath(key.itemId)), relativePath).takeIf { it.exists() }
+
+    fun deleteItemDirectory(key: DownloadKey) {
+        File(root, DownloadLayout.itemPath(key)).deleteRecursively()
+    }
+
+    /**
+     * Deletes the legacy `{itemId}/` directory. Only for a caller that knows no
+     * remaining row has [itemId]: the directory is not tied to a server.
+     */
+    fun deleteLegacyItemDirectory(itemId: String) {
+        val dir = File(root, DownloadLayout.legacyItemPath(itemId))
+        if (itemId != DownloadLayout.SERVERS_DIR && dir.isDirectory) dir.deleteRecursively()
     }
 
     fun deleteAll() {
@@ -46,17 +72,51 @@ class DownloadFileManager(context: Context) {
     }
 
     /** Recursive size of everything downloaded for one item (Swift itemSize). */
-    fun itemSize(itemId: String): Long = directorySize(File(root, itemId))
+    fun itemSize(key: DownloadKey): Long {
+        val current = File(root, DownloadLayout.itemPath(key))
+        return if (current.exists()) directorySize(current) else directorySize(File(root, DownloadLayout.legacyItemPath(key.itemId)))
+    }
 
     fun totalSize(): Long = directorySize(root)
 
+    /** Names of legacy `{itemId}/` directories still at the top of the root. */
+    fun legacyDirectoriesOnDisk(): Set<String> =
+        root.listFiles()
+            ?.filter { it.isDirectory && it.name != DownloadLayout.SERVERS_DIR }
+            ?.map { it.name }
+            ?.toSet()
+            .orEmpty()
+
+    /** Every current-layout item directory, as `servers/{server}/{item}` paths. */
+    fun itemPathsOnDisk(): Set<String> {
+        val servers = File(root, DownloadLayout.SERVERS_DIR).listFiles()?.filter { it.isDirectory }.orEmpty()
+        return servers.flatMap { server ->
+            server.listFiles()
+                ?.filter { it.isDirectory }
+                ?.map { "${DownloadLayout.SERVERS_DIR}/${server.name}/${it.name}" }
+                .orEmpty()
+        }.toSet()
+    }
+
     /**
-     * Item ids that have a directory on disk. Used to reconcile the filesystem
-     * against the database: a destructive Room migration drops every row while
-     * leaving the media in place, which stranded the files with no in-app way to
-     * reclaim the space.
+     * Applies [moves] with a same-volume rename, so a file is never copied or
+     * half-written, and returns the ones that succeeded. A move whose target
+     * already exists is skipped: nothing is overwritten.
      */
-    fun itemIdsOnDisk(): Set<String> = root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.toSet().orEmpty()
+    fun relocate(moves: List<DownloadLayout.Move>): List<DownloadLayout.Move> =
+        moves.filter { move ->
+            val from = File(root, move.from)
+            val to = File(root, move.to)
+            if (!from.isDirectory || to.exists()) return@filter false
+            to.parentFile?.mkdirs()
+            from.renameTo(to)
+        }
+
+    /** Deletes a directory at [relativePath] under the root (the orphan sweep). */
+    fun deleteRelative(relativePath: String) {
+        if (relativePath.isEmpty() || relativePath == DownloadLayout.SERVERS_DIR) return
+        File(root, relativePath).deleteRecursively()
+    }
 
     private fun directorySize(dir: File): Long {
         if (!dir.exists()) return 0
@@ -80,5 +140,6 @@ class DownloadFileManager(context: Context) {
         const val POSTER_NAME = "poster.jpg"
         const val BACKDROP_NAME = "backdrop.jpg"
         const val SERIES_POSTER_NAME = "series_poster.jpg"
+        const val SUBTITLES_DIR = "subtitles"
     }
 }
