@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Thin persistence façade over [DownloadDao]. Keeps the [DownloadManager]
  * orchestration free of Room specifics and gives the UI one reactive stream.
+ * Every single-row operation takes a [DownloadKey]: item ids repeat across
+ * servers.
  */
 class DownloadRepository(
     private val dao: DownloadDao,
@@ -13,32 +15,32 @@ class DownloadRepository(
 
     suspend fun all(): List<DownloadedItemEntity> = dao.getAll()
 
-    suspend fun get(itemId: String): DownloadedItemEntity? = dao.getById(itemId)
+    suspend fun get(key: DownloadKey): DownloadedItemEntity? = dao.get(key.serverId, key.itemId)
 
     suspend fun upsert(item: DownloadedItemEntity) = dao.upsert(item)
 
-    suspend fun delete(itemId: String) = dao.deleteById(itemId)
+    suspend fun delete(key: DownloadKey) = dao.delete(key.serverId, key.itemId)
 
     suspend fun deleteAll() = dao.deleteAll()
 
     suspend fun updateProgress(
-        itemId: String,
+        key: DownloadKey,
         status: DownloadStatus,
         progress: Double,
         downloadedBytes: Long,
         totalBytes: Long,
-    ) = dao.updateProgress(itemId, status.wireName, progress, downloadedBytes, totalBytes)
+    ) = dao.updateProgress(key.serverId, key.itemId, status.wireName, progress, downloadedBytes, totalBytes)
 
     suspend fun updateStatus(
-        itemId: String,
+        key: DownloadKey,
         status: DownloadStatus,
         error: String? = null,
-    ) = dao.updateStatus(itemId, status.wireName, error)
+    ) = dao.updateStatus(key.serverId, key.itemId, status.wireName, error)
 
     suspend fun savePlaybackPosition(
-        itemId: String,
+        key: DownloadKey,
         ticks: Long,
-    ) = dao.savePlaybackPosition(itemId, ticks)
+    ) = dao.savePlaybackPosition(key.serverId, key.itemId, ticks)
 
-    suspend fun clearSyncFlag(itemId: String) = dao.clearSyncFlag(itemId)
+    suspend fun clearSyncFlag(key: DownloadKey) = dao.clearSyncFlag(key.serverId, key.itemId)
 }

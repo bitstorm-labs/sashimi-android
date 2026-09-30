@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.downloads.DeviceMediaCompatibility
+import dev.bitstorm.sashimi.core.downloads.DownloadKey
 import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
+import dev.bitstorm.sashimi.core.downloads.key
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
@@ -50,7 +52,10 @@ fun DownloadButton(
 ) {
     val manager = ServiceLocator.downloadManager
     val downloads by manager.downloads.collectAsStateWithLifecycle()
-    val row = downloads.firstOrNull { it.itemId == item.id }
+    // Keyed by server + item: the same item id downloaded from another server
+    // is a different download (#86).
+    val key = DownloadKey.of(serverId, item.id)
+    val row = downloads.firstOrNull { it.key == key }
 
     var showQualityDialog by remember { mutableStateOf(false) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
@@ -59,9 +64,9 @@ fun DownloadButton(
     FilledTonalIconButton(onClick = {
         when (row?.downloadStatus) {
             null -> showQualityDialog = true
-            DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING -> manager.cancel(item.id)
+            DownloadStatus.QUEUED, DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING -> manager.cancel(key)
             DownloadStatus.COMPLETED -> showRemoveConfirm = true
-            DownloadStatus.FAILED -> notificationGate { manager.retry(item.id) }
+            DownloadStatus.FAILED -> notificationGate { manager.retry(key) }
         }
     }, modifier = modifier) {
         DownloadButtonIcon(row)
@@ -87,7 +92,7 @@ fun DownloadButton(
             confirmButton = {
                 TextButton(onClick = {
                     showRemoveConfirm = false
-                    manager.delete(item.id)
+                    manager.delete(key)
                 }) { Text("Remove", color = Color.Red) }
             },
             dismissButton = { TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") } },

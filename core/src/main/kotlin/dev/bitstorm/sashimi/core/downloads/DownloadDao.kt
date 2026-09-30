@@ -19,23 +19,31 @@ interface DownloadDao {
     @Query("SELECT * FROM downloaded_items ORDER BY dateAdded DESC")
     suspend fun getAll(): List<DownloadedItemEntity>
 
-    @Query("SELECT * FROM downloaded_items WHERE itemId = :itemId")
-    suspend fun getById(itemId: String): DownloadedItemEntity?
+    @Query("SELECT * FROM downloaded_items WHERE serverId = :serverId AND itemId = :itemId")
+    suspend fun get(
+        serverId: String,
+        itemId: String,
+    ): DownloadedItemEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: DownloadedItemEntity)
 
-    @Query("DELETE FROM downloaded_items WHERE itemId = :itemId")
-    suspend fun deleteById(itemId: String)
+    @Query("DELETE FROM downloaded_items WHERE serverId = :serverId AND itemId = :itemId")
+    suspend fun delete(
+        serverId: String,
+        itemId: String,
+    )
 
     @Query("DELETE FROM downloaded_items")
     suspend fun deleteAll()
 
     @Query(
         "UPDATE downloaded_items SET status = :status, progress = :progress, " +
-            "downloadedBytes = :downloadedBytes, totalBytes = :totalBytes WHERE itemId = :itemId",
+            "downloadedBytes = :downloadedBytes, totalBytes = :totalBytes " +
+            "WHERE serverId = :serverId AND itemId = :itemId",
     )
     suspend fun updateProgress(
+        serverId: String,
         itemId: String,
         status: String,
         progress: Double,
@@ -43,26 +51,35 @@ interface DownloadDao {
         totalBytes: Long,
     )
 
-    @Query("UPDATE downloaded_items SET status = :status, errorMessage = :error WHERE itemId = :itemId")
+    @Query(
+        "UPDATE downloaded_items SET status = :status, errorMessage = :error " +
+            "WHERE serverId = :serverId AND itemId = :itemId",
+    )
     suspend fun updateStatus(
+        serverId: String,
         itemId: String,
         status: String,
         error: String?,
     )
 
     @Query(
-        "UPDATE downloaded_items SET localPositionTicks = :ticks, pendingProgressSync = 1 WHERE itemId = :itemId",
+        "UPDATE downloaded_items SET localPositionTicks = :ticks, pendingProgressSync = 1 " +
+            "WHERE serverId = :serverId AND itemId = :itemId",
     )
     suspend fun savePlaybackPosition(
+        serverId: String,
         itemId: String,
         ticks: Long,
     )
 
-    @Query("UPDATE downloaded_items SET pendingProgressSync = 0 WHERE itemId = :itemId")
-    suspend fun clearSyncFlag(itemId: String)
+    @Query("UPDATE downloaded_items SET pendingProgressSync = 0 WHERE serverId = :serverId AND itemId = :itemId")
+    suspend fun clearSyncFlag(
+        serverId: String,
+        itemId: String,
+    )
 }
 
-@Database(entities = [DownloadedItemEntity::class], version = 3, exportSchema = false)
+@Database(entities = [DownloadedItemEntity::class], version = 4, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
 
@@ -77,6 +94,25 @@ abstract class DownloadDatabase : RoomDatabase() {
             object : Migration(2, 3) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("ALTER TABLE downloaded_items ADD COLUMN serverId TEXT")
+                }
+            }
+
+        /**
+         * Re-keys downloads by server + item id (#86); see
+         * [DownloadSchema.migration3To4]. [legacyServerId] is read when the
+         * migration runs, not when it is built: it names the server stamped on
+         * rows that predate downloads carrying one.
+         */
+        fun migration3To4(legacyServerId: () -> String): Migration =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    DownloadSchema.migration3To4(legacyServerId()).forEach { statement ->
+                        if (statement.args.isEmpty()) {
+                            db.execSQL(statement.sql)
+                        } else {
+                            db.execSQL(statement.sql, statement.args.toTypedArray())
+                        }
+                    }
                 }
             }
     }

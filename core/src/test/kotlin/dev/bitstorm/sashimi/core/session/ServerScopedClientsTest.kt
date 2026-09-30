@@ -71,6 +71,8 @@ class ServerScopedClientsTest {
     @Test
     fun `records resolve by their own server, legacy records by the shared client`() {
         assertSame(shared, clients.forRecord(null))
+        // Migration 3 to 4 stamps a server-less row with "" when no server was saved.
+        assertSame(shared, clients.forRecord(""))
         assertEquals(FakeClient("https://other.example", "other-token"), clients.forRecord("b"))
         // A record from the active server keeps its own client, so a later
         // switch cannot redirect it.

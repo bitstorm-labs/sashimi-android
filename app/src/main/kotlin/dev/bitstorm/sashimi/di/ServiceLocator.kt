@@ -6,6 +6,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadDatabase
 import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.DownloadRepository
+import dev.bitstorm.sashimi.core.downloads.DownloadSchema
 import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
@@ -108,10 +109,11 @@ object ServiceLocator {
         val app = context.applicationContext
 
         client = JellyfinClient(deviceId = stableDeviceId(app))
+        val serverStore = PrefsServerStore(app)
         session =
             SessionManager(
                 gateway = client,
-                serverStore = PrefsServerStore(app),
+                serverStore = serverStore,
                 tokenStore = EncryptedTokenStore(app),
                 scope = appScope,
             )
@@ -134,7 +136,14 @@ object ServiceLocator {
         downloadFileManager = DownloadFileManager(app)
         val db =
             Room.databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")
-                .addMigrations(DownloadDatabase.MIGRATION_2_3)
+                .addMigrations(
+                    DownloadDatabase.MIGRATION_2_3,
+                    // Read from the store, not the session: the migration runs on
+                    // the first query, which can beat the session restore.
+                    DownloadDatabase.migration3To4 {
+                        DownloadSchema.legacyServerId(serverStore.getActiveServerId(), serverStore.loadServers().map { it.id })
+                    },
+                )
                 .fallbackToDestructiveMigration()
                 .build()
         downloadManager =

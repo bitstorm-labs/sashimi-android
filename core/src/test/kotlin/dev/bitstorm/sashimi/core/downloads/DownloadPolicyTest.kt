@@ -10,7 +10,22 @@ class DownloadPolicyTest {
         id: String,
         status: DownloadStatus,
         added: Long,
-    ) = DownloadedItemEntity(itemId = id, name = id, status = status.wireName, dateAdded = added)
+        serverId: String = "s",
+    ) = DownloadedItemEntity(itemId = id, name = id, status = status.wireName, dateAdded = added, serverId = serverId)
+
+    private fun key(id: String) = DownloadKey("s", id)
+
+    @Test
+    fun `the same item id on another server is a separate download`() {
+        val items =
+            listOf(
+                item("a", DownloadStatus.DOWNLOADING, 1, serverId = "s"),
+                item("a", DownloadStatus.QUEUED, 2, serverId = "t"),
+            )
+        // Keyed by item id alone, the running "a" on s hid the queued "a" on t.
+        val start = DownloadPolicy.nextToStart(items, running = setOf(key("a")), maxConcurrent = 2)
+        assertEquals(listOf(DownloadKey("t", "a")), start)
+    }
 
     @Test
     fun `nextToStart fills up to the concurrency cap oldest-first`() {
@@ -20,7 +35,7 @@ class DownloadPolicyTest {
                 item("b", DownloadStatus.QUEUED, 1),
                 item("c", DownloadStatus.QUEUED, 2),
             )
-        val start = DownloadPolicy.nextToStart(items, runningIds = emptySet(), maxConcurrent = 2)
+        val start = DownloadPolicy.nextToStart(items, running = emptySet(), maxConcurrent = 2).map { it.itemId }
         assertEquals(listOf("b", "c"), start)
     }
 
@@ -32,7 +47,7 @@ class DownloadPolicyTest {
                 item("b", DownloadStatus.QUEUED, 2),
                 item("c", DownloadStatus.QUEUED, 3),
             )
-        val start = DownloadPolicy.nextToStart(items, runningIds = setOf("a"), maxConcurrent = 2)
+        val start = DownloadPolicy.nextToStart(items, running = setOf(key("a")), maxConcurrent = 2).map { it.itemId }
         assertEquals(listOf("b"), start)
     }
 
@@ -44,7 +59,7 @@ class DownloadPolicyTest {
                 item("b", DownloadStatus.PREPARING, 2),
                 item("c", DownloadStatus.QUEUED, 3),
             )
-        val start = DownloadPolicy.nextToStart(items, runningIds = setOf("a", "b"), maxConcurrent = 2)
+        val start = DownloadPolicy.nextToStart(items, running = setOf(key("a"), key("b")), maxConcurrent = 2)
         assertTrue(start.isEmpty())
     }
 
@@ -85,7 +100,7 @@ class DownloadPolicyTest {
         val requeued = failed.copy(status = DownloadStatus.QUEUED.wireName, progress = 0.0, downloadedBytes = 0, errorMessage = null)
         assertEquals(DownloadStatus.QUEUED, requeued.downloadStatus)
         assertEquals(0.0, requeued.progress, 0.0)
-        assertTrue(DownloadPolicy.nextToStart(listOf(requeued), emptySet()).contains("a"))
+        assertTrue(DownloadPolicy.nextToStart(listOf(requeued), emptySet()).contains(key("a")))
     }
 }
 

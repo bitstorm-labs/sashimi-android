@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
@@ -141,34 +142,38 @@ class DownloadManager(
         quality: DownloadQuality,
         serverId: String?,
     ) {
-        val existing = repository.get(item.id)
+        val key = DownloadKey.of(serverId, item.id)
+        val existing = repository.get(key)
         if (DownloadPolicy.isDuplicate(existing)) return
         // A re-enqueue at a different quality must not resume onto the old
         // partial (different encoding) — drop it so the download restarts clean.
         if (DownloadPolicy.shouldDeletePartialOnReenqueue(existing, quality)) {
-            fileManager.partialFile(item.id).delete()
+            fileManager.partialFile(key).delete()
         }
         repository.upsert(DownloadRecords.queued(item, quality, serverId, now = System.currentTimeMillis()))
     }
 
     // MARK: - Cancel / delete / retry
 
-    fun cancel(itemId: String) {
+    fun cancel(key: DownloadKey) {
         scope.launch {
-            workManager.cancelUniqueWork(DownloadWorker.uniqueName(itemId))
-            fileManager.deleteItemDirectory(itemId)
-            repository.delete(itemId)
+            workManager.cancelUniqueWork(DownloadWorker.uniqueName(key))
+            fileManager.deleteItemDirectory(key)
+            repository.delete(key)
+            // A download whose schema-3 directory could not be moved still owns
+            // it; drop it too, unless another server's row has the same item id.
+            if (repository.all().none { it.itemId == key.itemId }) fileManager.deleteLegacyItemDirectory(key.itemId)
             promote()
         }
     }
 
     /** Cancel and delete are the same operation (Swift semantics): wipe files + row. */
-    fun delete(itemId: String) = cancel(itemId)
+    fun delete(key: DownloadKey) = cancel(key)
 
-    fun retry(itemId: String) {
+    fun retry(key: DownloadKey) {
         scope.launch {
-            val row = repository.get(itemId) ?: return@launch
-            fileManager.partialFile(itemId).delete()
+            val row = repository.get(key) ?: return@launch
+            fileManager.partialFile(key).delete()
             repository.upsert(
                 row.copy(
                     status = DownloadStatus.QUEUED.wireName,
@@ -183,7 +188,7 @@ class DownloadManager(
 
     fun retryAllFailed() {
         scope.launch {
-            repository.all().filter { it.downloadStatus == DownloadStatus.FAILED }.forEach { retry(it.itemId) }
+            repository.all().filter { it.downloadStatus == DownloadStatus.FAILED }.forEach { retry(it.key) }
         }
     }
 
@@ -197,14 +202,37 @@ class DownloadManager(
 
     // MARK: - Scheduling
 
-    /** Re-run any orphaned in-flight rows after a process restart. */
+    /**
+     * Re-run any orphaned in-flight rows after a process restart, bring
+     * schema-3 directories into the current layout, then sweep orphans.
+     */
     private suspend fun recover() {
         val rows = repository.all()
+        rows.filter { it.isActive }.forEach {
+            // Work enqueued before #86 is named by item id alone. Cancel it so it
+            // cannot run beside the re-keyed work promote() enqueues below.
+            workManager.cancelUniqueWork(DownloadWorker.legacyUniqueName(it.itemId))
+        }
         rows
             .filter { it.downloadStatus == DownloadStatus.PREPARING || it.downloadStatus == DownloadStatus.DOWNLOADING }
-            .forEach { repository.updateStatus(it.itemId, DownloadStatus.QUEUED) }
-        reconcileOrphanedFiles(rows.map { it.itemId }.toSet())
+            .forEach { repository.updateStatus(it.key, DownloadStatus.QUEUED) }
+        relocateLegacyDirectories(rows)
+        reconcileOrphanedFiles()
         promote()
+    }
+
+    /**
+     * Moves schema-3 `downloads/{itemId}/` directories to
+     * `downloads/servers/{serverId}/{itemId}/`. Idempotent: once moved there is
+     * nothing left to move. A failed move leaves the directory where it was,
+     * and [DownloadFileManager.localFile] still reads it from there.
+     */
+    private fun relocateLegacyDirectories(rows: List<DownloadedItemEntity>) {
+        runCatching {
+            val legacy = fileManager.legacyDirectoriesOnDisk()
+            if (legacy.isEmpty()) return
+            fileManager.relocate(DownloadLayout.relocations(rows, legacy, fileManager.itemPathsOnDisk()))
+        }
     }
 
     /**
@@ -220,10 +248,18 @@ class DownloadManager(
      * Deleting is the right resolution rather than adopting the directories
      * back: without a row there is no title, no runtime and no source metadata,
      * so an adopted entry could not be presented or played.
+     *
+     * Runs after [relocateLegacyDirectories], against both layouts; see
+     * [DownloadLayout.orphans] for what counts as owned.
      */
-    private fun reconcileOrphanedFiles(knownIds: Set<String>) {
-        runCatching {
-            (fileManager.itemIdsOnDisk() - knownIds).forEach(fileManager::deleteItemDirectory)
+    private suspend fun reconcileOrphanedFiles() {
+        runCatchingCancellable {
+            // Disk first, rows second: a download queued meanwhile writes its row
+            // before any file, so every directory listed here has its row in the
+            // read below and cannot be mistaken for an orphan.
+            val legacy = fileManager.legacyDirectoriesOnDisk()
+            val current = fileManager.itemPathsOnDisk()
+            DownloadLayout.orphans(repository.all(), legacy, current).forEach(fileManager::deleteRelative)
         }
     }
 
@@ -233,58 +269,59 @@ class DownloadManager(
     private suspend fun promote() {
         promoteMutex.withLock {
             val items = repository.all()
-            val runningIds =
+            val running =
                 items.filter {
                     it.downloadStatus == DownloadStatus.PREPARING || it.downloadStatus == DownloadStatus.DOWNLOADING
-                }.map { it.itemId }.toSet()
-            val toStart = DownloadPolicy.nextToStart(items, runningIds)
-            for (id in toStart) {
+                }.map { it.key }.toSet()
+            val toStart = DownloadPolicy.nextToStart(items, running)
+            for (key in toStart) {
                 if (!StorageAccounting.hasRoomToDownload(fileManager.availableDiskSpace())) {
-                    repository.updateStatus(id, DownloadStatus.FAILED, "Not enough disk space.")
+                    repository.updateStatus(key, DownloadStatus.FAILED, "Not enough disk space.")
                     continue
                 }
-                repository.updateStatus(id, DownloadStatus.PREPARING)
-                enqueueWork(id)
+                repository.updateStatus(key, DownloadStatus.PREPARING)
+                enqueueWork(key)
             }
         }
     }
 
-    private fun enqueueWork(itemId: String) {
+    private fun enqueueWork(key: DownloadKey) {
         val request =
             OneTimeWorkRequestBuilder<DownloadWorker>()
-                .setInputData(workDataOf(DownloadWorker.KEY_ITEM_ID to itemId))
+                .setInputData(workDataOf(DownloadWorker.KEY_ITEM_ID to key.itemId, DownloadWorker.KEY_SERVER_ID to key.serverId))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .addTag(DownloadWorker.TAG)
-                .addTag(DownloadWorker.itemTag(itemId))
+                .addTag(DownloadWorker.itemTag(key))
                 .build()
-        workManager.enqueueUniqueWork(DownloadWorker.uniqueName(itemId), ExistingWorkPolicy.KEEP, request)
+        workManager.enqueueUniqueWork(DownloadWorker.uniqueName(key), ExistingWorkPolicy.KEEP, request)
     }
 
     // MARK: - Download execution (invoked by DownloadWorker)
 
     suspend fun performDownload(
-        itemId: String,
+        key: DownloadKey,
         isStopped: () -> Boolean,
         onProgress: suspend (title: String, percent: Int) -> Unit = { _, _ -> },
     ): androidx.work.ListenableWorker.Result =
         withContext(Dispatchers.IO) {
-            val row = repository.get(itemId) ?: return@withContext androidx.work.ListenableWorker.Result.success()
+            val itemId = key.itemId
+            val row = repository.get(key) ?: return@withContext androidx.work.ListenableWorker.Result.success()
             val notifyTitle = row.displayTitle
             val client = clientFor(row.serverId)
             if (client == null) {
-                fail(itemId, "This download's server is signed out. Reconnect it in Settings, then retry.")
+                fail(key, "This download's server is signed out. Reconnect it in Settings, then retry.")
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
             val quality = row.downloadQuality
             val spec = DownloadUrlBuilder.requestFor(client, itemId, quality)
             if (spec == null) {
-                fail(itemId, if (client.isConfigured) "Could not build download URL" else "Not signed in")
+                fail(key, if (client.isConfigured) "Could not build download URL" else "Not signed in")
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
             val url = spec.url
             val token = spec.accessToken
 
-            val partial = fileManager.partialFile(itemId)
+            val partial = fileManager.partialFile(key)
             val startOffset = if (partial.exists()) partial.length() else 0L
             val request =
                 Request.Builder()
@@ -294,16 +331,16 @@ class DownloadManager(
                     .build()
 
             try {
-                repository.updateProgress(itemId, DownloadStatus.DOWNLOADING, row.progress, startOffset, row.totalBytes)
+                repository.updateProgress(key, DownloadStatus.DOWNLOADING, row.progress, startOffset, row.totalBytes)
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
-                        fail(itemId, "Server error ${response.code}")
+                        fail(key, "Server error ${response.code}")
                         return@withContext androidx.work.ListenableWorker.Result.failure()
                     }
                     val resumed = response.code == 206
                     val body =
                         response.body ?: run {
-                            fail(itemId, "Empty response")
+                            fail(key, "Empty response")
                             return@withContext androidx.work.ListenableWorker.Result.failure()
                         }
                     // Total = already-on-disk (if resumed) + reported remaining; -1 when unknown.
@@ -337,14 +374,14 @@ class DownloadManager(
                                 if (now - lastPersist >= PROGRESS_PERSIST_MS) {
                                     lastPersist = now
                                     val fraction = if (total > 0) written.toDouble() / total.toDouble() else PROGRESS_UNKNOWN
-                                    repository.updateProgress(itemId, DownloadStatus.DOWNLOADING, fraction, written, total.coerceAtLeast(0))
+                                    repository.updateProgress(key, DownloadStatus.DOWNLOADING, fraction, written, total.coerceAtLeast(0))
                                     onProgress(notifyTitle, if (fraction >= 0) (fraction * 100).toInt() else -1)
                                 }
                             }
                         }
                     }
 
-                    finalize(itemId, partial, quality, client)
+                    finalize(key, partial, quality, client)
                     onWorkFinished()
                     androidx.work.ListenableWorker.Result.success()
                 }
@@ -352,29 +389,29 @@ class DownloadManager(
                 if (isStopped()) {
                     androidx.work.ListenableWorker.Result.retry()
                 } else {
-                    fail(itemId, e.message ?: "Download failed")
+                    fail(key, e.message ?: "Download failed")
                     androidx.work.ListenableWorker.Result.failure()
                 }
             }
         }
 
     private suspend fun finalize(
-        itemId: String,
+        key: DownloadKey,
         partial: File,
         quality: DownloadQuality,
         client: JellyfinClient,
     ) {
         val ext = if (quality == DownloadQuality.ORIGINAL) "mkv" else "mp4"
         val videoName = "video.$ext"
-        val target = fileManager.videoFile(itemId, videoName)
+        val target = fileManager.videoFile(key, videoName)
         target.delete()
         partial.renameTo(target)
 
-        downloadImages(itemId, client)
-        val subtitles = downloadSubtitles(itemId, client)
+        downloadImages(key, client)
+        val subtitles = downloadSubtitles(key, client)
 
-        val size = fileManager.itemSize(itemId)
-        val row = repository.get(itemId)
+        val size = fileManager.itemSize(key)
+        val row = repository.get(key)
         if (row != null) {
             repository.upsert(
                 row.copy(
@@ -386,7 +423,7 @@ class DownloadManager(
                     subtitlesJson = DownloadedItemEntity.encodeSubtitles(subtitles),
                     posterFileName =
                         if (fileManager.imageFile(
-                                itemId,
+                                key,
                                 DownloadFileManager.POSTER_NAME,
                             ).exists()
                         ) {
@@ -396,7 +433,7 @@ class DownloadManager(
                         },
                     backdropFileName =
                         if (fileManager.imageFile(
-                                itemId,
+                                key,
                                 DownloadFileManager.BACKDROP_NAME,
                             ).exists()
                         ) {
@@ -413,19 +450,20 @@ class DownloadManager(
 
     /** Best-effort poster/backdrop/series-poster fetch (Swift OfflineImageHelper). */
     private suspend fun downloadImages(
-        itemId: String,
+        key: DownloadKey,
         client: JellyfinClient,
     ) {
+        val itemId = key.itemId
         val token = client.currentAccessToken ?: return
-        val row = repository.get(itemId)
-        fetchImage(client.imageURL(itemId, "Primary", 400), token, fileManager.imageFile(itemId, DownloadFileManager.POSTER_NAME))
-        fetchImage(client.imageURL(itemId, "Backdrop", 1280), token, fileManager.imageFile(itemId, DownloadFileManager.BACKDROP_NAME))
+        val row = repository.get(key)
+        fetchImage(client.imageURL(itemId, "Primary", 400), token, fileManager.imageFile(key, DownloadFileManager.POSTER_NAME))
+        fetchImage(client.imageURL(itemId, "Backdrop", 1280), token, fileManager.imageFile(key, DownloadFileManager.BACKDROP_NAME))
         if (row?.downloadItemType == dev.bitstorm.sashimi.core.model.ItemType.EPISODE) {
             row.seriesId?.let { seriesId ->
                 fetchImage(
                     client.imageURL(seriesId, "Primary", 400),
                     token,
-                    fileManager.imageFile(itemId, DownloadFileManager.SERIES_POSTER_NAME),
+                    fileManager.imageFile(key, DownloadFileManager.SERIES_POSTER_NAME),
                 )
             }
         }
@@ -439,9 +477,10 @@ class DownloadManager(
      * them. Returns the persisted descriptors for the completed row.
      */
     private suspend fun downloadSubtitles(
-        itemId: String,
+        key: DownloadKey,
         client: JellyfinClient,
     ): List<DownloadedSubtitle> {
+        val itemId = key.itemId
         val server = client.currentServerUrl ?: return emptyList()
         val token = client.currentAccessToken ?: return emptyList()
         val info = runCatching { client.getPlaybackInfo(itemId) }.getOrNull() ?: return emptyList()
@@ -454,7 +493,7 @@ class DownloadManager(
             val language = stream.language ?: stream.displayTitle ?: "und"
             val url = DownloadUrlBuilder.subtitleUrl(server, itemId, index) ?: continue
             val fileName = "${index}_$language.vtt"
-            val target = fileManager.subtitleFile(itemId, fileName)
+            val target = fileManager.subtitleFile(key, fileName)
             val ok = fetchImage(url, token, target)
             if (ok && target.length() > 0) {
                 results.add(
@@ -498,10 +537,10 @@ class DownloadManager(
     }
 
     private suspend fun fail(
-        itemId: String,
+        key: DownloadKey,
         message: String,
     ) {
-        repository.updateStatus(itemId, DownloadStatus.FAILED, message)
+        repository.updateStatus(key, DownloadStatus.FAILED, message)
         onWorkFinished()
     }
 
@@ -510,24 +549,36 @@ class DownloadManager(
 
     // MARK: - Offline playback bridge
 
-    suspend fun localVideoFile(itemId: String): File? {
-        val row = repository.get(itemId) ?: return null
-        if (!row.isComplete) return null
-        val name = row.videoFileName ?: return null
-        val file = fileManager.videoFile(itemId, name)
-        return file.takeIf { it.exists() }
+    /**
+     * The key of the completed download to play for [itemId], resolved by
+     * [DownloadLookup.playable]; null when there is none or its video is gone.
+     */
+    suspend fun playableDownload(
+        itemId: String,
+        serverId: String?,
+        activeServerId: String?,
+    ): DownloadKey? {
+        val row = DownloadLookup.playable(repository.all(), itemId, serverId, activeServerId) ?: return null
+        return row.key.takeIf { localVideoFile(it) != null }
     }
 
-    suspend fun offlinePlaybackPositionTicks(itemId: String): Long? = repository.get(itemId)?.localPositionTicks?.takeIf { it > 0 }
+    suspend fun localVideoFile(key: DownloadKey): File? {
+        val row = repository.get(key) ?: return null
+        if (!row.isComplete) return null
+        val name = row.videoFileName ?: return null
+        return fileManager.localFile(key, name)
+    }
+
+    suspend fun offlinePlaybackPositionTicks(key: DownloadKey): Long? = repository.get(key)?.localPositionTicks?.takeIf { it > 0 }
 
     /** The stored download row for an item (for offline title/metadata reconstruction). */
-    suspend fun downloadedItem(itemId: String): DownloadedItemEntity? = repository.get(itemId)
+    suspend fun downloadedItem(key: DownloadKey): DownloadedItemEntity? = repository.get(key)
 
     fun savePlaybackPosition(
-        itemId: String,
+        key: DownloadKey,
         positionTicks: Long,
     ) {
-        scope.launch { repository.savePlaybackPosition(itemId, positionTicks) }
+        scope.launch { repository.savePlaybackPosition(key, positionTicks) }
     }
 
     // MARK: - Pending progress sync
@@ -543,9 +594,9 @@ class DownloadManager(
 
     /** Absolute local file for a downloaded subtitle, or null if missing. */
     suspend fun localSubtitleFile(
-        itemId: String,
+        key: DownloadKey,
         fileName: String,
-    ): File? = fileManager.subtitleFile(itemId, fileName).takeIf { it.exists() }
+    ): File? = fileManager.localFile(key, "${DownloadFileManager.SUBTITLES_DIR}/$fileName")
 
     companion object {
         private const val PROGRESS_PERSIST_MS = 1_500L

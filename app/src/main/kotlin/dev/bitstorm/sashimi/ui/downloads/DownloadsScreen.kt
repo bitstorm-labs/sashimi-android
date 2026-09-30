@@ -44,6 +44,7 @@ import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
 import dev.bitstorm.sashimi.core.downloads.StorageAccounting
+import dev.bitstorm.sashimi.core.downloads.key
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
@@ -100,15 +101,15 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
 
             if (active.isNotEmpty()) {
                 item { SectionHeader("Active") }
-                items(active, key = { it.itemId }) { row ->
-                    ActiveRow(row, onCancel = { manager.cancel(row.itemId) })
+                items(active, key = { it.listKey }) { row ->
+                    ActiveRow(row, onCancel = { manager.cancel(row.key) })
                 }
             }
 
             if (completed.isNotEmpty()) {
                 item { SectionHeader("Completed") }
-                items(completed, key = { it.itemId }) { row ->
-                    CompletedRow(row, onDelete = { manager.delete(row.itemId) })
+                items(completed, key = { it.listKey }) { row ->
+                    CompletedRow(row, onDelete = { manager.delete(row.key) })
                 }
             }
 
@@ -125,8 +126,8 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
                         TextButton(onClick = { manager.retryAllFailed() }) { Text("Retry All", color = SashimiAccent) }
                     }
                 }
-                items(failed, key = { it.itemId }) { row ->
-                    FailedRow(row, onRetry = { manager.retry(row.itemId) }, onDelete = { manager.delete(row.itemId) })
+                items(failed, key = { it.listKey }) { row ->
+                    FailedRow(row, onRetry = { manager.retry(row.key) }, onDelete = { manager.delete(row.key) })
                 }
             }
 
@@ -201,7 +202,7 @@ private fun SectionHeader(title: String) {
 private fun DownloadPoster(row: DownloadedItemEntity) {
     Box(Modifier.width(52.dp).height(78.dp).clip(RoundedCornerShape(6.dp)).background(SashimiCard)) {
         AsyncImage(
-            model = OfflineImages.posterModel(row.itemId, fallbackImageItemId = row.seriesId ?: row.itemId),
+            model = OfflineImages.posterModel(row.key, fallbackImageItemId = row.seriesId ?: row.itemId),
             contentDescription = row.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -291,3 +292,9 @@ private fun FailedRow(
         },
     )
 }
+
+/**
+ * A lazy-list key unique per download. The item id alone repeats when the same
+ * title is downloaded from two servers, and a duplicate key crashes the list.
+ */
+internal val DownloadedItemEntity.listKey: String get() = "$serverId/$itemId"
