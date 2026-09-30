@@ -94,6 +94,8 @@ fun PlayerScreen(
     onExit: () -> Unit,
     /** The item's saved server when it is not the active one; see [dev.bitstorm.sashimi.ui.nav.PlayerRoute.serverId]. */
     serverId: String? = null,
+    /** Whose download to play; see [dev.bitstorm.sashimi.ui.nav.PlayerRoute.downloadServerId]. */
+    downloadServerId: String? = null,
 ) {
     // Resolved once per route: a title from another server plays through that
     // server's own client and never repoints the shared one or switches servers.
@@ -106,7 +108,7 @@ fun PlayerScreen(
     val vm: PlayerViewModel =
         viewModel(
             key = "player-${serverId ?: "active"}-$itemId-${trailerItemId ?: ""}",
-            factory = PlayerViewModel.Factory(app, client, itemId, startFromBeginning, trailerItemId),
+            factory = PlayerViewModel.Factory(app, client, itemId, startFromBeginning, trailerItemId, downloadServerId),
         )
     val state by vm.state.collectAsStateWithLifecycle()
 

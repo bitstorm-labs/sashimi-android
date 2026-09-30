@@ -28,14 +28,19 @@ class DownloadWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val itemId = inputData.getString(KEY_ITEM_ID) ?: return Result.failure()
+        // Work enqueued before downloads were keyed by server (#86) carries no
+        // server id. DownloadManager.recover() cancels it and re-enqueues the
+        // row under its full key, so a leftover one must not also download.
+        val serverId = inputData.getString(KEY_SERVER_ID) ?: return Result.success()
+        val key = DownloadKey(serverId, itemId)
         val manager = DownloadManager.current ?: return Result.retry()
 
         ensureChannel()
-        val notificationId = notificationId(itemId)
+        val notificationId = notificationId(key)
         runCatching { setForeground(foregroundInfo(notificationId, "Preparing download…", -1)) }
 
         return manager.performDownload(
-            itemId = itemId,
+            key = key,
             isStopped = { isStopped },
             onProgress = { title, percent ->
                 runCatching { setForeground(foregroundInfo(notificationId, title, percent)) }
@@ -80,6 +85,7 @@ class DownloadWorker(
 
     companion object {
         const val KEY_ITEM_ID = "itemId"
+        const val KEY_SERVER_ID = "serverId"
         const val TAG = "sashimi-download"
         private const val CHANNEL_ID = "downloads"
         private const val NOTIFICATION_ID_BASE = 4201
@@ -90,10 +96,13 @@ class DownloadWorker(
          * notifications collide; deriving it from the item id keeps each worker's
          * notification distinct while staying stable across the worker's retries.
          */
-        fun notificationId(itemId: String): Int = NOTIFICATION_ID_BASE + (itemId.hashCode() and 0xFFFF)
+        fun notificationId(key: DownloadKey): Int = NOTIFICATION_ID_BASE + (key.hashCode() and 0xFFFF)
 
-        fun itemTag(itemId: String): String = "item:$itemId"
+        fun itemTag(key: DownloadKey): String = "item:${key.serverId}/${key.itemId}"
 
-        fun uniqueName(itemId: String): String = "download-$itemId"
+        fun uniqueName(key: DownloadKey): String = "download-${key.serverId}/${key.itemId}"
+
+        /** The unique work name used before downloads were keyed by server (#86). */
+        fun legacyUniqueName(itemId: String): String = "download-$itemId"
     }
 }

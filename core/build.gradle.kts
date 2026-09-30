@@ -29,6 +29,12 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Robolectric: the download-database migration test opens a real Room
+    // database on the JVM (there is no emulator in CI).
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 // TV-readiness discipline (see spec Architecture): :core must never depend on
@@ -50,4 +56,6 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }
