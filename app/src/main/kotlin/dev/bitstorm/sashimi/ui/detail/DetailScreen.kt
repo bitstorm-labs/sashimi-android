@@ -81,6 +81,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import dev.bitstorm.sashimi.R
+import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
+import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
+import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
@@ -995,7 +998,7 @@ private fun SeasonsSection(
                 )
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
-                    SeasonDownloadMenu(episodes = state.episodes)
+                    BulkDownloadMenu(episodes = state.episodes, vm = vm)
                     state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
                         SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
                     }
@@ -1015,35 +1018,92 @@ private fun SeasonsSection(
 }
 
 /**
- * Bulk season download menu (All / Unwatched / Custom N), ported from the Swift
- * detail download menu. "Custom" downloads the first N unwatched episodes. The
- * quality dialog gates Original off the first episode as a season proxy.
+ * Bulk download menu on a series page (#68, parity with sashimi-apple#112):
+ * the selected season (all, or unwatched, or the first N unwatched) and the
+ * whole series (unwatched regular episodes, or every episode). Each asks for
+ * quality once (Original is gated on the first episode as a proxy), confirms
+ * above [BulkDownloadPlanner.CONFIRM_THRESHOLD] episodes, then queues through
+ * the DownloadManager. Which episodes, and what gets skipped, is decided by
+ * [BulkDownloadPlanner].
  */
 @Composable
-private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
+private fun BulkDownloadMenu(
+    episodes: List<BaseItemDto>,
+    vm: DetailViewModel,
+) {
+    val scope = rememberCoroutineScope()
+    val server = LocalItemServer.current
+    val manager = ServiceLocator.downloadManager
     var menuOpen by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
     var pendingEpisodes by remember { mutableStateOf<List<BaseItemDto>?>(null) }
+    var confirmQuality by remember { mutableStateOf<DownloadQuality?>(null) }
     var showCustom by remember { mutableStateOf(false) }
     var customCount by remember { mutableStateOf("") }
 
-    val unwatched = episodes.filter { it.userData?.played != true }
+    val notificationGate = dev.bitstorm.sashimi.ui.downloads.rememberNotificationPermissionGate()
 
-    IconButton(onClick = { menuOpen = true }) {
-        Icon(Icons.Filled.Download, contentDescription = "Download season", tint = SashimiAccent)
+    fun stage(selection: List<BaseItemDto>) {
+        if (selection.isEmpty()) {
+            notice = "Every episode is already downloaded or queued."
+        } else {
+            pendingEpisodes = selection
+        }
+    }
+
+    fun choose(action: BulkDownloadAction) {
+        menuOpen = false
+        if (!action.wholeSeries) {
+            stage(BulkDownloadPlanner.select(action, episodes, manager.downloads.value, server.downloadServerId))
+            return
+        }
+        scope.launch {
+            loading = true
+            val all = vm.allSeriesEpisodes()
+            loading = false
+            if (all == null) {
+                notice = "Couldn't load the episodes. Check your connection and try again."
+            } else {
+                stage(BulkDownloadPlanner.select(action, all, manager.downloads.value, server.downloadServerId))
+            }
+        }
+    }
+
+    fun enqueue(
+        selection: List<BaseItemDto>,
+        quality: DownloadQuality,
+    ) {
+        pendingEpisodes = null
+        confirmQuality = null
+        notificationGate { manager.enqueueDownloads(selection, quality, server.downloadServerId) }
+    }
+
+    if (loading) {
+        Box(Modifier.size(48.dp), Alignment.Center) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+    } else {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Filled.Download, contentDescription = "Download episodes", tint = SashimiAccent)
+        }
     }
     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-        DropdownMenuItem(text = { Text("All Episodes") }, onClick = {
-            menuOpen = false
-            pendingEpisodes = episodes
-        })
-        DropdownMenuItem(text = { Text("Unwatched Only") }, onClick = {
-            menuOpen = false
-            if (unwatched.isNotEmpty()) pendingEpisodes = unwatched
-        })
+        DropdownMenuItem(text = { Text(BulkDownloadAction.SEASON.label) }, onClick = { choose(BulkDownloadAction.SEASON) })
+        DropdownMenuItem(
+            text = { Text(BulkDownloadAction.SEASON_UNWATCHED.label) },
+            onClick = { choose(BulkDownloadAction.SEASON_UNWATCHED) },
+        )
         DropdownMenuItem(text = { Text("Custom…") }, onClick = {
             menuOpen = false
-            if (unwatched.isNotEmpty()) showCustom = true
+            showCustom = true
         })
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text(BulkDownloadAction.SERIES_UNWATCHED.label) },
+            onClick = { choose(BulkDownloadAction.SERIES_UNWATCHED) },
+        )
+        DropdownMenuItem(text = { Text(BulkDownloadAction.SERIES.label) }, onClick = { choose(BulkDownloadAction.SERIES) })
     }
 
     if (showCustom) {
@@ -1066,28 +1126,64 @@ private fun SeasonDownloadMenu(episodes: List<BaseItemDto>) {
                     val n = customCount.toIntOrNull() ?: 0
                     showCustom = false
                     customCount = ""
-                    if (n > 0) pendingEpisodes = unwatched.take(n)
+                    if (n > 0) {
+                        val unwatched =
+                            BulkDownloadPlanner.select(
+                                BulkDownloadAction.SEASON_UNWATCHED,
+                                episodes,
+                                manager.downloads.value,
+                                server.downloadServerId,
+                            )
+                        stage(unwatched.take(n))
+                    }
                 }) { Text("OK") }
             },
             dismissButton = { TextButton(onClick = { showCustom = false }) { Text("Cancel") } },
         )
     }
 
-    val notificationGate = dev.bitstorm.sashimi.ui.downloads.rememberNotificationPermissionGate()
-    val server = LocalItemServer.current
-    pendingEpisodes?.let { eps ->
-        if (eps.isNotEmpty()) {
-            dev.bitstorm.sashimi.ui.downloads.QualityDialog(
-                item = eps.first(),
-                client = server.client,
-                seasonProxyItemId = eps.first().id,
-                onDismiss = { pendingEpisodes = null },
-                onPick = { quality ->
+    notice?.let { message ->
+        AlertDialog(
+            onDismissRequest = { notice = null },
+            title = { Text("Nothing to Download") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { notice = null }) { Text("OK") } },
+        )
+    }
+
+    val selection = pendingEpisodes
+    val quality = confirmQuality
+    if (selection != null && quality == null) {
+        dev.bitstorm.sashimi.ui.downloads.QualityDialog(
+            item = selection.first(),
+            client = server.client,
+            seasonProxyItemId = selection.first().id,
+            onDismiss = { pendingEpisodes = null },
+            onPick = { picked ->
+                if (BulkDownloadPlanner.needsConfirmation(selection.size)) {
+                    confirmQuality = picked
+                } else {
+                    enqueue(selection, picked)
+                }
+            },
+        )
+    }
+    if (selection != null && quality != null) {
+        AlertDialog(
+            onDismissRequest = {
+                pendingEpisodes = null
+                confirmQuality = null
+            },
+            title = { Text(BulkDownloadPlanner.confirmationTitle(selection.size)) },
+            text = { Text("${quality.displayName}. Episodes already downloaded or queued are skipped.") },
+            confirmButton = { TextButton(onClick = { enqueue(selection, quality) }) { Text("Download") } },
+            dismissButton = {
+                TextButton(onClick = {
                     pendingEpisodes = null
-                    notificationGate { ServiceLocator.downloadManager.downloadSeason(eps, quality, server.downloadServerId) }
-                },
-            )
-        }
+                    confirmQuality = null
+                }) { Text("Cancel") }
+            },
+        )
     }
 }
 
