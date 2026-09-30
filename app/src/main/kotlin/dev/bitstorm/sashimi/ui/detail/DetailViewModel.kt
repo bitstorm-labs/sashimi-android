@@ -354,6 +354,17 @@ class DetailViewModel(
     /** Re-fetch after returning from the player so progress/watched state refreshes. */
     fun reload() = load()
 
+    /**
+     * Every episode of this series across all seasons, for the series-wide
+     * bulk downloads. Null when the server call fails, so the caller can say so
+     * instead of reporting that there is nothing to download.
+     */
+    suspend fun allSeriesEpisodes(): List<BaseItemDto>? {
+        val item = _state.value.item ?: return null
+        val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return null
+        return runCatchingCancellable { client.getEpisodes(seriesId) }.getOrNull()
+    }
+
     /** Shuffle: a random episode of this series (navigates to its detail). */
     suspend fun randomEpisode(): BaseItemDto? {
         val item = _state.value.item ?: return null
