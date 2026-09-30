@@ -47,6 +47,7 @@ import dev.bitstorm.sashimi.ui.components.LocalShowQualityBadges
 import dev.bitstorm.sashimi.ui.components.LocalShowReviewRatings
 import dev.bitstorm.sashimi.ui.components.LocalUseEpisodeRatings
 import dev.bitstorm.sashimi.ui.detail.DetailScreen
+import dev.bitstorm.sashimi.ui.downloads.DownloadsDestinationIcon
 import dev.bitstorm.sashimi.ui.downloads.DownloadsScreen
 import dev.bitstorm.sashimi.ui.downloads.OfflineHomeScreen
 import dev.bitstorm.sashimi.ui.home.HomeScreen
@@ -352,7 +353,7 @@ private fun AppShell(
                     NavigationRailItem(
                         selected = currentDestination.isOnTab(dest),
                         onClick = { navigateToTab(dest) },
-                        icon = { Icon(dest.icon, contentDescription = dest.label) },
+                        icon = { DestinationIcon(dest) },
                         label = { Text(dest.label) },
                     )
                 }
@@ -367,7 +368,7 @@ private fun AppShell(
                         NavigationBarItem(
                             selected = currentDestination.isOnTab(dest),
                             onClick = { navigateToTab(dest) },
-                            icon = { Icon(dest.icon, contentDescription = dest.label) },
+                            icon = { DestinationIcon(dest) },
                             label = { Text(dest.label) },
                         )
                     }
@@ -395,6 +396,16 @@ private fun AppShell(
                 onComplete = { showAddServer = false },
             )
         }
+    }
+}
+
+/** A destination's icon; Downloads doubles as the global download indicator. */
+@Composable
+private fun DestinationIcon(dest: Destination) {
+    if (dest == Destination.DOWNLOADS) {
+        DownloadsDestinationIcon(dest.icon, dest.label)
+    } else {
+        Icon(dest.icon, contentDescription = dest.label)
     }
 }
 
