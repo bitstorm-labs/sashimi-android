@@ -141,7 +141,11 @@ class DeviceProfileBuilder(
                         conditions =
                             listOf(
                                 ProfileCondition(
-                                    condition = "LessThanOrEqual",
+                                    // Jellyfin's ProfileConditionType spells it
+                                    // LessThanEqual. "LessThanOrEqual" is not a
+                                    // member: the server's enum converter throws
+                                    // and the whole PlaybackInfo POST returns 400.
+                                    condition = "LessThanEqual",
                                     property = "Width",
                                     value = it.toString(),
                                 ),

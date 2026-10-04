@@ -51,7 +51,7 @@ class QualityResolutionTest {
         assertEquals("Video", profiles[0].type)
         assertEquals(1, profiles[0].conditions.size)
         val condition = profiles[0].conditions[0]
-        assertEquals("LessThanOrEqual", condition.condition)
+        assertEquals("LessThanEqual", condition.condition)
         assertEquals("Width", condition.property)
         assertEquals("1280", condition.value)
     }
@@ -71,7 +71,7 @@ class QualityResolutionTest {
     fun `serialises to the property names Jellyfin expects`() {
         val json = Json.encodeToString(DeviceProfile.serializer(), profile(1280))
         assertTrue("CodecProfiles missing: $json", json.contains("\"CodecProfiles\""))
-        assertTrue("Condition missing: $json", json.contains("\"Condition\":\"LessThanOrEqual\""))
+        assertTrue("Condition missing: $json", json.contains("\"Condition\":\"LessThanEqual\""))
         assertTrue("Property missing: $json", json.contains("\"Property\":\"Width\""))
         assertTrue("Value must be a string: $json", json.contains("\"Value\":\"1280\""))
     }

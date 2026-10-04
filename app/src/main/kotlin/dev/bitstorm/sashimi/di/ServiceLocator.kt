@@ -8,6 +8,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.DownloadRepository
 import dev.bitstorm.sashimi.core.downloads.DownloadSchema
 import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
+import dev.bitstorm.sashimi.core.downloads.PrefsTierEncodeLedger
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
@@ -155,6 +156,7 @@ object ServiceLocator {
                 networkMonitor = networkMonitor,
                 authenticated = session.isAuthenticated,
                 scope = appScope,
+                tierEncodes = PrefsTierEncodeLedger(app),
             )
     }
 

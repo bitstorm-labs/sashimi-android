@@ -115,9 +115,22 @@ class JellyfinClient(
     val currentUserId: String?
         get() = userId
 
-    /** Access token for the active server — used by the downloads engine (X-Emby-Token). */
+    /** Access token for the active server. */
     val currentAccessToken: String?
         get() = accessToken
+
+    /**
+     * The `Authorization` header value for requests made outside this client
+     * (the downloads engine's own OkHttp calls, Coil's trickplay loads); null
+     * when there is no token. Send it under [AUTHORIZATION_HEADER].
+     *
+     * This is the one form every endpoint accepts. The legacy `X-Emby-Token`
+     * header is refused with 401 by a server whose legacy authorization is
+     * off, on every endpoint that needs auth (`/Items/{id}/Download`,
+     * `/Videos/{id}/Trickplay/...`).
+     */
+    val currentAuthorization: String?
+        get() = accessToken?.let { authorizationHeader() }
 
     /** Stable per-install device id — used to build download stream URLs. */
     val currentDeviceId: String
@@ -932,8 +945,9 @@ class JellyfinClient(
     /**
      * One trickplay tile sheet (a JPEG grid of scrub thumbnails). Unlike the
      * artwork endpoints this one requires auth, and the token is deliberately
-     * NOT in the URL: callers attach [currentAccessToken] as an `X-Emby-Token`
-     * header (Coil supports request headers), keeping it out of image-cache keys.
+     * NOT in the URL: callers attach [currentAuthorization] as the
+     * `Authorization` header (Coil supports request headers), keeping it out of
+     * image-cache keys.
      */
     fun trickplayTileURL(
         itemId: String,
@@ -974,6 +988,9 @@ class JellyfinClient(
     }
 
     companion object {
+        /** The header [currentAuthorization] is sent under. */
+        const val AUTHORIZATION_HEADER = "Authorization"
+
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         /** Jellyfin ticks are 100 ns; `Long / Double` keeps the fraction. */
