@@ -55,9 +55,10 @@ data class AudioTrack(
 )
 
 /**
- * A selectable subtitle track. index -1 / isOff marks the "Off" option. When
- * chosen, the app side-loads [SubtitleDelivery.External] tracks as VTT via
- * [PlaybackEngine.subtitleStreamUrl]; embedded tracks are selected in-player.
+ * A selectable subtitle track. index -1 / isOff marks the "Off" option. How a
+ * chosen track reaches the screen is its [delivery]: text tracks (external file
+ * or embedded) are side-loaded as VTT via [PlaybackEngine.subtitleStreamUrl];
+ * image tracks are burned in by the server on request. See [SubtitleDecisions].
  */
 data class SubtitleTrack(
     val index: Int,
@@ -65,6 +66,7 @@ data class SubtitleTrack(
     val languageCode: String?,
     val isExternal: Boolean,
     val isOff: Boolean = false,
+    val delivery: SubtitleDelivery = if (isExternal) SubtitleDelivery.EXTERNAL_FILE else SubtitleDelivery.EMBEDDED_TEXT,
 ) {
     companion object {
         val OFF = SubtitleTrack(index = -1, displayName = "Off", languageCode = null, isExternal = false, isOff = true)
@@ -108,6 +110,14 @@ data class PlaybackSource(
     val audioTracks: List<AudioTrack>,
     val subtitleTracks: List<SubtitleTrack>,
     val transcodeReasons: List<String>,
+    /**
+     * What the stream runs at, in bits/second: the transcode's video + audio
+     * target, else the source bitrate. What the recovery ladder steps down
+     * from; null when the server reported neither.
+     */
+    val deliveredBitrate: Int? = null,
+    /** The bitrate cap this stream was negotiated with. */
+    val negotiatedCap: Int = 0,
 )
 
 sealed class PlaybackError(
@@ -144,9 +154,45 @@ object SourceSelector {
         val transcodingUrl = source.transcodingUrl
         val directStreamUrl = source.directStreamUrl
         return when {
-            !transcodingUrl.isNullOrEmpty() -> SourceChoice.Transcode(transcodingUrl)
+            !transcodingUrl.isNullOrEmpty() -> SourceChoice.Transcode(HlsVariantPin.pin(transcodingUrl, source))
             !directStreamUrl.isNullOrEmpty() -> SourceChoice.DirectStream(directStreamUrl)
             else -> SourceChoice.DirectPlay
         }
+    }
+}
+
+/**
+ * Pins an HDR transcode to its single variant playlist.
+ *
+ * When Jellyfin stream-copies an HDR video into HLS, its master playlist
+ * (`DynamicHlsHelper`) appends an H.264 SDR variant, and HEVC/AV1 SDR variants
+ * when the server may encode those, at the SAME `BANDWIDTH` ("HACK: Use the
+ * same bitrate so that the client can choose by other attributes"). Each
+ * extra variant is a full server re-encode. ExoPlayer's adaptive selection
+ * treats them as equals and may pick or switch to one, which starts a fresh
+ * ffmpeg mid-stream: the stall loop the Apple TV hit until 1.4.2 pinned
+ * `main.m3u8`. `main.m3u8` is the variant endpoint for exactly the stream the
+ * negotiation chose, with the same query.
+ *
+ * Applied only to HDR sources, where the extra variants exist; an SDR
+ * transcode's master has one variant and is left alone.
+ */
+object HlsVariantPin {
+    private val HDR_RANGES = setOf("HDR", "HDR10", "HDR10PLUS", "HLG", "DOVI")
+
+    fun isHdr(source: MediaSourceInfo): Boolean {
+        val video = source.mediaStreams?.firstOrNull { it.type == "Video" } ?: return false
+        val rangeType = video.videoRangeType?.uppercase().orEmpty()
+        return rangeType in HDR_RANGES || rangeType.startsWith("DOVI") || video.videoRange?.uppercase() == "HDR"
+    }
+
+    fun pin(
+        transcodingUrl: String,
+        source: MediaSourceInfo,
+    ): String {
+        if (!isHdr(source)) return transcodingUrl
+        val path = transcodingUrl.substringBefore('?')
+        if (!path.endsWith("/master.m3u8")) return transcodingUrl
+        return path.removeSuffix("master.m3u8") + "main.m3u8" + transcodingUrl.substring(path.length)
     }
 }

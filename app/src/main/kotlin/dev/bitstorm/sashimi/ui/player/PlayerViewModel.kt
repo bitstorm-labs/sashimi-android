@@ -27,17 +27,28 @@ import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AudioTrack
+import dev.bitstorm.sashimi.core.playback.AutoBitrate
 import dev.bitstorm.sashimi.core.playback.AutoPlayNextResolver
+import dev.bitstorm.sashimi.core.playback.BitrateLabel
 import dev.bitstorm.sashimi.core.playback.BitrateResolver
 import dev.bitstorm.sashimi.core.playback.LanguageMatcher
+import dev.bitstorm.sashimi.core.playback.PlayMethod
 import dev.bitstorm.sashimi.core.playback.PlaybackEngine
+import dev.bitstorm.sashimi.core.playback.PlaybackFailure
+import dev.bitstorm.sashimi.core.playback.PlaybackFailureMapping
+import dev.bitstorm.sashimi.core.playback.PlaybackRecoveryPlan
 import dev.bitstorm.sashimi.core.playback.PlaybackSource
 import dev.bitstorm.sashimi.core.playback.ProgressReporter
 import dev.bitstorm.sashimi.core.playback.QualityOption
+import dev.bitstorm.sashimi.core.playback.RecoveryDecision
 import dev.bitstorm.sashimi.core.playback.ResumeTimeline
 import dev.bitstorm.sashimi.core.playback.SegmentSkipTracker
+import dev.bitstorm.sashimi.core.playback.StallDetector
 import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
+import dev.bitstorm.sashimi.core.playback.SubtitleChange
+import dev.bitstorm.sashimi.core.playback.SubtitleDecisions
+import dev.bitstorm.sashimi.core.playback.SubtitleDelivery
 import dev.bitstorm.sashimi.core.playback.SubtitleTrack
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
@@ -76,6 +87,14 @@ data class PlayerUiState(
     val playbackEnded: Boolean = false,
     /** Media3's Util.shouldShowPlayButton: true while paused, ended or idle. */
     val showPlayButton: Boolean = true,
+    /** The error offers a Retry button (recovery was exhausted, or the server could not be reached). */
+    val errorRetryable: Boolean = false,
+    /** The quality in force, e.g. "Auto · 4 Mbps" or "720p · 2 Mbps"; null for a downloaded file. */
+    val activeQuality: String? = null,
+    /** Shown over the spinner while a quality change is applied: "Switching to 480p · 4 Mbps…". */
+    val switchingTo: String? = null,
+    /** A short-lived banner: "Lowering quality for your connection · 480p · 1 Mbps". */
+    val notice: String? = null,
 ) {
     companion object {
         const val OFF_SUBTITLE = -1
@@ -204,6 +223,29 @@ class PlayerViewModel(
     /** The single in-flight re-negotiation, so a second one cannot race it. */
     private var prepareJob: Job? = null
 
+    // MARK: Recovery state (see PlaybackRecoveryPlan)
+
+    /**
+     * The current stream was negotiated with direct play disabled: an explicit
+     * quality pick, a recovery step, or a burned-in subtitle. Preserved by every
+     * re-negotiation that is not itself changing it (a backward scrub used to
+     * drop it, silently turning a 720p pick back into the original file).
+     */
+    private var forceTranscodeActive = false
+
+    /** The user picked an image subtitle on a transcode: the server burns it in. */
+    private var burnInSubtitle = false
+
+    private var recoveryAttempts = 0
+    private var sameQualityRetries = 0
+    private var healthyPlayingMs = 0L
+    private var lastFailure = PlaybackFailure.OTHER
+    private val stallDetector = StallDetector(clock = { android.os.SystemClock.elapsedRealtime() })
+
+    /** Where in the item playback last was while a stream was up, for recovery after it has gone. */
+    private var lastGoodPositionMs = 0L
+    private var noticeJob: Job? = null
+
     private val playerListener =
         object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -215,6 +257,14 @@ class PlayerViewModel(
                 if (playbackState == Player.STATE_ENDED) onPlaybackEnded()
             }
 
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) stallDetector.noteSeek()
+            }
+
             override fun onTracksChanged(tracks: Tracks) {
                 applyTrackSelections()
             }
@@ -224,7 +274,9 @@ class PlayerViewModel(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                _state.update { it.copy(isLoading = false, error = error.errorCodeName) }
+                // Used to paint error.errorCodeName ("ERROR_CODE_DECODING_FAILED")
+                // over a dead player. Now the recovery ladder runs first.
+                recover(PlaybackFailureMapping.fromMedia3ErrorCode(error.errorCode))
             }
 
             override fun onEvents(
@@ -254,6 +306,10 @@ class PlayerViewModel(
             return
         }
 
+        // Measure the link while the item loads, so Auto can use the result
+        // (a remote server waits briefly for it; see PlaybackEngine.autoCap).
+        if (settings.maxBitrate.value == 0) engine.prewarmBandwidth()
+
         // Online path: a 5s watchdog surfaces the offline hint if the server never
         // answers (port of the Swift connect-timeout error).
         startWatchdog()
@@ -264,7 +320,7 @@ class PlayerViewModel(
                 if (it.error != null) {
                     it
                 } else {
-                    it.copy(isLoading = false, error = "Could not load item.")
+                    it.copy(isLoading = false, error = "Could not load item.", errorRetryable = true)
                 }
             }
             return
@@ -319,6 +375,11 @@ class PlayerViewModel(
                     return
                 }
         currentItem = item
+        // Auto-play-next from a stream onto a download: the stream's server
+        // transcode is no longer anyone's, so end it now.
+        currentSource?.let { prior -> if (prior.isTranscoding) prior.playSessionId?.let { engine.stopTranscode(it) } }
+        currentSource = null
+        stallDetector.reset()
 
         val serverTicks = if (startFromBeginning) 0 else item.userData?.playbackPositionTicks ?: 0
         val localTicks = downloads.offlinePlaybackPositionTicks(key) ?: 0
@@ -373,10 +434,31 @@ class PlayerViewModel(
         applyTrackSelections()
         player.playWhenReady = true
 
+        // Watching a download while online: report to the server live, as a
+        // stream does, so other clients' Continue Watching keeps up. Only
+        // when the server answered just now; offline the stash-and-sync path
+        // below is all there is.
+        reporter =
+            if (serverItem != null && trailerItemId == null) {
+                ProgressReporter(
+                    client = client,
+                    itemId = item.id,
+                    playSessionId = null,
+                    reportedPlayMethod = PlayMethod.DIRECT_PLAY.reportedPlayMethod,
+                    resumePositionTicks = startTicks,
+                )
+            } else {
+                null
+            }
+        runCatching { reporter?.reportStart(startTicks) }
+
         _state.update {
             it.copy(
                 isLoading = false,
                 error = null,
+                errorRetryable = false,
+                activeQuality = null,
+                switchingTo = null,
                 title = titleFor(item),
                 subtitle = subtitleFor(item),
                 streamInfo = StreamInfo(StreamMethod.DIRECT_PLAY, "Downloaded", null),
@@ -413,10 +495,11 @@ class PlayerViewModel(
         startTicks: Long,
         quality: QualityOption,
         forceTranscode: Boolean,
-        audioStreamIndex: Int? = null,
+        audioStreamIndex: Int? = desiredAudioIndex,
     ) {
-        _state.update { it.copy(isLoading = true, error = null, playbackEnded = false) }
+        _state.update { it.copy(isLoading = true, error = null, errorRetryable = false, playbackEnded = false) }
         stopProgressLoop()
+        stallDetector.reset()
         // Tear down any prior server transcode before re-negotiating (Swift
         // teardown). Captured and cleared here rather than read again later, so
         // the source being torn down is unambiguously the one this call saw.
@@ -426,7 +509,22 @@ class PlayerViewModel(
             if (prior.isTranscoding) prior.playSessionId?.let { engine.stopTranscode(it) }
         }
 
-        val maxBitrate = BitrateResolver.effectiveMaxBitrate(quality.maxBitrate, settings.maxBitrate.value)
+        val settingsCap = settings.maxBitrate.value
+        val maxBitrate = BitrateResolver.effectiveMaxBitrate(quality.maxBitrate, settingsCap)
+        // A Settings cap with no resolution tier still needs a width: with
+        // none the server re-encodes at the source resolution, a blocky 4K
+        // encode at a few Mbps. (Auto picks its width after measuring, in
+        // PlaybackEngine; Unlimited never downscales.)
+        val maxWidth =
+            quality.maxWidth
+                ?: maxBitrate?.takeIf { it != BitrateResolver.NO_CAP }?.let { AutoBitrate.maxWidth(it) }
+
+        // An image subtitle can only be shown on a transcode by burning it in,
+        // and a burn-in must defeat Force Direct Play (the Roku lesson).
+        val wantsBurnIn =
+            burnInSubtitle && desiredSubtitleTrack()?.delivery == SubtitleDelivery.BURN_IN
+        val transcodeForced = forceTranscode || wantsBurnIn
+        forceTranscodeActive = forceTranscode
 
         val source =
             runCatching {
@@ -436,17 +534,25 @@ class PlayerViewModel(
                     maxBitrate = maxBitrate,
                     // The bitrate cap alone never changed resolution; this is
                     // what makes a "720p" pick actually deliver 720p.
-                    maxWidth = quality.maxWidth,
+                    maxWidth = maxWidth,
                     forceDirectPlay = settings.forceDirectPlay.value,
-                    forceTranscode = forceTranscode,
+                    forceTranscode = transcodeForced,
                     audioStreamIndex = audioStreamIndex,
-                    // Subtitles are always delivered as external VTT side-loads and
-                    // rendered by the player, so we never ask the server to burn one
-                    // into a transcode — SubtitleStreamIndex stays null.
-                    subtitleStreamIndex = null,
+                    // Always explicit: -1 unless the user asked for an image
+                    // track to be burned in. A null let the server apply its
+                    // own default and burn in a track the app showed as "Off".
+                    subtitleStreamIndex = SubtitleDecisions.serverIndex(desiredSubtitleTrack(), transcoding = transcodeForced),
                 )
-            }.getOrElse {
-                _state.update { s -> s.copy(isLoading = false, error = "Playback failed: ${it.message}") }
+            }.getOrElse { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _state.update { s ->
+                    s.copy(
+                        isLoading = false,
+                        switchingTo = null,
+                        errorRetryable = true,
+                        error = "Couldn't reach the server to start playback. ${e.message ?: ""}".trim(),
+                    )
+                }
                 return
             }
         currentSource = source
@@ -458,7 +564,7 @@ class PlayerViewModel(
         // silently reverted the user's subtitle pick: off with default settings,
         // or back to the first matching-language track.
         if (!userChoseSubtitle) {
-            desiredSubtitleIndex = initialSubtitleSelection(item, source)
+            desiredSubtitleIndex = initialSubtitleSelection(source)
         }
 
         val mediaItem = buildMediaItem(item, source)
@@ -490,6 +596,9 @@ class PlayerViewModel(
                 // server" stayed painted over video that was playing fine, with
                 // no way to dismiss it.
                 error = null,
+                errorRetryable = false,
+                switchingTo = null,
+                activeQuality = BitrateLabel.active(quality, source.negotiatedCap),
                 title = titleFor(item),
                 subtitle = subtitleFor(item),
                 streamInfo = source.streamInfo,
@@ -510,27 +619,38 @@ class PlayerViewModel(
         }
     }
 
-    private fun initialSubtitleSelection(
-        item: BaseItemDto,
-        source: PlaybackSource,
-    ): Int {
-        val streams = source.subtitleTracks.filterNot { it.isOff }
-        if (streams.isEmpty()) return PlayerUiState.OFF_SUBTITLE
-        if (!settings.subtitlesEnabled.value) return PlayerUiState.OFF_SUBTITLE
-        val pref = settings.preferredSubtitleLanguage.value
-        val match = pref.takeIf { it.isNotEmpty() }?.let { streams.firstOrNull { s -> LanguageMatcher.matches(s.languageCode, pref) } }
-        return (match ?: streams.firstOrNull())?.index ?: PlayerUiState.OFF_SUBTITLE
-    }
+    /**
+     * The default subtitle for this item: the preferred language among text
+     * tracks. An image track is never auto-selected: showing one on a
+     * transcode means a burn-in the user did not ask for.
+     */
+    private fun initialSubtitleSelection(source: PlaybackSource): Int =
+        SubtitleDecisions.initialSelection(
+            tracks = source.subtitleTracks,
+            subtitlesEnabled = settings.subtitlesEnabled.value,
+            preferredLanguage = settings.preferredSubtitleLanguage.value,
+            matches = LanguageMatcher::matches,
+        )?.index ?: PlayerUiState.OFF_SUBTITLE
 
-    /** Sideloads every external subtitle as a selectable VTT track (id "sub-<index>"). */
+    private fun desiredSubtitleTrack(): SubtitleTrack? =
+        _state.value.subtitleTracks.firstOrNull { !it.isOff && it.index == desiredSubtitleIndex }
+
+    /** A direct play hands the player the original container, embedded tracks and all. */
+    private val PlaybackSource.carriesEmbeddedSubtitles: Boolean
+        get() = playMethod == PlayMethod.DIRECT_PLAY
+
+    /**
+     * Side-loads, as selectable VTT tracks (id "sub-<index>"), every external
+     * subtitle file plus the selected embedded text track when the stream does
+     * not carry it (see [SubtitleDecisions.sideLoaded]).
+     */
     private fun buildMediaItem(
         item: BaseItemDto,
         source: PlaybackSource,
     ): MediaItem {
         val playbackItemId = item.id
         val subConfigs =
-            source.subtitleTracks
-                .filter { !it.isOff && it.isExternal }
+            SubtitleDecisions.sideLoaded(source.subtitleTracks, desiredSubtitleIndex, source.carriesEmbeddedSubtitles)
                 .mapNotNull { track ->
                     val url = engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null
                     MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(url))
@@ -595,8 +715,10 @@ class PlayerViewModel(
             }
         }
 
-        // Subtitles.
-        if (desiredSubtitleIndex == PlayerUiState.OFF_SUBTITLE) {
+        // Subtitles. A burned-in track is in the picture, not a player track.
+        val burnedIn =
+            currentSource?.carriesEmbeddedSubtitles == false && desiredSubtitleTrack()?.delivery == SubtitleDelivery.BURN_IN
+        if (desiredSubtitleIndex == PlayerUiState.OFF_SUBTITLE || burnedIn) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
         } else {
@@ -668,7 +790,11 @@ class PlayerViewModel(
         val item = currentItem
         if (item != null && ResumeTimeline.requiresRenegotiation(timelineOffsetMs, target)) {
             renegotiate {
-                prepare(item, target * TICKS_PER_MS, _state.value.selectedQuality, forceTranscode = false)
+                // Keep whatever forced the transcode (a quality pick, a
+                // recovery step). This used to pass false, so a backward scrub
+                // quietly dropped a 720p pick back to the original file while
+                // the menu still said 720p.
+                prepare(item, target * TICKS_PER_MS, _state.value.selectedQuality, forceTranscode = forceTranscodeActive)
             }
             return
         }
@@ -685,9 +811,141 @@ class PlayerViewModel(
     fun selectQuality(quality: QualityOption) {
         val item = currentItem ?: return
         val posTicks = absolutePositionMs * TICKS_PER_MS
+        // A manual pick starts the ladder afresh from the new tier.
+        resetRecovery()
+        _state.update { it.copy(switchingTo = "Switching to ${quality.menuLabel}…") }
         renegotiate {
             prepare(item, posTicks, quality, forceTranscode = quality.forcesTranscode)
+            if (currentSource != null) _state.value.activeQuality?.let { showNotice("Quality: $it") }
         }
+    }
+
+    /** The Retry button on an error: start again at the same place, with a fresh recovery budget. */
+    fun retryPlayback() {
+        resetRecovery()
+        val item = currentItem
+        if (item == null) {
+            _state.update { it.copy(isLoading = true, error = null, errorRetryable = false) }
+            viewModelScope.launch { loadInitial() }
+            return
+        }
+        val local = localKey
+        if (local != null) {
+            viewModelScope.launch {
+                _state.update { it.copy(isLoading = true, error = null, errorRetryable = false) }
+                val file = downloads.localVideoFile(local)
+                if (file != null) {
+                    prepareLocal(local, file)
+                } else {
+                    _state.update { it.copy(isLoading = false, error = "Could not load download.") }
+                }
+            }
+            return
+        }
+        val posTicks = lastGoodPositionMs * TICKS_PER_MS
+        renegotiate { prepare(item, posTicks, _state.value.selectedQuality, forceTranscode = forceTranscodeActive) }
+    }
+
+    // MARK: - Recovery
+
+    private fun resetRecovery() {
+        recoveryAttempts = 0
+        sameQualityRetries = 0
+        healthyPlayingMs = 0
+    }
+
+    /**
+     * Runs one step of the recovery ladder at the same position: retry, fall
+     * back to a transcode, step down a tier, or give up with a readable error
+     * and Retry. See [PlaybackRecoveryPlan] for the policy.
+     */
+    private fun recover(failure: PlaybackFailure) {
+        lastFailure = failure
+        val item = currentItem
+        val source = currentSource
+        if (isLocalPlayback || item == null || source == null) {
+            // A file on disk has no ladder: there is nothing to lower.
+            _state.update {
+                it.copy(isLoading = false, errorRetryable = true, error = PlaybackRecoveryPlan.exhaustedMessage(failure))
+            }
+            return
+        }
+        // A step already in flight owns the next decision.
+        if (prepareJob?.isActive == true) return
+
+        val decision =
+            PlaybackRecoveryPlan.decide(
+                failure = failure,
+                isTranscoding = source.isTranscoding,
+                currentBitrate = source.deliveredBitrate ?: source.negotiatedCap.takeIf { it in 1 until BitrateResolver.NO_CAP },
+                sameQualityRetries = sameQualityRetries,
+                attempts = recoveryAttempts,
+            )
+        if (decision == RecoveryDecision.GiveUp) {
+            player.stop()
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    switchingTo = null,
+                    errorRetryable = true,
+                    error = PlaybackRecoveryPlan.exhaustedMessage(failure),
+                )
+            }
+            return
+        }
+        recoveryAttempts++
+        healthyPlayingMs = 0
+        PlaybackRecoveryPlan.notice(decision)?.let(::showNotice)
+        val posTicks = lastGoodPositionMs * TICKS_PER_MS
+        val quality = _state.value.selectedQuality
+        when (decision) {
+            RecoveryDecision.Retry -> {
+                sameQualityRetries++
+                renegotiate { prepare(item, posTicks, quality, forceTranscode = forceTranscodeActive) }
+            }
+            RecoveryDecision.ForceTranscode -> {
+                sameQualityRetries = 0
+                renegotiate { prepare(item, posTicks, quality, forceTranscode = true) }
+            }
+            is RecoveryDecision.StepDown -> {
+                // Remember what the link could not carry, so the next title's
+                // Auto does not start above it again.
+                if (failure == PlaybackFailure.STALL || failure == PlaybackFailure.NETWORK) {
+                    source.deliveredBitrate?.let(engine::noteLinkLimit) ?: engine.noteLinkLimit(decision.to.maxBitrate!! * 2)
+                }
+                // The step becomes the selected quality, so the menu and the
+                // next episode match what is actually playing.
+                renegotiate { prepare(item, posTicks, decision.to, forceTranscode = true) }
+            }
+            RecoveryDecision.GiveUp -> Unit
+        }
+    }
+
+    private fun showNotice(text: String) {
+        noticeJob?.cancel()
+        _state.update { it.copy(notice = text) }
+        noticeJob =
+            viewModelScope.launch {
+                delay(NOTICE_MS)
+                _state.update { if (it.notice == text) it.copy(notice = null) else it }
+            }
+    }
+
+    /** Called from the tick loop: watches for stalls and for a long enough healthy stretch to reset the budget. */
+    private fun watchHealth() {
+        if (isLocalPlayback || currentSource == null || prepareJob?.isActive == true) return
+        if (player.isPlaying) {
+            lastGoodPositionMs = absolutePositionMs
+            healthyPlayingMs += SEGMENT_POLL_MS
+            if (healthyPlayingMs >= PlaybackRecoveryPlan.HEALTHY_PLAYBACK_MS) resetRecovery()
+        }
+        val stalled =
+            stallDetector.update(
+                isBuffering = player.playbackState == Player.STATE_BUFFERING,
+                wantsToPlay = player.playWhenReady,
+                isPlaying = player.isPlaying,
+            )
+        if (stalled) recover(PlaybackFailure.STALL)
     }
 
     /**
@@ -738,10 +996,43 @@ class PlayerViewModel(
     }
 
     fun selectSubtitle(index: Int) {
+        val tracks = _state.value.subtitleTracks
+        val from = desiredSubtitleTrack()
+        val to = tracks.firstOrNull { !it.isOff && it.index == index }
+        val source = currentSource
+        val item = currentItem
         userChoseSubtitle = true
         desiredSubtitleIndex = index
         _state.update { it.copy(selectedSubtitleIndex = index) }
-        applyTrackSelections()
+        val change =
+            if (source == null || isLocalPlayback) {
+                SubtitleChange.IN_PLAYER
+            } else {
+                SubtitleDecisions.change(from, to, source.carriesEmbeddedSubtitles)
+            }
+        when (change) {
+            SubtitleChange.IN_PLAYER -> applyTrackSelections()
+            SubtitleChange.RELOAD -> {
+                // An embedded text track on a transcode: side-load it from
+                // the server's VTT extraction. Same stream URL, so the server
+                // transcode carries on; only the player's sources change.
+                if (source != null && item != null) {
+                    val position = player.currentPosition
+                    player.setMediaItem(buildMediaItem(item, source), position)
+                    player.prepare()
+                    applyTrackSelections()
+                }
+            }
+            SubtitleChange.RENEGOTIATE -> {
+                // Into or out of a burn-in, which only the server can do.
+                burnInSubtitle = to?.delivery == SubtitleDelivery.BURN_IN
+                if (item != null) {
+                    val posTicks = absolutePositionMs * TICKS_PER_MS
+                    if (burnInSubtitle) showNotice("Adding subtitles to the video…")
+                    renegotiate { prepare(item, posTicks, _state.value.selectedQuality, forceTranscode = forceTranscodeActive) }
+                }
+            }
+        }
     }
 
     /** Manual Skip Intro/Credits button. */
@@ -775,6 +1066,7 @@ class PlayerViewModel(
                 while (isActive) {
                     delay(SEGMENT_POLL_MS)
                     if (player.isPlaying) checkSegments()
+                    watchHealth()
                 }
             }
     }
@@ -805,7 +1097,8 @@ class PlayerViewModel(
         val local = localKey
         if (local != null && trailerItemId == null) {
             downloads.savePlaybackPosition(local, posTicks)
-            return
+            // Fall through: a download watched online also reports live (the
+            // reporter only exists when the server answered at start).
         }
         val r = reporter ?: return
         viewModelScope.launch { runCatching { r.reportProgress(posTicks, isPaused = !player.isPlaying) } }
@@ -862,6 +1155,8 @@ class PlayerViewModel(
                 // since that is a standing preference rather than a per-item pick.
                 userChoseSubtitle = false
                 desiredAudioIndex = null
+                burnInSubtitle = false
+                resetRecovery()
                 // Mirror loadInitial: prefer a completed download. Without this,
                 // auto-play-next always server-negotiated -- so with a whole
                 // season downloaded it could not fire on a plane at all, and
@@ -873,7 +1168,10 @@ class PlayerViewModel(
                     // Streaming now: positions must stop going to the previous
                     // episode's download row.
                     localKey = null
-                    prepare(next, startTicks = 0, QualityOption.AUTO, forceTranscode = false)
+                    // The quality pick carries on to the next episode, as on
+                    // Apple and Roku: a step down for a weak link still holds.
+                    val quality = _state.value.selectedQuality
+                    prepare(next, startTicks = 0, quality, forceTranscode = quality.forcesTranscode)
                 }
             } else {
                 _state.update { it.copy(playbackEnded = true) }
@@ -944,11 +1242,14 @@ class PlayerViewModel(
         // correct finished state.
         val local = localKey
         if (local != null && trailerItemId == null) {
-            downloads.savePlaybackPosition(local, posTicks)
+            // Saved, then posted to the server right away when online: the
+            // stopped report for a download goes through the pending-sync path
+            // (one report, not two), and no longer waits for the next foreground.
+            downloads.savePlaybackPositionAndSync(local, posTicks)
         }
         // Fire the stopped report + transcode teardown on a detached scope so it
         // survives the ViewModel being cleared, then release the player.
-        val r = reporter
+        val r = reporter.takeIf { local == null }
         val source = currentSource
         if (r != null) {
             teardownScope.launch {
@@ -992,6 +1293,7 @@ class PlayerViewModel(
         private const val CONNECT_WATCHDOG_MS = 5_000L
         private const val SEEK_INCREMENT_MS = 10_000L
         private const val ARTWORK_WIDTH = 300
+        private const val NOTICE_MS = 4_000L
         private val sessionCounter = AtomicLong()
         private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

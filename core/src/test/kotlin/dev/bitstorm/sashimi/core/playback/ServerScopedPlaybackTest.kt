@@ -53,7 +53,11 @@ class ServerScopedPlaybackTest {
 
             val source = engine.negotiate(itemId = "item-1")
 
-            val negotiation = requests.single()
+            // Auto also measures the link (/Playback/BitrateTest); that too
+            // must go to the item's server.
+            val all = synchronized(requests) { requests.toList() }
+            all.forEach { assertEquals(it.url.toString(), "other.example", it.url.host) }
+            val negotiation = all.single { it.url.encodedPath.endsWith("/PlaybackInfo") }
             assertEquals("other.example", negotiation.url.host)
             assertEquals("/Items/item-1/PlaybackInfo", negotiation.url.encodedPath)
             assertEquals("other-user", negotiation.url.queryParameter("UserId"))

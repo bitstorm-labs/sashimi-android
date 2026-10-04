@@ -51,10 +51,13 @@ class DeviceProfileBuilderTest {
     }
 
     @Test
-    fun `subtitles declared external vtt and srt`() {
+    fun `text subtitles declared external, image subtitles only as burn-in`() {
         val subs = build().subtitleProfiles
-        assertEquals(setOf("vtt", "srt"), subs.map { it.format }.toSet())
-        assertTrue(subs.all { it.method == "External" })
+        val external = subs.filter { it.method == "External" }.map { it.format }.toSet()
+        assertTrue(external.containsAll(setOf("vtt", "srt", "ass", "ssa")))
+        assertTrue(
+            subs.filter { it.method != "External" }.all { it.method == "Encode" && it.format in setOf("pgssub", "dvdsub", "dvbsub") },
+        )
     }
 
     @Test

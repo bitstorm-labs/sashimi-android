@@ -16,17 +16,21 @@ import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.PlaybackInfoResponse
 import dev.bitstorm.sashimi.core.model.PublicSystemInfo
 import dev.bitstorm.sashimi.core.person.PersonFilmographyClient
+import dev.bitstorm.sashimi.core.playback.BandwidthProbeMath
 import dev.bitstorm.sashimi.core.playback.DeviceProfile
 import dev.bitstorm.sashimi.core.playback.NegotiationFlags
 import dev.bitstorm.sashimi.core.playback.PlaybackInfoRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -689,6 +693,58 @@ class JellyfinClient(
     }
 
     /**
+     * Measures downstream bandwidth to this server from `/Playback/BitrateTest`
+     * in bits/second, or null when nothing usable arrived. Streams the
+     * response and stops at the probe's time or byte budget, whichever comes
+     * first, so a slow link yields a partial-result estimate instead of a
+     * timeout (Roku's fixed 8 MB / 20 s probe failed on exactly the links that
+     * needed it, and fell back to 20 Mbps). See [BandwidthProbeMath].
+     */
+    suspend fun measureBandwidth(): Int? =
+        withContext(Dispatchers.IO) {
+            val url = buildUrl("/Playback/BitrateTest", listOf("Size" to BandwidthProbeMath.MAX_BYTES.toString()))
+            val probeClient =
+                httpClient.newBuilder()
+                    .readTimeout(BandwidthProbeMath.MAX_DURATION_MS, TimeUnit.MILLISECONDS)
+                    .callTimeout(BandwidthProbeMath.MAX_DURATION_MS + PROBE_CONNECT_ALLOWANCE_MS, TimeUnit.MILLISECONDS)
+                    .build()
+            val request =
+                Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build()
+            val call = probeClient.newCall(request)
+            runCatching {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    val input = response.body?.byteStream() ?: return@runCatching null
+                    val buffer = ByteArray(16 * 1024)
+                    var total = 0L
+                    var steadyBytes = 0L
+                    var first = 0L
+                    var steadyStart = 0L
+                    var last = 0L
+                    while (total < BandwidthProbeMath.MAX_BYTES) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        last = System.nanoTime() / 1_000_000
+                        if (first == 0L) first = last
+                        total += read
+                        val elapsed = last - first
+                        if (elapsed >= BandwidthProbeMath.WARMUP_MS) {
+                            if (steadyStart == 0L) steadyStart = last else steadyBytes += read
+                        }
+                        if (elapsed >= BandwidthProbeMath.MAX_DURATION_MS) break
+                    }
+                    call.cancel()
+                    BandwidthProbeMath.bitsPerSecond(
+                        totalBytes = total,
+                        totalMs = last - first,
+                        steadyBytes = steadyBytes,
+                        steadyMs = if (steadyStart == 0L) 0 else last - steadyStart,
+                    )
+                }
+            }.getOrNull()
+        }
+
+    /**
      * Tears down a running server transcode. DELETE /Videos/ActiveEncodings with
      * lowercase query keys (deviceId / playSessionId), matching the Swift
      * stopActiveEncoding. Only call when a transcode was actually running.
@@ -992,6 +1048,9 @@ class JellyfinClient(
         const val AUTHORIZATION_HEADER = "Authorization"
 
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /** Connection setup allowed on top of the probe's own time budget. */
+        private const val PROBE_CONNECT_ALLOWANCE_MS = 5_000L
 
         /** Jellyfin ticks are 100 ns; `Long / Double` keeps the fraction. */
         private const val TICKS_PER_SECOND = 10_000_000.0

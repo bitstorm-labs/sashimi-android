@@ -9,15 +9,19 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.playback.SubtitleCodecs
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,9 +77,30 @@ class DownloadManager(
             .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
 
+    /**
+     * The video body itself gets a much longer read timeout. A transcoded
+     * download's first byte waits for the server's ffmpeg to start, and a
+     * software 4K HEVC encode on a loaded server can take over a minute to get
+     * going (and can run slower than the network afterwards), so the 60 s
+     * timeout failed downloads that would have completed.
+     */
+    private val videoHttp = http.newBuilder().readTimeout(VIDEO_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES).build()
+
     /** Reactive snapshot of every download row for the UI. */
     val downloads: StateFlow<List<DownloadedItemEntity>> =
         repository.downloads.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    private val _live = MutableStateFlow<Map<DownloadKey, LiveTransfer>>(emptyMap())
+
+    /** Transfer rate and retry/restart state for in-flight downloads (memory only). */
+    val live: StateFlow<Map<DownloadKey, LiveTransfer>> = _live.asStateFlow()
+
+    private fun setLive(
+        key: DownloadKey,
+        transfer: LiveTransfer?,
+    ) {
+        _live.update { if (transfer == null) it - key else it + (key to transfer) }
+    }
 
     /**
      * Completed High / Medium / Low downloads made before the tier URL sent a
@@ -173,6 +198,7 @@ class DownloadManager(
     fun cancel(key: DownloadKey) {
         scope.launch {
             workManager.cancelUniqueWork(DownloadWorker.uniqueName(key))
+            setLive(key, null)
             fileManager.deleteItemDirectory(key)
             repository.delete(key)
             tierEncodes.unmark(key)
@@ -334,6 +360,8 @@ class DownloadManager(
     suspend fun performDownload(
         key: DownloadKey,
         isStopped: () -> Boolean,
+        /** WorkManager's run attempt: 0 for the first run, more after a retry. */
+        attempt: Int = 0,
         onProgress: suspend (title: String, percent: Int) -> Unit = { _, _ -> },
     ): androidx.work.ListenableWorker.Result =
         withContext(Dispatchers.IO) {
@@ -352,12 +380,46 @@ class DownloadManager(
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
             val partial = fileManager.partialFile(key)
+            // A live transcode cannot be resumed by byte range: Jellyfin answers
+            // a Range request on it with a fresh 200 from byte 0. Say so instead
+            // of letting the bar silently jump back, and do not send a Range the
+            // server ignores. Originals (a static file) do resume.
+            val transcoded = quality.encode != null
+            val restarting = transcoded && partial.exists() && partial.length() > 0
+            if (restarting) partial.delete()
             val startOffset = if (partial.exists()) partial.length() else 0L
             val request = DownloadRequests.get(spec.url, spec.authorization, resumeFrom = startOffset)
+            setLive(
+                key,
+                LiveTransfer(
+                    phase =
+                        when {
+                            restarting -> DownloadPhase.RESTARTING
+                            attempt > 0 -> DownloadPhase.RETRYING
+                            else -> null
+                        },
+                ),
+            )
+            val estimatedTotal =
+                if (transcoded) {
+                    val sourceVideoBitrate =
+                        runCatchingCancellable { client.getPlaybackInfo(itemId) }.getOrNull()
+                            ?.mediaSources?.firstOrNull()?.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.toLong()
+                    DownloadProgress.estimatedTotalBytes(quality, row.runTimeTicks, sourceVideoBitrate)
+                } else {
+                    null
+                }
+            val rate = TransferRate()
 
             try {
-                repository.updateProgress(key, DownloadStatus.DOWNLOADING, row.progress, startOffset, row.totalBytes)
-                http.newCall(request).execute().use { response ->
+                repository.updateProgress(
+                    key,
+                    DownloadStatus.DOWNLOADING,
+                    if (restarting) 0.0 else row.progress,
+                    startOffset,
+                    if (restarting) estimatedTotal ?: 0 else row.totalBytes,
+                )
+                videoHttp.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         fail(key, "Server error ${response.code}")
                         return@withContext androidx.work.ListenableWorker.Result.failure()
@@ -398,8 +460,15 @@ class DownloadManager(
                                 val now = System.currentTimeMillis()
                                 if (now - lastPersist >= PROGRESS_PERSIST_MS) {
                                     lastPersist = now
-                                    val fraction = if (total > 0) written.toDouble() / total.toDouble() else PROGRESS_UNKNOWN
-                                    repository.updateProgress(key, DownloadStatus.DOWNLOADING, fraction, written, total.coerceAtLeast(0))
+                                    // A transcode has no Content-Length: estimate
+                                    // from the tier and runtime rather than leave
+                                    // the bar indeterminate for the whole encode.
+                                    val snapshot = DownloadProgress.snapshot(written, total, estimatedTotal)
+                                    val fraction = snapshot?.fraction ?: PROGRESS_UNKNOWN
+                                    repository.updateProgress(key, DownloadStatus.DOWNLOADING, fraction, written, snapshot?.totalBytes ?: 0)
+                                    val thisAttempt = written - (if (append) startOffset else 0)
+                                    val phase = _live.value[key]?.phase?.takeIf { thisAttempt < PHASE_CLEAR_BYTES }
+                                    setLive(key, LiveTransfer(bytesPerSecond = rate.sample(written, now), phase = phase))
                                     onProgress(notifyTitle, if (fraction >= 0) (fraction * 100).toInt() else -1)
                                 }
                             }
@@ -410,16 +479,30 @@ class DownloadManager(
                     // resumed transcode (not something Jellyfin does, but not
                     // ours to assume) could begin with bytes the old URL made.
                     if (quality != DownloadQuality.ORIGINAL && !append) tierEncodes.mark(key)
+                    setLive(key, null)
                     finalize(key, partial, client)
                     onWorkFinished()
                     androidx.work.ListenableWorker.Result.success()
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (isStopped()) {
-                    androidx.work.ListenableWorker.Result.retry()
-                } else {
-                    fail(key, e.message ?: "Download failed")
-                    androidx.work.ListenableWorker.Result.failure()
+                when {
+                    isStopped() -> androidx.work.ListenableWorker.Result.retry()
+                    // A dropped connection or a timeout mid-download is worth
+                    // another go before it becomes a red "failed" row; the row
+                    // stays in flight (and keeps its slot) while WorkManager
+                    // backs off, and reads "Retrying…" when it runs again.
+                    e is java.io.IOException && attempt < MAX_NETWORK_RETRIES -> {
+                        setLive(key, LiveTransfer(phase = DownloadPhase.RETRYING))
+                        repository.updateStatus(key, DownloadStatus.PREPARING)
+                        androidx.work.ListenableWorker.Result.retry()
+                    }
+                    else -> {
+                        setLive(key, null)
+                        fail(key, e.message ?: "Download failed")
+                        androidx.work.ListenableWorker.Result.failure()
+                    }
                 }
             }
         }
@@ -539,10 +622,7 @@ class DownloadManager(
     }
 
     /** True for text-based subtitle codecs (renderable as VTT); false for image tracks. */
-    private fun isTextSubtitle(codec: String?): Boolean {
-        val c = codec?.lowercase() ?: return true // unknown → assume text (server will VTT it)
-        return c !in IMAGE_SUBTITLE_CODECS
-    }
+    private fun isTextSubtitle(codec: String?): Boolean = SubtitleCodecs.isText(codec)
 
     private fun fetchImage(
         url: String?,
@@ -569,6 +649,7 @@ class DownloadManager(
         key: DownloadKey,
         message: String,
     ) {
+        setLive(key, null)
         repository.updateStatus(key, DownloadStatus.FAILED, message)
         onWorkFinished()
     }
@@ -610,6 +691,22 @@ class DownloadManager(
         scope.launch { repository.savePlaybackPosition(key, positionTicks) }
     }
 
+    /**
+     * Saves the position and, when a session exists, posts it to the server
+     * now rather than at the next foreground. Used when a downloaded item is
+     * closed: watching a download online used to leave every other client's
+     * Continue Watching stale until this app was next resumed.
+     */
+    fun savePlaybackPositionAndSync(
+        key: DownloadKey,
+        positionTicks: Long,
+    ) {
+        scope.launch {
+            repository.savePlaybackPosition(key, positionTicks)
+            if (authenticated.value && networkMonitor.isOnline.value) syncPendingProgress()
+        }
+    }
+
     // MARK: - Pending progress sync
 
     /** Posts stashed offline positions, each to the server its download came from. */
@@ -630,9 +727,14 @@ class DownloadManager(
     companion object {
         private const val PROGRESS_PERSIST_MS = 1_500L
 
-        /** Image-based subtitle codecs that can't be delivered as text VTT. */
-        private val IMAGE_SUBTITLE_CODECS =
-            setOf("pgssub", "hdmv_pgs_subtitle", "pgs", "dvbsub", "dvb_subtitle", "dvdsub", "dvd_subtitle", "vobsub", "xsub")
+        /** See [videoHttp]. */
+        private const val VIDEO_READ_TIMEOUT_MINUTES = 5L
+
+        /** Network failures retried (with WorkManager's backoff) before a download is marked failed. */
+        private const val MAX_NETWORK_RETRIES = 3
+
+        /** A "Retrying" / "Restarting" note stays up until this much has arrived on the new attempt. */
+        private const val PHASE_CLEAR_BYTES = 4L * 1024 * 1024
 
         /** Sentinel written to [DownloadedItemEntity.progress] for unknown-size streams. */
         const val PROGRESS_UNKNOWN = -1.0

@@ -130,7 +130,7 @@ object ServiceLocator {
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
-        playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities()))
+        playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities(app)))
         themeSongs = ThemeSongService(app, serverClients::clientFor, appSettings, appScope)
 
         networkMonitor = NetworkMonitor(app)
