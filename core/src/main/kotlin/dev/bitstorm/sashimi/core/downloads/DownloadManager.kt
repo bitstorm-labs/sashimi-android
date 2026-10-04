@@ -23,7 +23,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -352,17 +351,9 @@ class DownloadManager(
                 fail(key, if (client.isConfigured) "Could not build download URL" else "Not signed in")
                 return@withContext androidx.work.ListenableWorker.Result.failure()
             }
-            val url = spec.url
-            val token = spec.accessToken
-
             val partial = fileManager.partialFile(key)
             val startOffset = if (partial.exists()) partial.length() else 0L
-            val request =
-                Request.Builder()
-                    .url(url)
-                    .header("X-Emby-Token", token)
-                    .apply { if (startOffset > 0) header("Range", "bytes=$startOffset-") }
-                    .build()
+            val request = DownloadRequests.get(spec.url, spec.authorization, resumeFrom = startOffset)
 
             try {
                 repository.updateProgress(key, DownloadStatus.DOWNLOADING, row.progress, startOffset, row.totalBytes)
@@ -492,7 +483,7 @@ class DownloadManager(
         client: JellyfinClient,
     ) {
         val itemId = key.itemId
-        val token = client.currentAccessToken ?: return
+        val token = client.currentAuthorization ?: return
         val row = repository.get(key)
         fetchImage(client.imageURL(itemId, "Primary", 400), token, fileManager.imageFile(key, DownloadFileManager.POSTER_NAME))
         fetchImage(client.imageURL(itemId, "Backdrop", 1280), token, fileManager.imageFile(key, DownloadFileManager.BACKDROP_NAME))
@@ -520,7 +511,7 @@ class DownloadManager(
     ): List<DownloadedSubtitle> {
         val itemId = key.itemId
         val server = client.currentServerUrl ?: return emptyList()
-        val token = client.currentAccessToken ?: return emptyList()
+        val token = client.currentAuthorization ?: return emptyList()
         val info = runCatching { client.getPlaybackInfo(itemId) }.getOrNull() ?: return emptyList()
         val source = info.mediaSources?.firstOrNull() ?: return emptyList()
 
@@ -555,12 +546,12 @@ class DownloadManager(
 
     private fun fetchImage(
         url: String?,
-        token: String,
+        authorization: String,
         target: File,
     ): Boolean {
         url ?: return false
         return runCatching {
-            val request = Request.Builder().url(url).header("X-Emby-Token", token).build()
+            val request = DownloadRequests.get(url, authorization)
             http.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     response.body?.byteStream()?.use { input ->

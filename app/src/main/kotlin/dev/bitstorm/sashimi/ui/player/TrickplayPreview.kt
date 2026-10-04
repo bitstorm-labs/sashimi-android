@@ -43,7 +43,7 @@ private val TrackInset = 10.dp
  * nothing when [track] is null, the duration is unknown, or the sheet has not
  * loaded yet -- an empty frame reads as a broken thumbnail.
  *
- * Sheets load through Coil with the token in an `X-Emby-Token` header (the
+ * Sheets load through Coil with the client's `Authorization` header (the
  * trickplay endpoint requires auth; the artwork endpoints do not). [client] is
  * the item's own server, which is not the active one for a title opened from
  * another server.
@@ -102,11 +102,11 @@ private fun rememberTrickplaySheet(
     var loaded by remember(track) { mutableStateOf<Pair<Triple<String, Int, Int>, ImageBitmap>?>(null) }
     LaunchedEffect(key) {
         val url = client.trickplayTileURL(track.itemId, track.info.width, sheetIndex, track.mediaSourceId) ?: return@LaunchedEffect
-        val token = client.currentAccessToken ?: return@LaunchedEffect
+        val authorization = client.currentAuthorization ?: return@LaunchedEffect
         val request =
             ImageRequest.Builder(context)
                 .data(url)
-                .addHeader("X-Emby-Token", token)
+                .addHeader(JellyfinClient.AUTHORIZATION_HEADER, authorization)
                 // Crop maths is in the sheet's own pixels, so it must not be downsampled.
                 .size(Size.ORIGINAL)
                 // A 10x10 sheet of 320px thumbnails is 3200x1800: RGB_565 halves

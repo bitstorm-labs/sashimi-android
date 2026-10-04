@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Downloads remember their server and talk only to it. */
@@ -45,7 +46,7 @@ class ServerScopedDownloadsTest {
         assertEquals("other.example", url.host)
         assertEquals("/Videos/m1/stream.mp4", url.encodedPath)
         assertEquals("device-1", url.queryParameter("DeviceId"))
-        assertEquals("other-token", spec.accessToken)
+        assertTrue(spec.authorization, spec.authorization.contains("Token=\"other-token\""))
         // The token rides in a header, never the URL.
         assertNull(url.queryParameter("api_key"))
     }
@@ -55,7 +56,7 @@ class ServerScopedDownloadsTest {
         val row = DownloadedItemEntity(itemId = "m1", name = "Movie", quality = DownloadQuality.ORIGINAL.wireName)
         val spec = DownloadUrlBuilder.requestFor(clients.forRecord(row.serverId)!!, row.itemId, row.downloadQuality)!!
         assertEquals("active.example", spec.url.toHttpUrl().host)
-        assertEquals("active-token", spec.accessToken)
+        assertTrue(spec.authorization, spec.authorization.contains("Token=\"active-token\""))
     }
 
     @Test

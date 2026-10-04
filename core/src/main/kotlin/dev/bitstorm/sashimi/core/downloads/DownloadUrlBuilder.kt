@@ -2,12 +2,37 @@ package dev.bitstorm.sashimi.core.downloads
 
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
 
-/** Where a download fetches from, and the token it authenticates with. */
+/** Where a download fetches from, and the `Authorization` header value it authenticates with. */
 data class DownloadRequestSpec(
     val url: String,
-    val accessToken: String,
+    val authorization: String,
 )
+
+/**
+ * Builds the downloads engine's HTTP requests. Pure, so what goes on the wire
+ * (the auth header above all) is unit-testable.
+ */
+object DownloadRequests {
+    /**
+     * A GET of [url] authenticated with the client's `Authorization:
+     * MediaBrowser ...` value, optionally resuming from [resumeFrom] bytes.
+     *
+     * Not `X-Emby-Token`: a server with legacy authorization off answers that
+     * with 401 wherever auth is required, which is every Original download.
+     */
+    fun get(
+        url: String,
+        authorization: String,
+        resumeFrom: Long = 0,
+    ): Request =
+        Request.Builder()
+            .url(url)
+            .header(JellyfinClient.AUTHORIZATION_HEADER, authorization)
+            .apply { if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-") }
+            .build()
+}
 
 /**
  * Builds the download stream URL for a given quality, ported from the Swift
@@ -19,8 +44,8 @@ data class DownloadRequestSpec(
  *   target and the tier's video bitrate, audio bitrate, frame size and channel
  *   count (see [DownloadQuality.TranscodeTarget]).
  *
- * The access token is NOT in the URL — it rides in an `X-Emby-Token` header on
- * the request (see [DownloadWorker]), matching the Swift `authorizedRequest`.
+ * The access token is NOT in the URL: it rides in the `Authorization` header
+ * of the request (see [DownloadRequests]).
  */
 object DownloadUrlBuilder {
     /**
@@ -34,9 +59,9 @@ object DownloadUrlBuilder {
         quality: DownloadQuality,
     ): DownloadRequestSpec? {
         val server = client.currentServerUrl ?: return null
-        val token = client.currentAccessToken ?: return null
+        val authorization = client.currentAuthorization ?: return null
         val url = downloadUrl(server, itemId, client.currentDeviceId, quality) ?: return null
-        return DownloadRequestSpec(url, token)
+        return DownloadRequestSpec(url, authorization)
     }
 
     fun downloadUrl(
@@ -56,8 +81,8 @@ object DownloadUrlBuilder {
     /**
      * External WebVTT subtitle stream URL for a given subtitle stream index,
      * ported from the Swift `DownloadURLBuilder.subtitleURL` (note the itemId
-     * appears twice in the path). The access token rides in an `X-Emby-Token`
-     * header on the request, matching the video download.
+     * appears twice in the path). Authenticated like the video download, by
+     * header.
      */
     fun subtitleUrl(
         serverUrl: String,
