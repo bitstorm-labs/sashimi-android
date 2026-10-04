@@ -18,14 +18,21 @@ import kotlin.math.roundToLong
 class PlaybackEngine(
     private val client: JellyfinClient,
     private val profileBuilder: DeviceProfileBuilder,
+    /** Shared across every engine (and so every server's client); keyed by server URL. */
+    private val bandwidth: BandwidthMonitor = BandwidthMonitor(),
 ) {
     /**
      * Negotiate playback for [itemId].
      *
      * @param resumeTicks resume position (100-ns ticks); 0 to start from the top.
-     * @param maxBitrate effective cap (null = Auto → [AUTO_BITRATE_CAP]).
+     * @param maxBitrate effective cap (null = Auto, see [autoCap]).
      * @param forceDirectPlay global Force Direct Play setting.
-     * @param forceTranscode explicit Quality pick (overrides Force Direct Play).
+     * @param forceTranscode explicit Quality pick, a recovery step, or a
+     *   burned-in subtitle (overrides Force Direct Play).
+     * @param subtitleStreamIndex the subtitle to burn in, or
+     *   [SubtitleDecisions.NO_SERVER_SUBTITLE]. Never null on the wire: a null
+     *   lets the server apply its own default and burn in a track the app
+     *   shows as "Off".
      */
     suspend fun negotiate(
         itemId: String,
@@ -35,23 +42,97 @@ class PlaybackEngine(
         forceDirectPlay: Boolean = false,
         forceTranscode: Boolean = false,
         audioStreamIndex: Int? = null,
-        subtitleStreamIndex: Int? = null,
+        subtitleStreamIndex: Int = SubtitleDecisions.NO_SERVER_SUBTITLE,
+        mediaSourceId: String = itemId,
     ): PlaybackSource {
-        val streamingBitrate = maxBitrate ?: AUTO_BITRATE_CAP
-        val profile = profileBuilder.build(streamingBitrate, maxWidth)
+        val streamingBitrate = maxBitrate ?: autoCap()
+
+        suspend fun post(width: Int?) =
+            post(
+                itemId, mediaSourceId, streamingBitrate, width, resumeTicks,
+                forceDirectPlay, forceTranscode, audioStreamIndex, subtitleStreamIndex,
+            )
+        val first = post(maxWidth)
+        // Auto's first request carries no width: Jellyfin applies a Width
+        // condition to direct play too, and would push a 4K source that fits
+        // under the cap down to 1080p. When the answer is a video re-encode,
+        // ask again with the width the cap can carry, or the server encodes at
+        // the source resolution (a 4K encode at a remote link's few Mbps).
+        // PlaybackInfo starts no ffmpeg; the transcode starts when the
+        // playlist is fetched, so the first answer costs nothing to discard.
+        val (response, source) =
+            if (maxBitrate == null && maxWidth == null) {
+                val reencodeWidth =
+                    AutoBitrate.reencodeWidth(
+                        streamingBitrate,
+                        first.second.mediaStreams?.firstOrNull { it.type == "Video" }?.width,
+                        TranscodeReasons.of(first.second),
+                    )
+                if (reencodeWidth != null) {
+                    post(reencodeWidth)
+                } else {
+                    first
+                }
+            } else {
+                first
+            }
+        return buildSource(itemId, source, response.playSessionId, resumeTicks, streamingBitrate)
+    }
+
+    private suspend fun post(
+        itemId: String,
+        mediaSourceId: String,
+        bitrate: Int,
+        maxWidth: Int?,
+        resumeTicks: Long,
+        forceDirectPlay: Boolean,
+        forceTranscode: Boolean,
+        audioStreamIndex: Int?,
+        subtitleStreamIndex: Int,
+    ): Pair<dev.bitstorm.sashimi.core.model.PlaybackInfoResponse, MediaSourceInfo> {
         val response =
             client.postPlaybackInfo(
                 itemId = itemId,
-                deviceProfile = profile,
-                maxStreamingBitrate = streamingBitrate,
+                deviceProfile = profileBuilder.build(bitrate, maxWidth),
+                maxStreamingBitrate = bitrate,
                 startTimeTicks = resumeTicks.takeIf { it > 0 },
                 audioStreamIndex = audioStreamIndex,
                 subtitleStreamIndex = subtitleStreamIndex,
                 forceDirectPlay = forceDirectPlay,
                 forceTranscode = forceTranscode,
+                mediaSourceId = mediaSourceId,
             )
         val source = response.mediaSources?.firstOrNull() ?: throw PlaybackError.NoMediaSource
-        return buildSource(itemId, source, response.playSessionId, resumeTicks)
+        return response to source
+    }
+
+    /**
+     * The Auto cap for this engine's server: the measured link with headroom,
+     * else 4 Mbps for a remote server and 100 Mbps on the LAN. A remote server
+     * with no measurement waits briefly for the probe ([BandwidthMonitor.PROBE_WAIT_MS])
+     * before settling for the conservative default.
+     */
+    suspend fun autoCap(): Int {
+        val server = client.currentServerUrl ?: return AutoBitrate.UNMEASURED_REMOTE_CAP
+        val local = ServerLocality.isLocal(server)
+        val measured =
+            bandwidth.measureOrWait(server, if (local) 0 else BandwidthMonitor.PROBE_WAIT_MS) { client.measureBandwidth() }
+        return AutoBitrate.cap(measured, local)
+    }
+
+    /** Start measuring this server's link in the background, if nothing fresh is known. */
+    fun prewarmBandwidth() {
+        val server = client.currentServerUrl ?: return
+        bandwidth.refresh(server) { client.measureBandwidth() }
+    }
+
+    /**
+     * A stream at [bitsPerSecond] could not be sustained on this server's link:
+     * Auto must not climb back above it on the next title.
+     */
+    fun noteLinkLimit(bitsPerSecond: Int) {
+        val server = client.currentServerUrl ?: return
+        bandwidth.limitTo(server, bitsPerSecond)
     }
 
     private fun buildSource(
@@ -59,6 +140,7 @@ class PlaybackEngine(
         source: MediaSourceInfo,
         playSessionId: String?,
         resumeTicks: Long,
+        negotiatedCap: Int,
     ): PlaybackSource {
         val (url, method) =
             when (val choice = SourceSelector.choose(source)) {
@@ -96,22 +178,31 @@ class PlaybackEngine(
             streamInfo = streamInfo(method, source, url),
             audioTracks = audioTracks(source),
             subtitleTracks = subtitleTracks(source),
-            transcodeReasons = source.transcodeReasons.orEmpty().map(::humanTranscodeReason),
+            transcodeReasons = TranscodeReasons.of(source).orEmpty().map(::humanTranscodeReason),
+            deliveredBitrate = deliveredBitrate(method, source, url)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+            negotiatedCap = negotiatedCap,
         )
     }
 
     /**
      * The same negotiation bound to [other]: a title from a non-active server
      * negotiates, streams, and tears down its transcode on that server. The
-     * device profile is the device's, so it is shared.
+     * device profile is the device's, so it is shared, as is the bandwidth memory.
      */
-    fun withClient(other: JellyfinClient): PlaybackEngine = if (other === client) this else PlaybackEngine(other, profileBuilder)
+    fun withClient(other: JellyfinClient): PlaybackEngine = if (other === client) this else PlaybackEngine(other, profileBuilder, bandwidth)
 
     fun subtitleStreamUrl(
         itemId: String,
         subtitleStreamIndex: Int,
         mediaSourceId: String? = null,
     ): String? = client.subtitleStreamUrl(itemId, subtitleStreamIndex, mediaSourceId)
+
+    /** See [JellyfinClient.fetchSubtitleVtt]. */
+    suspend fun fetchSubtitleVtt(
+        itemId: String,
+        subtitleStreamIndex: Int,
+        mediaSourceId: String?,
+    ): ByteArray? = client.fetchSubtitleVtt(itemId, subtitleStreamIndex, mediaSourceId)
 
     suspend fun stopTranscode(playSessionId: String) {
         runCatching { client.stopActiveEncoding(playSessionId) }
@@ -136,6 +227,7 @@ class PlaybackEngine(
                         displayName = stream.displayTitle ?: stream.language ?: "Subtitle ${i + 1}",
                         languageCode = stream.language,
                         isExternal = stream.isExternal == true,
+                        delivery = SubtitleDelivery.of(stream.codec, stream.isExternal == true),
                     ),
                 )
             }
@@ -195,13 +287,25 @@ class PlaybackEngine(
     private fun deliveredBitrateDetail(
         source: MediaSourceInfo,
         streamUrl: String,
-    ): String? {
-        val target = urlIntParam(streamUrl, "VideoBitrate") ?: return bitrateDetail(sourceBitrate(source))
+    ): String? = bitrateDetail(transcodeBitrate(source, streamUrl))
+
+    private fun transcodeBitrate(
+        source: MediaSourceInfo,
+        streamUrl: String,
+    ): Long? {
+        val target = urlIntParam(streamUrl, "VideoBitrate") ?: return sourceBitrate(source)
         val srcVideo = source.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.takeIf { it > 0 }?.toLong()
         val deliveredVideo = if (srcVideo != null && srcVideo < target) srcVideo else target
         val audio = urlIntParam(streamUrl, "AudioBitrate") ?: 0L
-        return bitrateDetail(deliveredVideo + audio)
+        return deliveredVideo + audio
     }
+
+    /** What the stream runs at, for the recovery ladder; see [PlaybackSource.deliveredBitrate]. */
+    private fun deliveredBitrate(
+        method: PlayMethod,
+        source: MediaSourceInfo,
+        streamUrl: String,
+    ): Long? = if (method == PlayMethod.TRANSCODE) transcodeBitrate(source, streamUrl) else sourceBitrate(source)
 
     /** Integer query-string parameter (e.g. VideoBitrate) from a URL, else null. */
     private fun urlIntParam(
@@ -225,13 +329,5 @@ class PlaybackEngine(
     companion object {
         /** Ticks per millisecond (100-ns ticks → ms). */
         const val TICKS_PER_MS = 10_000L
-
-        /**
-         * Auto cap when no explicit bitrate is chosen — 20 Mbps, matching the
-         * Swift autoBitrateCap() fallback. The reference measures real bandwidth
-         * via a /Playback/BitrateTest probe first; that probe is not ported (the
-         * fixed cap is a reasonable default and avoids an 8 MB test download).
-         */
-        const val AUTO_BITRATE_CAP = 20_000_000
     }
 }

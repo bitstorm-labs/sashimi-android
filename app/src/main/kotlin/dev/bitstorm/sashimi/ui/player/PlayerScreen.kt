@@ -34,10 +34,12 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -55,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -194,13 +197,47 @@ fun PlayerScreen(
         )
 
         if (state.isLoading && !inPip) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Color.White) }
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.White)
+                state.switchingTo?.let {
+                    Text(it, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp))
+                }
+            }
         }
 
         state.error?.let { err ->
-            Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
-                Text(err, color = Color.White, fontSize = 15.sp)
+            Column(
+                Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(err, color = Color.White, fontSize = 15.sp, textAlign = TextAlign.Center)
+                if (state.errorRetryable && !inPip) {
+                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = vm::retryPlayback) { Text("Retry") }
+                        OutlinedButton(onClick = onExit) { Text("Close", color = Color.White) }
+                    }
+                }
             }
+        }
+
+        // Recovery and quality notices: "Lowering quality for your connection · 480p · 1 Mbps".
+        AnimatedVisibility(
+            visible = state.notice != null && !inPip,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 72.dp),
+        ) {
+            Text(
+                state.notice.orEmpty(),
+                color = Color.White,
+                fontSize = 13.sp,
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
         }
 
         // Skip Intro/Credits — always tappable, independent of the overlay.
@@ -290,7 +327,7 @@ private fun PlayerOverlay(
                     state.subtitle?.let {
                         Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    state.streamInfo?.let { StreamChip(it) }
+                    state.streamInfo?.let { StreamChip(it, state.activeQuality) }
                 }
                 val activity = LocalActivity()
                 IconButton(onClick = { activity.enterPip(state) }) {
@@ -408,7 +445,10 @@ private fun Scrubber(
 }
 
 @Composable
-private fun StreamChip(info: StreamInfo) {
+private fun StreamChip(
+    info: StreamInfo,
+    activeQuality: String?,
+) {
     val dot =
         when (info.method) {
             StreamMethod.DIRECT_PLAY -> Color(0xFF4CAF50)
@@ -428,6 +468,9 @@ private fun StreamChip(info: StreamInfo) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
         val text = info.detail?.let { "${info.label} · $it" } ?: info.label
         Text(text, color = Color.White, fontSize = 11.sp)
+        // The quality in force, so a softer picture after a step down has
+        // an explanation on screen.
+        activeQuality?.let { Text("· $it", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp) }
     }
 }
 
@@ -449,6 +492,7 @@ private fun SkipButton(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsSheet(
     state: PlayerUiState,
@@ -471,10 +515,19 @@ private fun SettingsSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                SettingsGroup(Icons.Filled.Settings, "Quality") {
-                    QualityOption.entries.forEach { q ->
-                        ChoiceChip(q.label, selected = state.selectedQuality == q) { onQuality(q) }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SettingsGroup(Icons.Filled.Settings, "Quality") {
+                        QualityOption.entries.filterNot { it.lowBandwidth }.forEach { q ->
+                            ChoiceChip(q.menuLabel, selected = state.selectedQuality == q) { onQuality(q) }
+                        }
                     }
+                    Text("Low bandwidth", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QualityOption.entries.filter { it.lowBandwidth }.forEach { q ->
+                            ChoiceChip(q.menuLabel, selected = state.selectedQuality == q) { onQuality(q) }
+                        }
+                    }
+                    state.activeQuality?.let { Text("Now: $it", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp) }
                 }
                 if (state.audioTracks.size > 1) {
                     SettingsGroup(Icons.AutoMirrored.Filled.VolumeUp, "Audio") {

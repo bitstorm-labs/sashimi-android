@@ -88,10 +88,19 @@ Missing it crashes every download on Android 14+ with
 ### Jellyfin: `MaxStreamingBitrate` is a ceiling, not a resolution
 
 Capping resolution requires a device-profile `CodecProfile` with a `Width`
-`LessThanOrEqual` condition. A "720p" option that only lowers the bitrate
-delivers 1080p at a lower bitrate. Also, `AllowVideoStreamCopy: true` lets the
-server satisfy a requested transcode by remuxing untouched, so a quality change
-can be a literal no-op. (Open: #19.)
+`LessThanEqual` condition. Spell it exactly that way: Jellyfin's
+`ProfileConditionType` has no `LessThanOrEqual`, and an unknown enum name makes
+the whole PlaybackInfo POST fail with 400 (fixed in #94). A "720p" option that
+only lowers the bitrate delivers 1080p at a lower bitrate. Also,
+`AllowVideoStreamCopy: true` lets the server satisfy a requested transcode by
+remuxing untouched, so a quality change can be a literal no-op. (Open: #19.)
+
+### Jellyfin: never leave `SubtitleStreamIndex` null
+
+A null lets the server apply the user's own subtitle preference, and if that
+picks an image track (PGS) it is burned into the transcode while the app shows
+"Off". `PlaybackEngine` always sends `-1` unless the user picked an image track
+on a transcode.
 
 ### Jellyfin: a transcode timeline starts at zero
 

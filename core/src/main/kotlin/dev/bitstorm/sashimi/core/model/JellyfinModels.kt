@@ -104,6 +104,9 @@ data class MediaStream(
     @SerialName("IsDefault") val isDefault: Boolean? = null,
     @SerialName("IsExternal") val isExternal: Boolean? = null,
     @SerialName("VideoRangeType") val videoRangeType: String? = null,
+    /** "SDR" / "HDR" (the coarse range; [videoRangeType] carries the flavour). */
+    @SerialName("VideoRange") val videoRange: String? = null,
+    @SerialName("BitDepth") val bitDepth: Int? = null,
     @SerialName("BitRate") val bitRate: Int? = null,
 )
 
