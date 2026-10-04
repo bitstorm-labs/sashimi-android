@@ -666,6 +666,8 @@ class JellyfinClient(
         subtitleStreamIndex: Int? = null,
         forceDirectPlay: Boolean = false,
         forceTranscode: Boolean = false,
+        /** The media source to negotiate; defaults to the item's primary one (its own id). See [PlaybackInfoRequest.mediaSourceId]. */
+        mediaSourceId: String = itemId,
     ): PlaybackInfoResponse {
         val uid = requireUserId()
         val flags = NegotiationFlags.derive(forceDirectPlay = forceDirectPlay, forceTranscode = forceTranscode)
@@ -674,6 +676,7 @@ class JellyfinClient(
                 userId = uid,
                 maxStreamingBitrate = maxStreamingBitrate,
                 startTimeTicks = startTimeTicks,
+                mediaSourceId = mediaSourceId,
                 audioStreamIndex = audioStreamIndex,
                 subtitleStreamIndex = subtitleStreamIndex,
                 deviceProfile = deviceProfile,
@@ -740,6 +743,35 @@ class JellyfinClient(
                         steadyBytes = steadyBytes,
                         steadyMs = if (steadyStart == 0L) 0 else last - steadyStart,
                     )
+                }
+            }.getOrNull()
+        }
+
+    /**
+     * Fetches a subtitle stream as WebVTT text, allowing the server a long
+     * time to answer. The first request for an EMBEDDED track makes Jellyfin
+     * extract it by reading the whole media file (68 s measured for a 1080p
+     * MKV on the home server; later requests are served from its cache in
+     * milliseconds). The player's own 8 s HTTP read timeout would fail that
+     * first load, so embedded tracks are fetched here and side-loaded from a
+     * local file. Null on any failure.
+     */
+    suspend fun fetchSubtitleVtt(
+        itemId: String,
+        subtitleStreamIndex: Int,
+        mediaSourceId: String?,
+    ): ByteArray? =
+        withContext(Dispatchers.IO) {
+            val url = subtitleStreamUrl(itemId, subtitleStreamIndex, mediaSourceId) ?: return@withContext null
+            val slowClient =
+                httpClient.newBuilder().readTimeout(
+                    SUBTITLE_EXTRACT_TIMEOUT_MINUTES,
+                    TimeUnit.MINUTES,
+                ).callTimeout(0, TimeUnit.MILLISECONDS).build()
+            runCatching {
+                slowClient.newCall(Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build()).execute().use {
+                        r ->
+                    if (r.isSuccessful) r.body?.bytes()?.takeIf { it.isNotEmpty() } else null
                 }
             }.getOrNull()
         }
@@ -1048,6 +1080,9 @@ class JellyfinClient(
         const val AUTHORIZATION_HEADER = "Authorization"
 
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /** See [fetchSubtitleVtt]. */
+        private const val SUBTITLE_EXTRACT_TIMEOUT_MINUTES = 4L
 
         /** Connection setup allowed on top of the probe's own time budget. */
         private const val PROBE_CONNECT_ALLOWANCE_MS = 5_000L

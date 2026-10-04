@@ -43,10 +43,16 @@ class PlaybackEngine(
         forceTranscode: Boolean = false,
         audioStreamIndex: Int? = null,
         subtitleStreamIndex: Int = SubtitleDecisions.NO_SERVER_SUBTITLE,
+        mediaSourceId: String = itemId,
     ): PlaybackSource {
         val streamingBitrate = maxBitrate ?: autoCap()
-        val first =
-            post(itemId, streamingBitrate, maxWidth, resumeTicks, forceDirectPlay, forceTranscode, audioStreamIndex, subtitleStreamIndex)
+
+        suspend fun post(width: Int?) =
+            post(
+                itemId, mediaSourceId, streamingBitrate, width, resumeTicks,
+                forceDirectPlay, forceTranscode, audioStreamIndex, subtitleStreamIndex,
+            )
+        val first = post(maxWidth)
         // Auto's first request carries no width: Jellyfin applies a Width
         // condition to direct play too, and would push a 4K source that fits
         // under the cap down to 1080p. When the answer is a video re-encode,
@@ -60,19 +66,10 @@ class PlaybackEngine(
                     AutoBitrate.reencodeWidth(
                         streamingBitrate,
                         first.second.mediaStreams?.firstOrNull { it.type == "Video" }?.width,
-                        first.second.transcodeReasons.takeIf { !first.second.transcodingUrl.isNullOrEmpty() },
+                        TranscodeReasons.of(first.second),
                     )
                 if (reencodeWidth != null) {
-                    post(
-                        itemId,
-                        streamingBitrate,
-                        reencodeWidth,
-                        resumeTicks,
-                        forceDirectPlay,
-                        forceTranscode,
-                        audioStreamIndex,
-                        subtitleStreamIndex,
-                    )
+                    post(reencodeWidth)
                 } else {
                     first
                 }
@@ -84,6 +81,7 @@ class PlaybackEngine(
 
     private suspend fun post(
         itemId: String,
+        mediaSourceId: String,
         bitrate: Int,
         maxWidth: Int?,
         resumeTicks: Long,
@@ -102,6 +100,7 @@ class PlaybackEngine(
                 subtitleStreamIndex = subtitleStreamIndex,
                 forceDirectPlay = forceDirectPlay,
                 forceTranscode = forceTranscode,
+                mediaSourceId = mediaSourceId,
             )
         val source = response.mediaSources?.firstOrNull() ?: throw PlaybackError.NoMediaSource
         return response to source
@@ -179,7 +178,7 @@ class PlaybackEngine(
             streamInfo = streamInfo(method, source, url),
             audioTracks = audioTracks(source),
             subtitleTracks = subtitleTracks(source),
-            transcodeReasons = source.transcodeReasons.orEmpty().map(::humanTranscodeReason),
+            transcodeReasons = TranscodeReasons.of(source).orEmpty().map(::humanTranscodeReason),
             deliveredBitrate = deliveredBitrate(method, source, url)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
             negotiatedCap = negotiatedCap,
         )
@@ -197,6 +196,13 @@ class PlaybackEngine(
         subtitleStreamIndex: Int,
         mediaSourceId: String? = null,
     ): String? = client.subtitleStreamUrl(itemId, subtitleStreamIndex, mediaSourceId)
+
+    /** See [JellyfinClient.fetchSubtitleVtt]. */
+    suspend fun fetchSubtitleVtt(
+        itemId: String,
+        subtitleStreamIndex: Int,
+        mediaSourceId: String?,
+    ): ByteArray? = client.fetchSubtitleVtt(itemId, subtitleStreamIndex, mediaSourceId)
 
     suspend fun stopTranscode(playSessionId: String) {
         runCatching { client.stopActiveEncoding(playSessionId) }

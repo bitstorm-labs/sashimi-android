@@ -127,7 +127,10 @@ object VideoRanges {
                 add(HDR10)
                 add(DOVI_WITH_HDR10)
             }
-            if (hdr10Plus) {
+            // HDR10+ is HDR10 plus optional dynamic metadata; a player that
+            // ignores the metadata shows the HDR10 base (Jellyfin itself
+            // treats HDR10Plus as satisfying an HDR10 condition).
+            if (hdr10 || hdr10Plus) {
                 add(HDR10_PLUS)
                 add(DOVI_WITH_HDR10_PLUS)
             }

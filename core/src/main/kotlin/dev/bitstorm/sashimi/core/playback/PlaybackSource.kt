@@ -162,6 +162,22 @@ object SourceSelector {
 }
 
 /**
+ * Why the server is transcoding. Current Jellyfin servers (verified on 12.1)
+ * do not fill `MediaSource.TranscodeReasons` in the PlaybackInfo response;
+ * the reasons ride only in the TranscodingUrl's `TranscodeReasons` query
+ * parameter. Reading only the field left the OSD chip's reasons and Auto's
+ * re-encode width pass with nothing to go on.
+ */
+object TranscodeReasons {
+    fun of(source: MediaSourceInfo): List<String>? {
+        source.transcodeReasons?.takeIf { it.isNotEmpty() }?.let { return it }
+        val url = source.transcodingUrl ?: return null
+        val raw = Regex("[?&]TranscodeReasons=([^&]*)").find(url)?.groupValues?.get(1) ?: return null
+        return java.net.URLDecoder.decode(raw, "UTF-8").split(',').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { null }
+    }
+}
+
+/**
  * Pins an HDR transcode to its single variant playlist.
  *
  * When Jellyfin stream-copies an HDR video into HLS, its master playlist
@@ -176,6 +192,12 @@ object SourceSelector {
  *
  * Applied only to HDR sources, where the extra variants exist; an SDR
  * transcode's master has one variant and is left alone.
+ *
+ * Defensive today: Android's transcoding profile is h264-only, so an HDR
+ * (HEVC/AV1) source is always re-encoded rather than stream-copied, and the
+ * server adds no fallback variants (verified: a 4K DV/HDR10+ source's master
+ * had one variant). It matters the moment the transcoding codecs widen to
+ * allow an HEVC copy, which is when the Apple TV hit the stall loop.
  */
 object HlsVariantPin {
     private val HDR_RANGES = setOf("HDR", "HDR10", "HDR10PLUS", "HLG", "DOVI")

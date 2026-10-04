@@ -97,6 +97,15 @@ data class PlaybackInfoRequest(
     @SerialName("UserId") val userId: String,
     @SerialName("MaxStreamingBitrate") val maxStreamingBitrate: Int,
     @SerialName("StartTimeTicks") val startTimeTicks: Long? = null,
+    /**
+     * Required for [audioStreamIndex] and [subtitleStreamIndex] to mean
+     * anything: Jellyfin's MediaInfoHelper copies both into the stream
+     * options only when the request names the media source it is
+     * negotiating. Without it the server silently used its defaults: the
+     * audio track picked on a transcode was ignored, and SubtitleStreamIndex
+     * (-1 or a burn-in) did nothing.
+     */
+    @SerialName("MediaSourceId") val mediaSourceId: String? = null,
     @SerialName("AudioStreamIndex") val audioStreamIndex: Int? = null,
     @SerialName("SubtitleStreamIndex") val subtitleStreamIndex: Int? = null,
     @SerialName("DeviceProfile") val deviceProfile: DeviceProfile,
@@ -161,6 +170,21 @@ class DeviceProfileBuilder(
                     )
                 }
                 video.forEach { (codec, support) -> add(capabilityProfile(codec, support)) }
+                // Jellyfin sizes transcode audio from the TOTAL cap and
+                // channel count, not the tier: a 720 kbps request was given
+                // 384 kbps AAC and 336 kbps video (verified on the server).
+                // Capping AAC on the low tiers hands the bits back to the
+                // picture. Only on the low tiers, because this condition also
+                // gates direct play of an AAC source above it.
+                lowTierAudioBitrate(maxStreamingBitrate)?.let { audioCap ->
+                    add(
+                        CodecProfile(
+                            type = "VideoAudio",
+                            codec = "aac",
+                            conditions = listOf(ProfileCondition("LessThanEqual", "AudioBitrate", audioCap.toString())),
+                        ),
+                    )
+                }
             }
 
         return DeviceProfile(
@@ -236,6 +260,14 @@ class DeviceProfileBuilder(
     companion object {
         /** At or below this cap the transcode is downmixed to stereo. */
         const val STEREO_AT_OR_BELOW = 4_000_000
+
+        /** The AAC bitrate ceiling for a low tier, or null above them (Jellyfin's own choice stands). */
+        fun lowTierAudioBitrate(maxStreamingBitrate: Int): Int? =
+            when {
+                maxStreamingBitrate <= 1_000_000 -> 96_000
+                maxStreamingBitrate <= STEREO_AT_OR_BELOW -> 128_000
+                else -> null
+            }
 
         /** Everything but AAC, in the order listed on the wire. */
         private val GATED_AUDIO = listOf("mp3", "ac3", "eac3", "opus", "flac", "vorbis", "dts", "truehd")

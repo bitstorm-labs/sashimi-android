@@ -635,6 +635,54 @@ class PlayerViewModel(
     private fun desiredSubtitleTrack(): SubtitleTrack? =
         _state.value.subtitleTracks.firstOrNull { !it.isOff && it.index == desiredSubtitleIndex }
 
+    private fun embeddedSubtitleFile(
+        itemId: String,
+        index: Int,
+    ): java.io.File? =
+        java.io.File(getApplication<Application>().cacheDir, "subtitles/$itemId-$index.vtt").takeIf { it.isFile && it.length() > 0 }
+
+    private var subtitleFetchJob: Job? = null
+    private var subtitleFetchIndex: Int? = null
+
+    /**
+     * Fetches an embedded text track as VTT into the cache, then rebuilds the
+     * media item at the same position with it side-loaded from the file.
+     *
+     * The server extracts an embedded track by reading the whole media file the
+     * first time it is asked (68 s for one 1080p MKV, measured), far beyond the
+     * player's 8 s HTTP read timeout, so it cannot be side-loaded by URL.
+     */
+    private fun fetchEmbeddedSubtitle(
+        item: BaseItemDto,
+        source: PlaybackSource,
+        index: Int,
+    ) {
+        if (subtitleFetchJob?.isActive == true && subtitleFetchIndex == index) return
+        subtitleFetchJob?.cancel()
+        subtitleFetchIndex = index
+        showNotice("Loading subtitles…")
+        subtitleFetchJob =
+            viewModelScope.launch {
+                val bytes = engine.fetchSubtitleVtt(item.id, index, source.mediaSourceId)
+                val target = java.io.File(getApplication<Application>().cacheDir, "subtitles/${item.id}-$index.vtt")
+                val saved =
+                    bytes != null &&
+                        runCatching {
+                            target.parentFile?.mkdirs()
+                            target.writeBytes(bytes)
+                        }.isSuccess
+                // Still the same stream and still the wanted track: reload with it.
+                if (saved && currentSource === source && desiredSubtitleIndex == index) {
+                    val position = player.currentPosition
+                    player.setMediaItem(buildMediaItem(item, source), position)
+                    player.prepare()
+                    applyTrackSelections()
+                } else if (!saved) {
+                    showNotice("Couldn't load these subtitles.")
+                }
+            }
+    }
+
     /** A direct play hands the player the original container, embedded tracks and all. */
     private val PlaybackSource.carriesEmbeddedSubtitles: Boolean
         get() = playMethod == PlayMethod.DIRECT_PLAY
@@ -652,8 +700,19 @@ class PlayerViewModel(
         val subConfigs =
             SubtitleDecisions.sideLoaded(source.subtitleTracks, desiredSubtitleIndex, source.carriesEmbeddedSubtitles)
                 .mapNotNull { track ->
-                    val url = engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null
-                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(url))
+                    val uri =
+                        if (track.delivery == SubtitleDelivery.EMBEDDED_TEXT) {
+                            // Only from a local copy; see fetchEmbeddedSubtitle.
+                            embeddedSubtitleFile(item.id, track.index)?.let(android.net.Uri::fromFile) ?: run {
+                                fetchEmbeddedSubtitle(item, source, track.index)
+                                return@mapNotNull null
+                            }
+                        } else {
+                            android.net.Uri.parse(
+                                engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null,
+                            )
+                        }
+                    MediaItem.SubtitleConfiguration.Builder(uri)
                         .setMimeType(MimeTypes.TEXT_VTT)
                         .setLanguage(track.languageCode)
                         .setId(subtitleTrackId(track.index))
@@ -1017,10 +1076,15 @@ class PlayerViewModel(
                 // the server's VTT extraction. Same stream URL, so the server
                 // transcode carries on; only the player's sources change.
                 if (source != null && item != null) {
-                    val position = player.currentPosition
-                    player.setMediaItem(buildMediaItem(item, source), position)
-                    player.prepare()
-                    applyTrackSelections()
+                    if (embeddedSubtitleFile(item.id, index) != null) {
+                        val position = player.currentPosition
+                        player.setMediaItem(buildMediaItem(item, source), position)
+                        player.prepare()
+                        applyTrackSelections()
+                    } else {
+                        // Reloads by itself once the track has been fetched.
+                        fetchEmbeddedSubtitle(item, source, index)
+                    }
                 }
             }
             SubtitleChange.RENEGOTIATE -> {

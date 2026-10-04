@@ -58,7 +58,11 @@ class CapabilityProfileTest {
         val hevc = build(video = mapOf(CodecCapabilities.MimeTypes.HEVC to uhd10BitHdr)).forCodec("hevc")
         assertEquals("10", hevc.getValue("VideoBitDepth").value)
         val ranges = hevc.getValue("VideoRangeType").value.split("|").toSet()
-        assertEquals(setOf("SDR", "HDR10", "HLG", "DOVIWithSDR", "DOVIWithHDR10", "DOVIWithHLG"), ranges)
+        // HDR10+ plays as its HDR10 base.
+        assertEquals(
+            setOf("SDR", "HDR10", "HDR10Plus", "HLG", "DOVIWithSDR", "DOVIWithHDR10", "DOVIWithHDR10Plus", "DOVIWithHLG"),
+            ranges,
+        )
         assertEquals("EqualsAny", hevc.getValue("VideoRangeType").condition)
     }
 
@@ -87,6 +91,20 @@ class CapabilityProfileTest {
         assertEquals("2", build(bitrate = 4_000_000).transcodingProfiles.single().maxAudioChannels)
         assertEquals("2", build(bitrate = 720_000).transcodingProfiles.single().maxAudioChannels)
         assertEquals("6", build(bitrate = 8_000_000).transcodingProfiles.single().maxAudioChannels)
+    }
+
+    @Test
+    fun `low tiers cap the transcode's AAC bitrate, higher tiers leave it to the server`() {
+        fun audioCap(bitrate: Int) =
+            build(bitrate = bitrate).codecProfiles.singleOrNull { it.type == "VideoAudio" }?.let { p ->
+                assertEquals("aac", p.codec)
+                p.conditions.single { it.property == "AudioBitrate" && it.condition == "LessThanEqual" }.value
+            }
+        assertEquals("96000", audioCap(720_000))
+        assertEquals("96000", audioCap(1_000_000))
+        assertEquals("128000", audioCap(2_000_000))
+        assertEquals("128000", audioCap(4_000_000))
+        assertNull(audioCap(8_000_000))
     }
 
     @Test
