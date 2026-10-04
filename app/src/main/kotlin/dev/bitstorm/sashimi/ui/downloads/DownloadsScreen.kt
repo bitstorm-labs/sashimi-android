@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.ui.downloads
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,8 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 fun DownloadsScreen(modifier: Modifier = Modifier) {
     val manager = ServiceLocator.downloadManager
     val downloads by manager.downloads.collectAsStateWithLifecycle()
+    val needingRedownload by manager.needingRedownload.collectAsStateWithLifecycle()
+    val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
 
     var showDeleteAll by remember { mutableStateOf(false) }
     val available = remember(downloads.size) { manager.availableDiskSpace() }
@@ -108,8 +111,19 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
 
             if (completed.isNotEmpty()) {
                 item { SectionHeader("Completed") }
+                if (needingRedownload.isNotEmpty()) {
+                    item { RedownloadNotice(needingRedownload.size, online, onRedownloadAll = { manager.redownloadAll() }) }
+                }
                 items(completed, key = { it.listKey }) { row ->
-                    CompletedRow(row, onDelete = { manager.delete(row.key) })
+                    CompletedRow(
+                        row,
+                        // Offline the row keeps its badge but not the action: a
+                        // re-download un-completes the row, and the file could
+                        // not be fetched again until the network returns.
+                        onRedownload = if (row.key in needingRedownload && online) ({ manager.redownload(row.key) }) else null,
+                        lowQuality = row.key in needingRedownload,
+                        onDelete = { manager.delete(row.key) },
+                    )
                 }
             }
 
@@ -259,14 +273,56 @@ private fun ActiveRow(
     )
 }
 
+/**
+ * Shown above the completed list while any download predates the fix to the
+ * transcoded tiers (see DownloadPolicy.needsRedownload).
+ */
+@Composable
+private fun RedownloadNotice(
+    count: Int,
+    online: Boolean,
+    onRedownloadAll: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SashimiCard).padding(start = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (count == 1) {
+                "1 download was saved at very low quality by an earlier version."
+            } else {
+                "$count downloads were saved at very low quality by an earlier version."
+            },
+            color = SashimiTextSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+        )
+        TextButton(onClick = onRedownloadAll, enabled = online) {
+            Text("Re-download All", color = if (online) SashimiAccent else SashimiTextTertiary)
+        }
+    }
+}
+
 @Composable
 private fun CompletedRow(
     row: DownloadedItemEntity,
+    lowQuality: Boolean,
+    onRedownload: (() -> Unit)?,
     onDelete: () -> Unit,
 ) {
     RowScaffold(
         row = row,
-        subtitle = { Text(formatBytes(row.totalBytes), color = SashimiTextTertiary, fontSize = 12.sp) },
+        subtitle = {
+            Text(formatBytes(row.totalBytes), color = SashimiTextTertiary, fontSize = 12.sp)
+            if (lowQuality) {
+                Text(
+                    if (onRedownload != null) "Low quality file · Re-download" else "Low quality file",
+                    color = SashimiAccent,
+                    fontSize = 12.sp,
+                    modifier = if (onRedownload != null) Modifier.clickable(onClick = onRedownload) else Modifier,
+                )
+            }
+        },
         trailing = {
             IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = SashimiTextSecondary) }
         },

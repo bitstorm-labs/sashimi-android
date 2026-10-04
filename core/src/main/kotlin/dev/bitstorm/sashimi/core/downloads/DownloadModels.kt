@@ -21,24 +21,38 @@ data class DownloadedSubtitle(
 )
 
 /**
- * Download quality tiers, ported 1:1 from the Swift `DownloadQuality`
- * (Downloads/Models/DownloadModels.swift). The resolution strings ("1080p" …)
- * are cosmetic — the server is only ever given a bitrate ceiling. Only
- * [ORIGINAL] downloads the raw file; the transcoded tiers hit
- * /Videos/{id}/stream.mp4 with h264/aac/mp4 at the tier's [maxBitrate].
+ * Download quality tiers, ported from the Swift `DownloadQuality`
+ * (Downloads/Models/DownloadModels.swift). Only [ORIGINAL] downloads the raw
+ * file; the transcoded tiers hit /Videos/{id}/stream.mp4 for an h264/aac mp4
+ * described by the tier's [encode].
  */
 enum class DownloadQuality(
     val wireName: String,
     val displayName: String,
     val subtitle: String,
-    /** bits/sec cap; null for [ORIGINAL] (raw file download). */
-    val maxBitrate: Int?,
+    /** What the server is asked to encode; null for [ORIGINAL] (raw file download). */
+    val encode: TranscodeTarget?,
 ) {
     ORIGINAL("original", "Original", "Largest file size", null),
-    HIGH("high", "High (1080p)", "Up to 20 Mbps", 20_000_000),
-    MEDIUM("medium", "Medium (720p)", "Up to 8 Mbps", 8_000_000),
-    LOW("low", "Low (480p)", "Up to 4 Mbps", 4_000_000),
+    HIGH("high", "High (1080p)", "Up to 20 Mbps", TranscodeTarget(20_000_000, 384_000, 6, 1920, 1080)),
+    MEDIUM("medium", "Medium (720p)", "Up to 8 Mbps", TranscodeTarget(8_000_000, 192_000, 2, 1280, 720)),
+    LOW("low", "Low (480p)", "Up to 4 Mbps", TranscodeTarget(4_000_000, 128_000, 2, 854, 480)),
     ;
+
+    /**
+     * One transcoded tier, in the terms the progressive stream endpoint reads.
+     * [totalBitrate] is the figure the tier is labelled with; the video encode
+     * gets what is left after audio, so the file as a whole stays at the label.
+     */
+    data class TranscodeTarget(
+        val totalBitrate: Int,
+        val audioBitrate: Int,
+        val audioChannels: Int,
+        val maxWidth: Int,
+        val maxHeight: Int,
+    ) {
+        val videoBitrate: Int get() = totalBitrate - audioBitrate
+    }
 
     companion object {
         /** Unknown raw values decode to [HIGH], matching the Swift getter fallback. */

@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -59,6 +60,8 @@ class DownloadManager(
      */
     private val authenticated: StateFlow<Boolean>,
     private val scope: CoroutineScope,
+    /** Which transcoded downloads the fixed tier URL produced; see [TierEncodeLedger]. */
+    private val tierEncodes: TierEncodeLedger,
 ) {
     private val appContext = context.applicationContext
     private val workManager = WorkManager.getInstance(appContext)
@@ -74,6 +77,15 @@ class DownloadManager(
     /** Reactive snapshot of every download row for the UI. */
     val downloads: StateFlow<List<DownloadedItemEntity>> =
         repository.downloads.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Completed High / Medium / Low downloads made before the tier URL sent a
+     * real video bitrate: bad files the UI offers to re-download.
+     */
+    val needingRedownload: StateFlow<Set<DownloadKey>> =
+        combine(repository.downloads, tierEncodes.keys) { rows, fixed ->
+            rows.filter { DownloadPolicy.needsRedownload(it, fixed) }.map { it.key }.toSet()
+        }.stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     init {
         current = this
@@ -164,6 +176,7 @@ class DownloadManager(
             workManager.cancelUniqueWork(DownloadWorker.uniqueName(key))
             fileManager.deleteItemDirectory(key)
             repository.delete(key)
+            tierEncodes.unmark(key)
             // A download whose schema-3 directory could not be moved still owns
             // it; drop it too, unless another server's row has the same item id.
             if (repository.all().none { it.itemId == key.itemId }) fileManager.deleteLegacyItemDirectory(key.itemId)
@@ -190,6 +203,22 @@ class DownloadManager(
         }
     }
 
+    /**
+     * Fetches a pre-fix transcoded download again at the same quality. The old
+     * file stays on disk until the new one replaces it in [finalize], but the
+     * row is no longer COMPLETED, so it is not playable in the meantime.
+     */
+    fun redownload(key: DownloadKey) {
+        scope.launch {
+            val row = repository.get(key) ?: return@launch
+            if (DownloadPolicy.needsRedownload(row, tierEncodes.keys.value)) retry(key)
+        }
+    }
+
+    fun redownloadAll() {
+        needingRedownload.value.forEach(::redownload)
+    }
+
     fun retryAllFailed() {
         scope.launch {
             repository.all().filter { it.downloadStatus == DownloadStatus.FAILED }.forEach { retry(it.key) }
@@ -201,6 +230,7 @@ class DownloadManager(
             workManager.cancelAllWorkByTag(DownloadWorker.TAG)
             fileManager.deleteAll()
             repository.deleteAll()
+            tierEncodes.clear()
         }
     }
 
@@ -385,7 +415,11 @@ class DownloadManager(
                         }
                     }
 
-                    finalize(key, partial, quality, client)
+                    // Recorded only when every byte came from this request. A
+                    // resumed transcode (not something Jellyfin does, but not
+                    // ours to assume) could begin with bytes the old URL made.
+                    if (quality != DownloadQuality.ORIGINAL && !append) tierEncodes.mark(key)
+                    finalize(key, partial, client)
                     onWorkFinished()
                     androidx.work.ListenableWorker.Result.success()
                 }
@@ -402,11 +436,11 @@ class DownloadManager(
     private suspend fun finalize(
         key: DownloadKey,
         partial: File,
-        quality: DownloadQuality,
         client: JellyfinClient,
     ) {
-        val ext = if (quality == DownloadQuality.ORIGINAL) "mkv" else "mp4"
-        val videoName = "video.$ext"
+        // Always mp4: the tiers transcode to it, and Original is only admitted
+        // for mp4/m4v/mov sources (DeviceMediaCompatibility), never mkv.
+        val videoName = "video.mp4"
         val target = fileManager.videoFile(key, videoName)
         target.delete()
         partial.renameTo(target)

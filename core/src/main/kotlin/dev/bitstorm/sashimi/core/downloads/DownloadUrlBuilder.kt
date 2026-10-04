@@ -15,9 +15,9 @@ data class DownloadRequestSpec(
  * quality→param mapping is unit-testable without a client.
  *
  * - [DownloadQuality.ORIGINAL] → `/Items/{id}/Download` (raw file, no params).
- * - transcoded tiers → `/Videos/{id}/stream.mp4` with the tier's bitrate ceiling
- *   and a fixed h264/aac/mp4 target (exactly the Swift query set; there is no
- *   `Static`, `VideoBitrate`, or resolution param).
+ * - transcoded tiers → `/Videos/{id}/stream.mp4` with a fixed h264/aac/mp4
+ *   target and the tier's video bitrate, audio bitrate, frame size and channel
+ *   count (see [DownloadQuality.TranscodeTarget]).
  *
  * The access token is NOT in the URL — it rides in an `X-Emby-Token` header on
  * the request (see [DownloadWorker]), matching the Swift `authorizedRequest`.
@@ -45,11 +45,11 @@ object DownloadUrlBuilder {
         deviceId: String,
         quality: DownloadQuality,
     ): String? {
-        val bitrate = quality.maxBitrate
-        return if (bitrate == null) {
+        val encode = quality.encode
+        return if (encode == null) {
             originalUrl(serverUrl, itemId)
         } else {
-            transcodedUrl(serverUrl, itemId, deviceId, bitrate)
+            transcodedUrl(serverUrl, itemId, deviceId, encode)
         }
     }
 
@@ -82,20 +82,36 @@ object DownloadUrlBuilder {
             .toString()
     }
 
+    /**
+     * Every encoder input is spelled out with the progressive endpoint's own
+     * parameter names (Jellyfin `VideosController.GetVideoStream`):
+     * VideoBitRate/AudioBitRate set the encode, MaxWidth/MaxHeight the frame,
+     * AudioChannels/MaxAudioChannels the downmix.
+     *
+     * `MaxStreamingBitrate` is NOT one of them. It belongs to PlaybackInfo
+     * negotiation; this endpoint ignores it. Sending only that left the server
+     * with no video bitrate, so it either encoded at about 1 kbps (h264_qsv with
+     * `-b:v 0`) or stream-copied the full-size video, whatever tier was picked.
+     */
     private fun transcodedUrl(
         serverUrl: String,
         itemId: String,
         deviceId: String,
-        maxBitrate: Int,
+        encode: DownloadQuality.TranscodeTarget,
     ): String? {
         val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
         return base.newBuilder()
             .addPathSegments("Videos/$itemId/stream.mp4")
             .addQueryParameter("MediaSourceId", itemId)
-            .addQueryParameter("MaxStreamingBitrate", maxBitrate.toString())
             .addQueryParameter("VideoCodec", "h264")
             .addQueryParameter("AudioCodec", "aac")
             .addQueryParameter("Container", "mp4")
+            .addQueryParameter("VideoBitRate", encode.videoBitrate.toString())
+            .addQueryParameter("AudioBitRate", encode.audioBitrate.toString())
+            .addQueryParameter("MaxWidth", encode.maxWidth.toString())
+            .addQueryParameter("MaxHeight", encode.maxHeight.toString())
+            .addQueryParameter("AudioChannels", encode.audioChannels.toString())
+            .addQueryParameter("MaxAudioChannels", encode.audioChannels.toString())
             .addQueryParameter("DeviceId", deviceId)
             .build()
             .toString()
