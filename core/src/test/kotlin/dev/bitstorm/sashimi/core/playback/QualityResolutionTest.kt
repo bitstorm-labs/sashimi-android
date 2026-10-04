@@ -28,25 +28,28 @@ class QualityResolutionTest {
         QualityOption.entries.filter { it != QualityOption.AUTO }.forEach { option ->
             val declared = option.label.removeSuffix("p").toInt()
             val expectedWidth =
-                if (declared == 1080) {
-                    1920
-                } else if (declared == 720) {
-                    1280
-                } else {
-                    854
+                when (declared) {
+                    1080 -> 1920
+                    720 -> 1280
+                    480 -> 854
+                    else -> 640
                 }
             assertEquals("${option.label} must request width $expectedWidth", expectedWidth, option.maxWidth)
         }
     }
 
+    // Every codec now also carries its own capability profile (Codec set);
+    // the tier cap is the one profile that applies to all codecs.
+    private fun tierProfiles(maxWidth: Int?) = profile(maxWidth).codecProfiles.filter { it.codec == null }
+
     @Test
-    fun `auto sends no codec profile at all`() {
-        assertTrue(profile(null).codecProfiles.isEmpty())
+    fun `auto sends no tier width profile`() {
+        assertTrue(tierProfiles(null).isEmpty())
     }
 
     @Test
     fun `a capped tier sends one video width condition`() {
-        val profiles = profile(1280).codecProfiles
+        val profiles = tierProfiles(1280)
         assertEquals(1, profiles.size)
         assertEquals("Video", profiles[0].type)
         assertEquals(1, profiles[0].conditions.size)

@@ -165,17 +165,15 @@ class AppSettings(context: Context) {
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which
-         * means Auto and still applies PlaybackEngine's conservative 20 Mbps
-         * default -- that default is why a 4K remux on a gigabit LAN was
-         * transcoded needlessly, and until a bandwidth probe exists there needs
-         * to be a way to say "don't guess".
+         * means Auto: a measured cap, or a conservative 4 Mbps for a remote
+         * server whose link has not been measured yet. Unlimited never guesses.
          */
         const val UNLIMITED_BITRATE = -1
 
         /** Max Bitrate menu options in bits/sec. */
         val MAX_BITRATE_OPTIONS =
             linkedMapOf(
-                "Auto (up to 20 Mbps)" to 0,
+                "Auto (measures your connection)" to 0,
                 "Unlimited" to UNLIMITED_BITRATE,
                 "40 Mbps" to 40_000_000,
                 "20 Mbps" to 20_000_000,
@@ -183,6 +181,8 @@ class AppSettings(context: Context) {
                 "8 Mbps" to 8_000_000,
                 "4 Mbps" to 4_000_000,
                 "2 Mbps" to 2_000_000,
+                "1 Mbps" to 1_000_000,
+                "720 kbps" to 720_000,
             )
     }
 }

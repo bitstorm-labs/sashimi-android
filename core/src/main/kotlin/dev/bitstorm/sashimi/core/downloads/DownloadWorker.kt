@@ -42,6 +42,7 @@ class DownloadWorker(
         return manager.performDownload(
             key = key,
             isStopped = { isStopped },
+            attempt = runAttemptCount,
             onProgress = { title, percent ->
                 runCatching { setForeground(foregroundInfo(notificationId, title, percent)) }
             },

@@ -42,6 +42,8 @@ data class DeviceProfile(
 data class CodecProfile(
     @SerialName("Type") val type: String = "Video",
     @SerialName("Conditions") val conditions: List<ProfileCondition>,
+    /** The codec the conditions apply to; null applies them to every video codec. */
+    @SerialName("Codec") val codec: String? = null,
 )
 
 @Serializable
@@ -95,6 +97,15 @@ data class PlaybackInfoRequest(
     @SerialName("UserId") val userId: String,
     @SerialName("MaxStreamingBitrate") val maxStreamingBitrate: Int,
     @SerialName("StartTimeTicks") val startTimeTicks: Long? = null,
+    /**
+     * Required for [audioStreamIndex] and [subtitleStreamIndex] to mean
+     * anything: Jellyfin's MediaInfoHelper copies both into the stream
+     * options only when the request names the media source it is
+     * negotiating. Without it the server silently used its defaults: the
+     * audio track picked on a transcode was ignored, and SubtitleStreamIndex
+     * (-1 or a burn-in) did nothing.
+     */
+    @SerialName("MediaSourceId") val mediaSourceId: String? = null,
     @SerialName("AudioStreamIndex") val audioStreamIndex: Int? = null,
     @SerialName("SubtitleStreamIndex") val subtitleStreamIndex: Int? = null,
     @SerialName("DeviceProfile") val deviceProfile: DeviceProfile,
@@ -107,9 +118,21 @@ data class PlaybackInfoRequest(
 )
 
 /**
- * Builds the Android DeviceProfile with runtime codec detection. h264 direct
- * play is always offered; hevc/vp9/av1 only when the device reports a decoder.
- * The HLS transcode fallback targets h264 + aac (universally decodable).
+ * Builds the Android DeviceProfile from what this device can actually decode.
+ *
+ * - Video: h264 always; hevc/vp9/av1 when a decoder exists. Each codec carries
+ *   a CodecProfile with what its decoders really support (max frame size, 8 or
+ *   10 bit, the HDR/DV range types the decoder AND display can show), so a
+ *   source beyond that is transcoded instead of failing at the decoder.
+ * - Audio: only codecs with a decoder. ExoPlayer has no software AC-3, E-AC-3,
+ *   DTS or TrueHD decoder, so advertising them statically made a device without
+ *   one direct-play audio it could not decode.
+ * - Transcode: HLS h264 + aac, which every device decodes. Audio is not copied
+ *   into the transcode even when the device could decode it: a copied 640 kbps
+ *   AC-3 track is most of a low tier's budget.
+ * - Subtitles: text formats External (the app side-loads them as VTT); image
+ *   formats Encode, which the server applies only to the index the app sends
+ *   (PlaybackEngine always sends one, -1 for none).
  */
 class DeviceProfileBuilder(
     private val codecs: CodecCapabilities,
@@ -123,44 +146,54 @@ class DeviceProfileBuilder(
         maxStreamingBitrate: Int,
         maxWidth: Int? = null,
     ): DeviceProfile {
-        val videoCodecs =
-            buildList {
-                add("h264")
-                if (codecs.canDecode(CodecCapabilities.MimeTypes.HEVC)) add("hevc")
-                if (codecs.canDecode(CodecCapabilities.MimeTypes.VP9)) add("vp9")
-                if (codecs.canDecode(CodecCapabilities.MimeTypes.AV1)) add("av1")
-            }.joinToString(",")
+        val video = videoCodecs()
+        val videoCodecs = video.keys.joinToString(",")
+        val audio = directAudioCodecs()
 
-        // Height is deliberately left unconstrained: pinning both would letterbox
-        // or refuse non-16:9 sources. Jellyfin scales to the width and preserves
-        // aspect ratio.
         val codecProfiles =
-            maxWidth?.let {
-                listOf(
-                    CodecProfile(
-                        conditions =
-                            listOf(
-                                ProfileCondition(
+            buildList {
+                // Height is deliberately left unconstrained on the tier cap:
+                // pinning both would letterbox or refuse non-16:9 sources.
+                // Jellyfin scales to the width and preserves aspect ratio.
+                maxWidth?.let {
+                    add(
+                        CodecProfile(
+                            conditions =
+                                listOf(
                                     // Jellyfin's ProfileConditionType spells it
                                     // LessThanEqual. "LessThanOrEqual" is not a
                                     // member: the server's enum converter throws
                                     // and the whole PlaybackInfo POST returns 400.
-                                    condition = "LessThanEqual",
-                                    property = "Width",
-                                    value = it.toString(),
+                                    ProfileCondition(condition = "LessThanEqual", property = "Width", value = it.toString()),
                                 ),
-                            ),
-                    ),
-                )
-            }.orEmpty()
+                        ),
+                    )
+                }
+                video.forEach { (codec, support) -> add(capabilityProfile(codec, support)) }
+                // Jellyfin sizes transcode audio from the TOTAL cap and
+                // channel count, not the tier: a 720 kbps request was given
+                // 384 kbps AAC and 336 kbps video (verified on the server).
+                // Capping AAC on the low tiers hands the bits back to the
+                // picture. Only on the low tiers, because this condition also
+                // gates direct play of an AAC source above it.
+                lowTierAudioBitrate(maxStreamingBitrate)?.let { audioCap ->
+                    add(
+                        CodecProfile(
+                            type = "VideoAudio",
+                            codec = "aac",
+                            conditions = listOf(ProfileCondition("LessThanEqual", "AudioBitrate", audioCap.toString())),
+                        ),
+                    )
+                }
+            }
 
         return DeviceProfile(
             maxStreamingBitrate = maxStreamingBitrate,
             codecProfiles = codecProfiles,
             directPlayProfiles =
                 listOf(
-                    DirectPlayProfile(container = "mp4,m4v,mov", videoCodec = videoCodecs, audioCodec = DIRECT_AUDIO),
-                    DirectPlayProfile(container = "mkv,webm", videoCodec = videoCodecs, audioCodec = DIRECT_AUDIO),
+                    DirectPlayProfile(container = "mp4,m4v,mov", videoCodec = videoCodecs, audioCodec = audio.joinToString(",")),
+                    DirectPlayProfile(container = "mkv,webm", videoCodec = videoCodecs, audioCodec = audio.joinToString(",")),
                 ),
             transcodingProfiles =
                 listOf(
@@ -169,18 +202,88 @@ class DeviceProfileBuilder(
                         videoCodec = "h264",
                         audioCodec = "aac",
                         protocol = "hls",
+                        // Stereo on the low tiers: a 5.1 AAC track costs
+                        // bandwidth a weak link does not have.
+                        maxAudioChannels = if (maxStreamingBitrate <= STEREO_AT_OR_BELOW) "2" else "6",
                     ),
                 ),
             subtitleProfiles =
-                listOf(
-                    SubtitleProfile(format = "vtt", method = "External"),
-                    SubtitleProfile(format = "srt", method = "External"),
-                ),
+                TEXT_SUBTITLE_FORMATS.map { SubtitleProfile(format = it, method = "External") } +
+                    IMAGE_SUBTITLE_FORMATS.map { SubtitleProfile(format = it, method = "Encode") },
         )
     }
 
+    /** The decodable video codecs, in preference order, with their limits. */
+    private fun videoCodecs(): LinkedHashMap<String, VideoDecodeSupport> =
+        linkedMapOf<String, VideoDecodeSupport>().apply {
+            put("h264", codecs.videoSupport(CodecCapabilities.MimeTypes.H264) ?: VideoDecodeSupport.BASELINE)
+            codecs.videoSupport(CodecCapabilities.MimeTypes.HEVC)?.let { put("hevc", it) }
+            codecs.videoSupport(CodecCapabilities.MimeTypes.VP9)?.let { put("vp9", it) }
+            codecs.videoSupport(CodecCapabilities.MimeTypes.AV1)?.let { put("av1", it) }
+        }
+
+    /**
+     * Audio codecs offered for direct play: AAC always (every Android device
+     * decodes it), the rest only with a decoder in MediaCodecList. The same
+     * check the Original download gate uses (DeviceMediaCompatibility).
+     */
+    fun directAudioCodecs(): List<String> =
+        buildList {
+            add("aac")
+            GATED_AUDIO.forEach { codec ->
+                val mime = CodecCapabilities.audioMimeFor(codec) ?: return@forEach
+                if (codecs.canDecode(mime)) add(codec)
+            }
+        }
+
+    private fun capabilityProfile(
+        codec: String,
+        support: VideoDecodeSupport,
+    ): CodecProfile =
+        CodecProfile(
+            codec = codec,
+            conditions =
+                buildList {
+                    support.maxWidth?.let { add(ProfileCondition("LessThanEqual", "Width", it.toString())) }
+                    support.maxHeight?.let { add(ProfileCondition("LessThanEqual", "Height", it.toString())) }
+                    add(ProfileCondition("LessThanEqual", "VideoBitDepth", if (support.tenBit) "10" else "8"))
+                    add(
+                        ProfileCondition(
+                            "EqualsAny",
+                            "VideoRangeType",
+                            support.rangeTypes.sortedBy { RANGE_ORDER.indexOf(it) }.joinToString("|"),
+                        ),
+                    )
+                },
+        )
+
     companion object {
-        private const val DIRECT_AUDIO = "aac,ac3,eac3,mp3,opus,flac"
+        /** At or below this cap the transcode is downmixed to stereo. */
+        const val STEREO_AT_OR_BELOW = 4_000_000
+
+        /** The AAC bitrate ceiling for a low tier, or null above them (Jellyfin's own choice stands). */
+        fun lowTierAudioBitrate(maxStreamingBitrate: Int): Int? =
+            when {
+                maxStreamingBitrate <= 1_000_000 -> 96_000
+                maxStreamingBitrate <= STEREO_AT_OR_BELOW -> 128_000
+                else -> null
+            }
+
+        /** Everything but AAC, in the order listed on the wire. */
+        private val GATED_AUDIO = listOf("mp3", "ac3", "eac3", "opus", "flac", "vorbis", "dts", "truehd")
+
+        /** Text formats the server converts to VTT for the app to side-load. */
+        val TEXT_SUBTITLE_FORMATS = listOf("vtt", "srt", "subrip", "ass", "ssa", "mov_text", "ttml")
+
+        /** Image formats: burned in, and only when the app asks for one by index. */
+        val IMAGE_SUBTITLE_FORMATS = listOf("pgssub", "dvdsub", "dvbsub")
+
+        private val RANGE_ORDER =
+            listOf(
+                VideoRanges.SDR, VideoRanges.HDR10, VideoRanges.HDR10_PLUS, VideoRanges.HLG,
+                VideoRanges.DOVI, VideoRanges.DOVI_WITH_SDR, VideoRanges.DOVI_WITH_HDR10, VideoRanges.DOVI_WITH_HDR10_PLUS,
+                VideoRanges.DOVI_WITH_HLG, VideoRanges.DOVI_WITH_EL, VideoRanges.DOVI_WITH_EL_HDR10_PLUS,
+            )
     }
 }
 
@@ -191,10 +294,9 @@ class DeviceProfileBuilder(
  * Quality pick (which sets forceTranscode) overrides the global Force Direct
  * Play setting so the bitrate cap visibly takes effect.
  *
- * Roku lesson (ported): on iOS a burned-in subtitle selection had to defeat
- * Force Direct Play. On Android subtitles are ALWAYS delivered as external VTT
- * side-loads, so a subtitle choice never forces a transcode — Force Direct Play
- * is only ever overridden by an explicit Quality pick, never by subtitles.
+ * Roku lesson (ported): a burned-in subtitle selection has to defeat Force
+ * Direct Play, so [forceTranscode] is also set when the user picks an image
+ * subtitle (the only kind Android burns in; text tracks are side-loaded VTT).
  */
 data class NegotiationFlags(
     val enableDirectPlay: Boolean,

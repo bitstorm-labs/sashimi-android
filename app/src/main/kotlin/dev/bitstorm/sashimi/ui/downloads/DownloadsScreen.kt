@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,8 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import dev.bitstorm.sashimi.core.downloads.ActiveDownloadText
 import dev.bitstorm.sashimi.core.downloads.DownloadStatus
 import dev.bitstorm.sashimi.core.downloads.DownloadedItemEntity
+import dev.bitstorm.sashimi.core.downloads.LiveTransfer
 import dev.bitstorm.sashimi.core.downloads.StorageAccounting
 import dev.bitstorm.sashimi.core.downloads.key
 import dev.bitstorm.sashimi.di.ServiceLocator
@@ -64,6 +67,7 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
     val downloads by manager.downloads.collectAsStateWithLifecycle()
     val needingRedownload by manager.needingRedownload.collectAsStateWithLifecycle()
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val live by manager.live.collectAsStateWithLifecycle()
 
     var showDeleteAll by remember { mutableStateOf(false) }
     val available = remember(downloads.size) { manager.availableDiskSpace() }
@@ -105,7 +109,7 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
             if (active.isNotEmpty()) {
                 item { SectionHeader("Active") }
                 items(active, key = { it.listKey }) { row ->
-                    ActiveRow(row, onCancel = { manager.cancel(row.key) })
+                    ActiveRow(row, live[row.key], online, onCancel = { manager.cancel(row.key) })
                 }
             }
 
@@ -254,18 +258,26 @@ private fun RowScaffold(
 @Composable
 private fun ActiveRow(
     row: DownloadedItemEntity,
+    live: LiveTransfer?,
+    online: Boolean,
     onCancel: () -> Unit,
 ) {
     RowScaffold(
         row = row,
         subtitle = {
-            val label =
-                when (row.downloadStatus) {
-                    DownloadStatus.QUEUED -> "Queued"
-                    DownloadStatus.PREPARING -> "Preparing…"
-                    else -> if (row.progress < 0) "Downloading…" else "${(row.progress * 100).toInt()}%"
-                }
-            Text(label, color = SashimiTextSecondary, fontSize = 12.sp)
+            val text = ActiveDownloadText.of(row, live, online)
+            Text(text.status, color = SashimiTextSecondary, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            text.note?.let { Text(it, color = SashimiTextTertiary, fontSize = 11.sp, maxLines = 2) }
+            val fraction = text.fraction
+            if (fraction != null) {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    color = SashimiAccent,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
+            } else if (row.downloadStatus == DownloadStatus.DOWNLOADING) {
+                LinearProgressIndicator(color = SashimiAccent, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            }
         },
         trailing = {
             IconButton(onClick = onCancel) { Icon(Icons.Filled.Cancel, contentDescription = "Cancel", tint = SashimiTextSecondary) }
