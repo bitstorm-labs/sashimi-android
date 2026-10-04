@@ -500,6 +500,9 @@ class PlayerViewModel(
         _state.update { it.copy(isLoading = true, error = null, errorRetryable = false, playbackEnded = false) }
         stopProgressLoop()
         stallDetector.reset()
+        // Where a recovery restarts if this stream fails before it plays a
+        // frame: the position asked for, not zero.
+        lastGoodPositionMs = startTicks / TICKS_PER_MS
         // Tear down any prior server transcode before re-negotiating (Swift
         // teardown). Captured and cleared here rather than read again later, so
         // the source being torn down is unambiguously the one this call saw.
