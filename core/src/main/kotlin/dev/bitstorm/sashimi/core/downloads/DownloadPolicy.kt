@@ -63,6 +63,20 @@ object DownloadPolicy {
         existing ?: return false
         return existing.downloadQuality != newQuality
     }
+
+    /**
+     * Whether a completed download is a file made by the pre-fix transcode URL
+     * and should be offered for re-download.
+     *
+     * [fixedEncodes] is the [TierEncodeLedger]: the downloads the fixed code
+     * completed. A completed High / Medium / Low row that is not in it was
+     * fetched while the tier's bitrate and size were being ignored by the
+     * server. Original is a raw file copy and was never affected.
+     */
+    fun needsRedownload(
+        row: DownloadedItemEntity,
+        fixedEncodes: Set<DownloadKey>,
+    ): Boolean = row.isComplete && row.downloadQuality != DownloadQuality.ORIGINAL && row.key !in fixedEncodes
 }
 
 /**
