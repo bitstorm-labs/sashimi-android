@@ -138,7 +138,10 @@ fun PlayerScreen(
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_STOP && !playerActivity.isInPictureInPictureMode) {
                     vm.player.pause()
+                    // The Up Next countdown must not play the next episode to nobody.
+                    vm.onBackgrounded()
                 }
+                if (event == Lifecycle.Event.ON_START) vm.onForegrounded()
             }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -164,6 +167,8 @@ fun PlayerScreen(
     // the PiP thumbnail (or be left open behind it).
     LaunchedEffect(inPip) {
         if (inPip) showSettings = false
+        // Up Next is never shown in PiP: a running countdown advances at once.
+        vm.setInPip(inPip)
     }
 
     // Auto-hide the overlay 5s after it is shown (while playing).
@@ -241,7 +246,7 @@ fun PlayerScreen(
         }
 
         // Skip Intro/Credits — always tappable, independent of the overlay.
-        state.skipSegment?.takeIf { !inPip }?.let { segment ->
+        state.skipSegment?.takeIf { !inPip && state.upNext == null }?.let { segment ->
             SkipButton(
                 label = skipLabel(segment.type),
                 onClick = vm::skipCurrentSegment,
@@ -250,7 +255,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = overlayVisible && !state.isLoading && !inPip,
+            visible = overlayVisible && !state.isLoading && !inPip && state.upNext == null,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -260,6 +265,18 @@ fun PlayerScreen(
                 vm = vm,
                 onClose = onExit,
                 onOpenSettings = { showSettings = true },
+            )
+        }
+
+        // Last, so it covers the player and its chrome entirely.
+        state.upNext?.takeIf { !inPip }?.let { upNext ->
+            UpNextScreen(
+                upNext = upNext,
+                onPlay = vm::playUpNext,
+                onSkip = vm::skipUpNext,
+                onCancel = vm::cancelUpNext,
+                onReplay = vm::replayEnded,
+                onDone = onExit,
             )
         }
     }
