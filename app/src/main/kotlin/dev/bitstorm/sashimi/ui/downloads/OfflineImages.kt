@@ -19,6 +19,11 @@ object OfflineImages {
         files.localFile(key, DownloadFileManager.SERIES_POSTER_NAME)
             ?: files.localFile(key, DownloadFileManager.POSTER_NAME)
 
+    /** The item's own landscape art (an episode's still), for the Up Next card; else its backdrop. */
+    fun localThumbnail(key: DownloadKey): File? =
+        files.localFile(key, DownloadFileManager.POSTER_NAME)
+            ?: files.localFile(key, DownloadFileManager.BACKDROP_NAME)
+
     fun localBackdrop(key: DownloadKey): File? =
         files.localFile(key, DownloadFileManager.BACKDROP_NAME)
             ?: files.localFile(key, DownloadFileManager.POSTER_NAME)
