@@ -31,6 +31,7 @@ import dev.bitstorm.sashimi.core.playback.AutoBitrate
 import dev.bitstorm.sashimi.core.playback.AutoPlayNextResolver
 import dev.bitstorm.sashimi.core.playback.BitrateLabel
 import dev.bitstorm.sashimi.core.playback.BitrateResolver
+import dev.bitstorm.sashimi.core.playback.EndOfItemAction
 import dev.bitstorm.sashimi.core.playback.LanguageMatcher
 import dev.bitstorm.sashimi.core.playback.PlayMethod
 import dev.bitstorm.sashimi.core.playback.PlaybackEngine
@@ -50,10 +51,14 @@ import dev.bitstorm.sashimi.core.playback.SubtitleChange
 import dev.bitstorm.sashimi.core.playback.SubtitleDecisions
 import dev.bitstorm.sashimi.core.playback.SubtitleDelivery
 import dev.bitstorm.sashimi.core.playback.SubtitleTrack
+import dev.bitstorm.sashimi.core.playback.UpNext
+import dev.bitstorm.sashimi.core.playback.UpNextEvent
+import dev.bitstorm.sashimi.core.playback.UpNextState
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.ui.downloads.OfflineImages
 import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,11 +100,22 @@ data class PlayerUiState(
     val switchingTo: String? = null,
     /** A short-lived banner: "Lowering quality for your connection · 480p · 1 Mbps". */
     val notice: String? = null,
+    /** The Up Next screen, while it is up. */
+    val upNext: UpNextUi? = null,
 ) {
     companion object {
         const val OFF_SUBTITLE = -1
     }
 }
+
+/**
+ * The Up Next screen: the shared :core state plus the artwork for the episode it
+ * shows (a local file for a downloaded episode, else a server URL).
+ */
+data class UpNextUi(
+    val state: UpNextState,
+    val artwork: Any? = null,
+)
 
 /**
  * The Media3 player brain. Owns the [ExoPlayer] instance (which lives in :app —
@@ -194,6 +210,16 @@ class PlayerViewModel(
     private var tickJob: Job? = null
     private var watchdogJob: Job? = null
     private var isHandlingEnd = false
+
+    // MARK: Up Next
+    private var upNextTicker: Job? = null
+    private var followingJob: Job? = null
+
+    /** Artwork per episode id, resolved alongside each lookup so Skip never shows a blank card. */
+    private val upNextArtwork = mutableMapOf<String, Any?>()
+
+    /** The activity is in picture-in-picture; set by the screen. */
+    private var inPip = false
 
     /**
      * The download being played from local storage, or null when streaming.
@@ -362,6 +388,8 @@ class PlayerViewModel(
     private suspend fun prepareLocal(
         key: DownloadKey,
         localFile: java.io.File,
+        /** Start here instead of the saved position: Replay starts again at zero. */
+        startTicksOverride: Long? = null,
     ) {
         val playbackItemId = key.itemId
         localKey = key
@@ -383,7 +411,7 @@ class PlayerViewModel(
 
         val serverTicks = if (startFromBeginning) 0 else item.userData?.playbackPositionTicks ?: 0
         val localTicks = downloads.offlinePlaybackPositionTicks(key) ?: 0
-        val startTicks = if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
+        val startTicks = startTicksOverride ?: if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
 
         // Side-load any subtitles that were downloaded alongside the video as
         // local VTT tracks (Swift MobilePlayerView local subtitle configs).
@@ -1155,6 +1183,10 @@ class PlayerViewModel(
     }
 
     private fun reportProgressNow() {
+        // Once the item has ended it has been reported finished (and a download's
+        // full runtime saved). The pause that holds the picture under the Up Next
+        // screen must not report a credits position after that.
+        if (isHandlingEnd) return
         val posTicks = absolutePositionMs * TICKS_PER_MS
         // Local playback builds no ProgressReporter, so this loop used to be a
         // complete no-op for downloaded items: the ONLY persistence point was
@@ -1197,6 +1229,9 @@ class PlayerViewModel(
         if (isHandlingEnd) return
         isHandlingEnd = true
         stopProgressLoop()
+        // A credit skip ends the item while the player is still running the
+        // credits: hold it under the Up Next screen.
+        player.pause()
         viewModelScope.launch {
             val item = currentItem
             // Absolute item runtime: for an offset transcode player.duration is
@@ -1213,50 +1248,177 @@ class PlayerViewModel(
             }
             runCatching { reporter?.reportEndOfPlayback(durationTicks) }
 
-            val next = if (settings.autoPlayNextEpisode.value && trailerItemId == null && item != null) resolveNextEpisode(item) else null
-            if (next != null) {
-                isHandlingEnd = false
-                currentItem = next
-                // Stream indices are per-item, so a choice made on the previous
-                // episode is meaningless here. The preferred LANGUAGE is kept,
-                // since that is a standing preference rather than a per-item pick.
-                userChoseSubtitle = false
-                desiredAudioIndex = null
-                burnInSubtitle = false
-                resetRecovery()
-                // Mirror loadInitial: prefer a completed download. Without this,
-                // auto-play-next always server-negotiated -- so with a whole
-                // season downloaded it could not fire on a plane at all, and
-                // online it streamed over cellular an episode already on disk.
-                val nextLocal = runCatching { localDownload(next.id) }.getOrNull()
-                if (nextLocal != null) {
-                    prepareLocal(nextLocal.first, nextLocal.second)
-                } else {
-                    // Streaming now: positions must stop going to the previous
-                    // episode's download row.
-                    localKey = null
-                    // The quality pick carries on to the next episode, as on
-                    // Apple and Roku: a step down for a weak link still holds.
-                    val quality = _state.value.selectedQuality
-                    prepare(next, startTicks = 0, quality, forceTranscode = quality.forcesTranscode)
-                }
-            } else {
-                _state.update { it.copy(playbackEnded = true) }
+            // Looked up whatever the auto-play setting: with it off the Up Next
+            // screen still offers the episode, just without a countdown.
+            val autoPlay = settings.autoPlayNextEpisode.value
+            val next = if (trailerItemId == null && item != null) resolveNextEpisode(item) else null
+            when (UpNext.onEnded(hasNext = next != null, autoPlay = autoPlay, inPip = inPip)) {
+                EndOfItemAction.EXIT -> _state.update { it.copy(playbackEnded = true) }
+                EndOfItemAction.AUTO_ADVANCE -> advanceTo(next!!)
+                EndOfItemAction.SHOW_UP_NEXT -> showUpNext(next!!, autoPlay)
             }
         }
     }
 
-    private suspend fun resolveNextEpisode(current: BaseItemDto): BaseItemDto? {
-        if (current.type != ItemType.EPISODE) return null
-        val seriesId = current.seriesId ?: return null
-        val seasonId = current.seasonId
-        val episodes = runCatching { client.getEpisodes(seriesId, seasonId) }.getOrDefault(emptyList())
-        AutoPlayNextResolver.nextInList(current, episodes)?.let { return it }
-        val seasons = runCatching { client.getSeasons(seriesId) }.getOrDefault(emptyList())
-        val nextSeason = AutoPlayNextResolver.nextSeasonId(seasonId, seasons) ?: return null
-        val nextEps = runCatching { client.getEpisodes(seriesId, nextSeason) }.getOrDefault(emptyList())
-        return nextEps.firstOrNull() ?: nextDownloadedEpisode(current, seriesId)
+    /** Plays [next] in place of the item that just ended. */
+    private suspend fun advanceTo(next: BaseItemDto) {
+        clearUpNext()
+        isHandlingEnd = false
+        currentItem = next
+        // Stream indices are per-item, so a choice made on the previous
+        // episode is meaningless here. The preferred LANGUAGE is kept,
+        // since that is a standing preference rather than a per-item pick.
+        userChoseSubtitle = false
+        desiredAudioIndex = null
+        burnInSubtitle = false
+        resetRecovery()
+        // Mirror loadInitial: prefer a completed download. Without this,
+        // auto-play-next always server-negotiated -- so with a whole
+        // season downloaded it could not fire on a plane at all, and
+        // online it streamed over cellular an episode already on disk.
+        val nextLocal = runCatching { localDownload(next.id) }.getOrNull()
+        if (nextLocal != null) {
+            prepareLocal(nextLocal.first, nextLocal.second)
+        } else {
+            // Streaming now: positions must stop going to the previous
+            // episode's download row.
+            localKey = null
+            // The quality pick carries on to the next episode, as on
+            // Apple and Roku: a step down for a weak link still holds.
+            val quality = _state.value.selectedQuality
+            prepare(next, startTicks = 0, quality, forceTranscode = quality.forcesTranscode)
+        }
     }
+
+    // MARK: - Up Next
+
+    private suspend fun showUpNext(
+        next: BaseItemDto,
+        autoPlay: Boolean,
+    ) {
+        upNextArtwork[next.id] = artworkFor(next)
+        _state.update { it.copy(upNext = UpNextUi(UpNext.start(next, autoPlay), upNextArtwork[next.id])) }
+        lookUpFollowing(next)
+        upNextTicker?.cancel()
+        upNextTicker =
+            viewModelScope.launch {
+                var last = android.os.SystemClock.elapsedRealtime()
+                while (isActive) {
+                    delay(UP_NEXT_TICK_MS)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    dispatchUpNext(UpNextEvent.Tick(now - last))
+                    last = now
+                }
+            }
+    }
+
+    /** Finds the episode after [shown], for Skip, with its artwork ready. */
+    private fun lookUpFollowing(shown: BaseItemDto) {
+        followingJob?.cancel()
+        followingJob =
+            viewModelScope.launch {
+                val following = resolveNextEpisode(shown)
+                if (following != null && following.id !in upNextArtwork) upNextArtwork[following.id] = artworkFor(following)
+                dispatchUpNext(UpNextEvent.FollowingResolved(shown.id, following))
+            }
+    }
+
+    /**
+     * The episode's own still: blurred it is the backdrop, crisp it is the card.
+     * A downloaded episode uses the image saved with it, so the screen has
+     * artwork on a plane; otherwise the server's, as everywhere else.
+     */
+    private suspend fun artworkFor(episode: BaseItemDto): Any? {
+        val key =
+            runCatching { downloads.playableDownload(episode.id, localKey?.serverId ?: downloadServerId, activeServerId()) }
+                .getOrNull()
+        key?.let { OfflineImages.localThumbnail(it) }?.let { return it }
+        return if (episode.imageTags?.containsKey("Primary") != false) {
+            images.primary(episode.id, UP_NEXT_ART_WIDTH)
+        } else {
+            episode.seriesId?.let { images.backdrop(it, UP_NEXT_ART_WIDTH) }
+        }
+    }
+
+    private fun dispatchUpNext(event: UpNextEvent) {
+        val current = _state.value.upNext ?: return
+        val step = UpNext.reduce(current.state, event)
+        if (step.playNow) {
+            val episode = step.state.episode
+            // Stop ticking now: the advance suspends while it negotiates.
+            upNextTicker?.cancel()
+            viewModelScope.launch { advanceTo(episode) }
+            return
+        }
+        if (step.state == current.state) return
+        val moved = step.state.episode.id != current.state.episode.id
+        _state.update { it.copy(upNext = UpNextUi(step.state, upNextArtwork[step.state.episode.id])) }
+        if (moved) lookUpFollowing(step.state.episode)
+    }
+
+    private fun clearUpNext() {
+        upNextTicker?.cancel()
+        followingJob?.cancel()
+        upNextTicker = null
+        followingJob = null
+        upNextArtwork.clear()
+        if (_state.value.upNext != null) _state.update { it.copy(upNext = null) }
+    }
+
+    /** Play: the shown episode now, countdown or not. */
+    fun playUpNext() {
+        val episode = _state.value.upNext?.state?.episode ?: return
+        upNextTicker?.cancel()
+        viewModelScope.launch { advanceTo(episode) }
+    }
+
+    /** Skip: show the episode after the shown one. It is not marked watched. */
+    fun skipUpNext() = dispatchUpNext(UpNextEvent.Skip)
+
+    /** Cancel (or Back): stop the countdown and offer Replay / Done. */
+    fun cancelUpNext() = dispatchUpNext(UpNextEvent.Cancel)
+
+    /** Replay: the episode that just ended, from the start. */
+    fun replayEnded() {
+        val item = currentItem ?: return
+        clearUpNext()
+        isHandlingEnd = false
+        resetRecovery()
+        val local = localKey
+        if (local != null) {
+            viewModelScope.launch {
+                _state.update { it.copy(isLoading = true) }
+                val file = downloads.localVideoFile(local)
+                if (file != null) {
+                    prepareLocal(local, file, startTicksOverride = 0)
+                } else {
+                    _state.update { it.copy(isLoading = false, error = "Could not load download.") }
+                }
+            }
+            return
+        }
+        // A fresh negotiation: the old session was reported stopped at the end.
+        renegotiate { prepare(item, startTicks = 0, _state.value.selectedQuality, forceTranscode = forceTranscodeActive) }
+    }
+
+    /** The app left the foreground (not for PiP): hold the countdown. */
+    fun onBackgrounded() = dispatchUpNext(UpNextEvent.Pause)
+
+    fun onForegrounded() = dispatchUpNext(UpNextEvent.Resume)
+
+    fun setInPip(value: Boolean) {
+        inPip = value
+        // The screen is never shown in PiP; a running countdown advances at once.
+        if (value) dispatchUpNext(UpNextEvent.EnteredPip)
+    }
+
+    private suspend fun resolveNextEpisode(current: BaseItemDto): BaseItemDto? =
+        AutoPlayNextResolver.resolve(
+            current,
+            episodesOf = { series, season -> runCatching { client.getEpisodes(series, season) }.getOrDefault(emptyList()) },
+            seasonsOf = { series -> runCatching { client.getSeasons(series) }.getOrDefault(emptyList()) },
+            fallback = { series -> nextDownloadedEpisode(current, series) },
+        )
 
     /**
      * Next episode resolved from the downloads database rather than the server.
@@ -1296,7 +1458,12 @@ class PlayerViewModel(
     override fun onCleared() {
         super.onCleared()
         watchdogJob?.cancel()
-        val posTicks = absolutePositionMs * TICKS_PER_MS
+        // After the end (the Up Next screen, or a credit skip that ended the
+        // item early) the item is finished. Reporting the credits position here
+        // instead could un-mark it on the server, when that position fell below
+        // the server's played threshold, and overwrote a download's saved full
+        // runtime.
+        val posTicks = if (isHandlingEnd) absoluteDurationMs * TICKS_PER_MS else absolutePositionMs * TICKS_PER_MS
         // Local playback: stash the position for later server sync (Swift
         // savePlaybackPosition → syncPendingProgress). Trailers are never saved.
         //
@@ -1361,6 +1528,8 @@ class PlayerViewModel(
         private const val SEEK_INCREMENT_MS = 10_000L
         private const val ARTWORK_WIDTH = 300
         private const val NOTICE_MS = 4_000L
+        private const val UP_NEXT_TICK_MS = 100L
+        private const val UP_NEXT_ART_WIDTH = 1280
         private val sessionCounter = AtomicLong()
         private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

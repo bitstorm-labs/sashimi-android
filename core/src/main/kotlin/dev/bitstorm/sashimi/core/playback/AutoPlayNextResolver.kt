@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.core.playback
 
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ItemType
 
 /**
  * Player auto-play-next-episode logic, factored out of the Swift
@@ -28,6 +29,31 @@ object AutoPlayNextResolver {
         val index = episodes.indexOfFirst { it.id == current.id }
         if (index < 0 || index + 1 >= episodes.size) return null
         return episodes[index + 1]
+    }
+
+    /**
+     * The episode after [current]: the next one in its season, else the first
+     * of the following season, else [fallback] (the downloads database, when
+     * the server cannot be asked). Used both when an episode ends and by the Up
+     * Next screen's Skip, which asks for the episode after the one it shows.
+     *
+     * The fetchers report a failure as an empty list. Offline that makes the
+     * seasons list empty too, so the fallback must also run when no next season
+     * can be found; it used to run only when the seasons call had succeeded,
+     * which meant never offline.
+     */
+    suspend fun resolve(
+        current: BaseItemDto,
+        episodesOf: suspend (seriesId: String, seasonId: String?) -> List<BaseItemDto>,
+        seasonsOf: suspend (seriesId: String) -> List<BaseItemDto>,
+        fallback: suspend (seriesId: String) -> BaseItemDto? = { null },
+    ): BaseItemDto? {
+        if (current.type != ItemType.EPISODE) return null
+        val seriesId = current.seriesId ?: return null
+        val seasonId = current.seasonId
+        nextInList(current, episodesOf(seriesId, seasonId))?.let { return it }
+        val nextSeason = nextSeasonId(seasonId, seasonsOf(seriesId)) ?: return fallback(seriesId)
+        return episodesOf(seriesId, nextSeason).firstOrNull() ?: fallback(seriesId)
     }
 
     /**
