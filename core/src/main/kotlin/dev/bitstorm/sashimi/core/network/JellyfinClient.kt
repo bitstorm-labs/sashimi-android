@@ -320,6 +320,32 @@ class JellyfinClient(
         return decode<ItemsResponse>(data).items
     }
 
+    /**
+     * Most recently finished episodes, newest first. Continue Watching dates an
+     * unstarted Next Up episode by its series' latest one: Jellyfin gives neither
+     * the episode nor the Series item a LastPlayedDate.
+     */
+    suspend fun getRecentlyPlayedEpisodes(limit: Int = 100): List<BaseItemDto> {
+        val uid = requireUserId()
+        val data =
+            execute(
+                "GET",
+                "/Users/$uid/Items",
+                query =
+                    listOf(
+                        "Recursive" to "true",
+                        "IncludeItemTypes" to "Episode",
+                        "Filters" to "IsPlayed",
+                        "SortBy" to "DatePlayed",
+                        "SortOrder" to "Descending",
+                        "Limit" to "$limit",
+                        "EnableUserData" to "true",
+                        "EnableImages" to "false",
+                    ),
+            )
+        return decode<ItemsResponse>(data).items
+    }
+
     suspend fun getNextUp(
         limit: Int = 50,
         seriesId: String? = null,

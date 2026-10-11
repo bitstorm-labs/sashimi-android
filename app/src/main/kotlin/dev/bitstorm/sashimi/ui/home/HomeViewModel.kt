@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.home.ContinueWatchingMerger
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.model.BaseItemDto
@@ -18,8 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.OffsetDateTime
 import kotlin.coroutines.coroutineContext
 
 data class HomeUiState(
@@ -108,6 +107,8 @@ class HomeViewModel(
             val resumeDeferred = viewModelScope.async { runCatching { client.getResumeItems() } }
             val nextUpDeferred = viewModelScope.async { runCatching { client.getNextUp() } }
             val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() } }
+            // Optional: without it the row still loads, just ordered by Next Up alone.
+            val recentDeferred = viewModelScope.async { runCatching { client.getRecentlyPlayedEpisodes() } }
             val resumeResult = resumeDeferred.await()
             val nextUpResult = nextUpDeferred.await()
             val librariesResult = librariesDeferred.await()
@@ -125,7 +126,14 @@ class HomeViewModel(
             val nextUp = nextUpResult.getOrDefault(emptyList())
             val libs = librariesResult.getOrDefault(emptyList())
 
-            val cw = mergeContinueWatching(resume, nextUp)
+            val recent = recentDeferred.await().getOrDefault(emptyList())
+
+            val cw =
+                ContinueWatchingMerger.merge(
+                    resume,
+                    nextUp,
+                    ContinueWatchingMerger.seriesLastPlayed(recent),
+                )
             val mediaLibraries = libs.filter { isMediaLibrary(it.collectionType) }
             homeRowSettings.updateLibraries(mediaLibraries)
             _state.update {
@@ -213,47 +221,6 @@ class HomeViewModel(
             }
         }
         _state.update { it.copy(continueWatchingLibraryNames = names) }
-    }
-
-    /**
-     * Merge Resume + Next Up into the Continue Watching list, most-recent first,
-     * one entry per series, capped at 20. Port of HomeViewModel.mergeAndSort.
-     */
-    private fun mergeContinueWatching(
-        resume: List<BaseItemDto>,
-        nextUp: List<BaseItemDto>,
-    ): List<BaseItemDto> {
-        val now = Instant.now().toEpochMilli()
-        val resumeDates = resume.map { parseDate(it.userData?.lastPlayedDate) ?: now }
-        val nextUpDates = nextUp.indices.map { now - it * 1000L }
-
-        val merged = mutableListOf<BaseItemDto>()
-        val seenSeries = mutableSetOf<String>()
-        val seenIds = mutableSetOf<String>()
-        var r = 0
-        var n = 0
-        while (r < resume.size || n < nextUp.size) {
-            val useResume =
-                when {
-                    r >= resume.size -> false
-                    n >= nextUp.size -> true
-                    else -> resumeDates[r] >= nextUpDates[n]
-                }
-            val item = if (useResume) resume[r++] else nextUp[n++]
-            if (!seenIds.add(item.id)) continue
-            val seriesId = item.seriesId
-            if (seriesId != null && !seenSeries.add(seriesId)) continue
-            merged.add(item)
-            if (merged.size >= 20) break
-        }
-        return merged
-    }
-
-    private fun parseDate(raw: String?): Long? {
-        if (raw.isNullOrEmpty()) return null
-        return runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
-            .recoverCatching { Instant.parse(raw).toEpochMilli() }
-            .getOrNull()
     }
 
     private fun isMediaLibrary(collectionType: String?): Boolean {
