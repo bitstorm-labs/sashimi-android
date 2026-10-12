@@ -104,11 +104,19 @@ class HomeViewModel(
             // Each row is still individually tolerant -- one failing row should
             // not blank the others -- but the RESULTS are kept so a total
             // failure can be told apart from a genuinely empty account.
-            val resumeDeferred = viewModelScope.async { runCatching { client.getResumeItems() } }
-            val nextUpDeferred = viewModelScope.async { runCatching { client.getNextUp() } }
             val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() } }
+            // The server's ranked row when it has the Continue Watching plugin, so
+            // every client shows the same order; otherwise the row is merged here.
+            val serverRow = runCatching { client.getContinueWatching() }.getOrNull()
+            val resumeDeferred =
+                viewModelScope.async { if (serverRow == null) runCatching { client.getResumeItems() } else Result.success(emptyList()) }
+            val nextUpDeferred =
+                viewModelScope.async { if (serverRow == null) runCatching { client.getNextUp() } else Result.success(emptyList()) }
             // Optional: without it the row still loads, just ordered by Next Up alone.
-            val recentDeferred = viewModelScope.async { runCatching { client.getRecentlyPlayedEpisodes() } }
+            val recentDeferred =
+                viewModelScope.async {
+                    if (serverRow == null) runCatching { client.getRecentlyPlayedEpisodes() } else Result.success(emptyList())
+                }
             val resumeResult = resumeDeferred.await()
             val nextUpResult = nextUpDeferred.await()
             val librariesResult = librariesDeferred.await()
@@ -129,7 +137,7 @@ class HomeViewModel(
             val recent = recentDeferred.await().getOrDefault(emptyList())
 
             val cw =
-                ContinueWatchingMerger.merge(
+                serverRow ?: ContinueWatchingMerger.merge(
                     resume,
                     nextUp,
                     ContinueWatchingMerger.seriesLastPlayed(recent),
