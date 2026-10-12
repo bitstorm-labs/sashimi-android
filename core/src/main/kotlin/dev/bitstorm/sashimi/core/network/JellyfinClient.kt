@@ -321,6 +321,34 @@ class JellyfinClient(
     }
 
     /**
+     * The Continue Watching row ranked by the server's Continue Watching plugin
+     * (bitstorm-labs/jellyfin-plugin-continue-watching), or null when the server
+     * doesn't have it (404) -- the caller then builds the row itself.
+     */
+    suspend fun getContinueWatching(limit: Int = 20): List<BaseItemDto>? {
+        val uid = requireUserId()
+        val data =
+            try {
+                execute(
+                    "GET",
+                    "/ContinueWatching",
+                    query =
+                        listOf(
+                            "userId" to uid,
+                            "limit" to "$limit",
+                            "fields" to
+                                "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
+                                "Genres,Taglines,ParentBackdropImageTags,UserData,Path,MediaStreams",
+                            "enableImageTypes" to "Primary,Backdrop,Thumb",
+                        ),
+                )
+            } catch (e: JellyfinError.HttpError) {
+                if (e.statusCode == 404) return null else throw e
+            }
+        return decode<ItemsResponse>(data).items
+    }
+
+    /**
      * Most recently finished episodes, newest first. Continue Watching dates an
      * unstarted Next Up episode by its series' latest one: Jellyfin gives neither
      * the episode nor the Series item a LastPlayedDate.
