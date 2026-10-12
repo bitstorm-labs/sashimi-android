@@ -3,7 +3,7 @@ package dev.bitstorm.sashimi.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import dev.bitstorm.sashimi.core.home.ContinueWatchingMerger
+import dev.bitstorm.sashimi.core.home.ContinueWatchingSource
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.model.BaseItemDto
@@ -105,43 +105,21 @@ class HomeViewModel(
             // not blank the others -- but the RESULTS are kept so a total
             // failure can be told apart from a genuinely empty account.
             val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() } }
-            // The server's ranked row when it has the Continue Watching plugin, so
-            // every client shows the same order; otherwise the row is merged here.
-            val serverRow = runCatching { client.getContinueWatching() }.getOrNull()
-            val resumeDeferred =
-                viewModelScope.async { if (serverRow == null) runCatching { client.getResumeItems() } else Result.success(emptyList()) }
-            val nextUpDeferred =
-                viewModelScope.async { if (serverRow == null) runCatching { client.getNextUp() } else Result.success(emptyList()) }
-            // Optional: without it the row still loads, just ordered by Next Up alone.
-            val recentDeferred =
-                viewModelScope.async {
-                    if (serverRow == null) runCatching { client.getRecentlyPlayedEpisodes() } else Result.success(emptyList())
-                }
-            val resumeResult = resumeDeferred.await()
-            val nextUpResult = nextUpDeferred.await()
+            val continueWatchingDeferred = viewModelScope.async { ContinueWatchingSource.load(client) }
             val librariesResult = librariesDeferred.await()
 
             // Libraries are the load-bearing call: a user with an account always
             // has at least one, so its failure means the server did not answer.
             if (librariesResult.isFailure) {
+                continueWatchingDeferred.cancel()
                 _state.update {
                     it.copy(isLoading = false, error = "Couldn't reach your server. Check that it's running, then try again.")
                 }
                 return@runCatching
             }
 
-            val resume = resumeResult.getOrDefault(emptyList())
-            val nextUp = nextUpResult.getOrDefault(emptyList())
             val libs = librariesResult.getOrDefault(emptyList())
-
-            val recent = recentDeferred.await().getOrDefault(emptyList())
-
-            val cw =
-                serverRow ?: ContinueWatchingMerger.merge(
-                    resume,
-                    nextUp,
-                    ContinueWatchingMerger.seriesLastPlayed(recent),
-                )
+            val cw = continueWatchingDeferred.await()
             val mediaLibraries = libs.filter { isMediaLibrary(it.collectionType) }
             homeRowSettings.updateLibraries(mediaLibraries)
             _state.update {
