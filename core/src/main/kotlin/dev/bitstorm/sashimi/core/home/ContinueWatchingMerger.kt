@@ -10,10 +10,10 @@ import java.time.OffsetDateTime
  * series, capped at [LIMIT]. Port of sashimi-apple's
  * `HomeViewModel.mergeAndSortContinueItems`.
  *
- * Every candidate gets a real activity date. Resume items, and Next Up items the
- * server dates, use their own LastPlayedDate. An unstarted Next Up episode has
- * none (nor does its Series item), so it takes its series' last finished episode
- * from [seriesLastPlayed]. Failing that it sits a second below the item before
+ * Every candidate gets a real activity date. Resume items use their own
+ * LastPlayedDate. A Next Up item uses the newer of its own date and its series'
+ * last finished episode from [seriesLastPlayed] (its own can be weeks stale, or
+ * missing for an unstarted episode). Failing both it sits a second below the item before
  * it -- Next Up is ordered by series activity -- starting just below the newest
  * real date.
  *
@@ -41,9 +41,11 @@ object ContinueWatchingMerger {
             (playableResume + playableNextUp).mapNotNull { parseDate(it.userData?.lastPlayedDate) }.maxOrNull()
         var carried = newestKnown ?: Instant.now().toEpochMilli()
         for (item in playableNextUp) {
-            carried = parseDate(item.userData?.lastPlayedDate)
-                ?: item.seriesId?.let { seriesLastPlayed[it] }
-                ?: (carried - 1000L)
+            // An episode opened weeks ago keeps that stale date while the season
+            // before it is binged, so take the newer of its own and its series'.
+            val own = parseDate(item.userData?.lastPlayedDate)
+            val series = item.seriesId?.let { seriesLastPlayed[it] }
+            carried = listOfNotNull(own, series).maxOrNull() ?: (carried - 1000L)
             candidates.add(Candidate(item, carried, isResume = false))
         }
 

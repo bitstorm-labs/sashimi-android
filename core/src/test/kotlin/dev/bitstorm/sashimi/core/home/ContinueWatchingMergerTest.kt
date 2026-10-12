@@ -103,4 +103,38 @@ class ContinueWatchingMergerTest {
         assertEquals(setOf("a"), dates.keys)
         assertEquals(ContinueWatchingMerger.parseDate("2026-10-02T00:00:00Z"), dates["a"])
     }
+
+    /**
+     * The live row on 2026-10-12: The 100's next episode had been opened weeks ago,
+     * so it carried that stale date while the season before it was binged. It ranks
+     * by its own date or its series' last watch, whichever is newer.
+     */
+    @Test
+    fun nextUpWithAStaleDateStillRanksByItsSeriesLastWatch() {
+        val resume =
+            listOf(
+                item("gcn-video", "gcn", "2026-10-12T01:12:39Z"),
+                item("exploring-video", "exploring", "2026-10-10T02:03:13Z"),
+                item("sabrina-e2", "sabrina", "2026-10-01T17:35:26Z"),
+                item("the100-s1e13", "the100", "2026-09-22T01:32:59Z"),
+            )
+        val nextUp =
+            listOf(
+                item("the100-s5e1", "the100", "2026-09-22T02:11:50Z"),
+                item("gcn-video", "gcn", "2026-10-12T01:12:39Z"),
+                item("darkmatter-s2e5", "darkmatter", "2026-10-02T18:13:24Z"),
+            )
+        val lastWatched =
+            mapOf(
+                "the100" to ContinueWatchingMerger.parseDate("2026-10-12T05:41:44Z")!!,
+                "gcn" to ContinueWatchingMerger.parseDate("2026-10-12T01:05:36Z")!!,
+            )
+
+        val row = ContinueWatchingMerger.merge(resume, nextUp, lastWatched)
+
+        assertEquals(
+            listOf("the100-s5e1", "gcn-video", "exploring-video", "darkmatter-s2e5", "sabrina-e2"),
+            row.map { it.id },
+        )
+    }
 }
