@@ -1,0 +1,38 @@
+# Dependency updates. Policy (same across the bitstorm-labs repos):
+#   - weekly, Monday 05:00 America/Denver
+#   - minor + patch grouped into one PR per ecosystem; majors get their own PRs
+#   - .github/workflows/dependabot-automerge.yml auto-merges patch/minor PRs
+#     once the required check passes; majors wait for review
+# Actions are pinned to commit SHAs with a "# vX.Y.Z" comment; Dependabot bumps
+# the SHA and the comment together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+
+  # Gradle plugins and libraries from gradle/libs.versions.toml (version
+  # catalog) plus the Gradle wrapper.
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]
