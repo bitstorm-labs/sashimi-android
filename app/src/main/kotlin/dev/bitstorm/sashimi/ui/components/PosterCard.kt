@@ -32,6 +32,7 @@ import dev.bitstorm.sashimi.core.model.cleanedYouTubeTitle
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.util.ImageUrls
+import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 
 private val WatchedGreen = Color(red = 0.29f, green = 0.73f, blue = 0.47f)
 private val NewBadgeBlue = Color(red = 0.29f, green = 0.55f, blue = 0.73f)
@@ -72,7 +73,7 @@ fun PosterCard(
                     .then(if (isCircular) Modifier.aspectRatio(1f) else Modifier.aspectRatio(2f / 3f)),
         ) {
             AsyncImage(
-                model = ImageUrls.cardPoster(item, width.value.toInt()),
+                model = ImageUrls.cardPoster(item, rememberImageWidth(width)),
                 contentDescription = item.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().clip(shape).background(SashimiCard),

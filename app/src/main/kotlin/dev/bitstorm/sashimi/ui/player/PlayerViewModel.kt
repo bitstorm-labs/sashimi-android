@@ -23,6 +23,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadLookup
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemImages
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
@@ -759,7 +760,7 @@ class PlayerViewModel(
 
     /** What the MediaSession, and so every system media surface, shows. */
     private fun mediaMetadataFor(item: BaseItemDto): MediaMetadata {
-        val now = NowPlaying.from(item) { images.cardPoster(it, ARTWORK_WIDTH) }
+        val now = NowPlaying.from(item) { images.cardPoster(it, MEDIA_SESSION_ARTWORK_WIDTH) }
         return MediaMetadata.Builder()
             .setTitle(now.title)
             .setDisplayTitle(now.title)
@@ -1335,9 +1336,9 @@ class PlayerViewModel(
                 .getOrNull()
         key?.let { OfflineImages.localThumbnail(it) }?.let { return it }
         return if (episode.imageTags?.containsKey("Primary") != false) {
-            images.primary(episode, UP_NEXT_ART_WIDTH)
+            images.primary(episode, upNextArtWidth)
         } else {
-            ItemImages.seriesBackdrop(episode)?.let { images.url(it, UP_NEXT_ART_WIDTH) }
+            ItemImages.seriesBackdrop(episode)?.let { images.url(it, upNextArtWidth) }
         }
     }
 
@@ -1527,10 +1528,22 @@ class PlayerViewModel(
         private const val SEGMENT_POLL_MS = 500L
         private const val CONNECT_WATCHDOG_MS = 5_000L
         private const val SEEK_INCREMENT_MS = 10_000L
-        private const val ARTWORK_WIDTH = 300
+
+        // Media-session artwork (notification / lock screen); the system scales it.
+        private const val MEDIA_SESSION_ARTWORK_WIDTH = 600
         private const val NOTICE_MS = 4_000L
         private const val UP_NEXT_TICK_MS = 100L
-        private const val UP_NEXT_ART_WIDTH = 1280
+
+        /**
+         * The Up Next card is at most 560dp wide (stacked) and narrower side by
+         * side, and about the screen's short side at most on a phone.
+         */
+        private val upNextArtWidth: Int by lazy {
+            val metrics = android.content.res.Resources.getSystem().displayMetrics
+            val screenDp = minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1) / metrics.density
+            ImageSizing.requestWidth(minOf(screenDp, UP_NEXT_CARD_MAX_DP), metrics.density)
+        }
+        private const val UP_NEXT_CARD_MAX_DP = 560f
         private val sessionCounter = AtomicLong()
         private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

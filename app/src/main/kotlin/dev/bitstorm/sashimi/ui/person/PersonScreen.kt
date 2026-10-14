@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.person.ServerMediaGroup
@@ -71,6 +72,7 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
 import dev.bitstorm.sashimi.ui.util.ImageUrls
+import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 
 /**
  * A cast or crew member: portrait, name, role, and what else they are in across
@@ -183,7 +185,7 @@ private fun PersonHeader(route: PersonRoute) {
             Icon(Icons.Filled.Person, contentDescription = null, tint = SashimiTextTertiary, modifier = Modifier.size(40.dp))
             if (route.primaryImageTag != null) {
                 AsyncImage(
-                    model = images.person(route.personId, route.primaryImageTag),
+                    model = images.person(route.personId, route.primaryImageTag, rememberImageWidth(96.dp)),
                     contentDescription = route.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -242,7 +244,7 @@ private fun FilmographyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.width(56.dp).height(84.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))) {
-            images?.primary(item, 168)?.let { url ->
+            images?.primary(item, rememberImageWidth(56.dp, 84.dp, ImageSizing.POSTER_ASPECT))?.let { url ->
                 AsyncImage(
                     model = url,
                     contentDescription = null,
