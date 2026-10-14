@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerCaps
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerClip
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerConditions
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerOwners
@@ -126,6 +127,9 @@ class HeroTrailerController(
         }
     }
 
+    /** Transcode cap for the next start: set by the screen being shown. */
+    private var caps = HeroTrailerCaps.COMPACT
+
     // MARK: - Intent from screens
 
     /**
@@ -149,6 +153,8 @@ class HeroTrailerController(
                 activeServerId = activeServerId(),
             ).isEligible
         val sourceId = if (eligible && item != null) HeroTrailerPolicy.trailerSourceId(item) else null
+        // The newest screen decides the cap; a start it triggers uses it.
+        caps = HeroTrailerCaps.forWidth(isCompactWidth)
         apply(owners.appeared(owner, sourceId, playingSourceId))
     }
 
@@ -204,7 +210,7 @@ class HeroTrailerController(
                 val trailer = resolver.resolve(sourceId) ?: return@launch
                 val streamEngine = engine()
                 val stream =
-                    runCatchingCancellable { streamEngine.heroTrailerStream(trailer.id) }.getOrNull()
+                    runCatchingCancellable { streamEngine.heroTrailerStream(trailer.id, caps) }.getOrNull()
                         ?: return@launch
                 if (activeServerId() != serverId) {
                     stream.playSessionId?.let { session -> appScope.launch { streamEngine.stopTranscode(session) } }

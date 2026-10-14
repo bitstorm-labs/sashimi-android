@@ -92,4 +92,10 @@ class HeroTrailerPolicyTest {
         assertEquals(HeroTrailerSource("t3", null), HeroTrailerSource.from(listOf(BaseItemDto(id = "t3"))))
         assertNull(HeroTrailerSource.from(emptyList()))
     }
+
+    @Test
+    fun `transcode caps are 1280 at 4 Mbps on a phone and 1920 at 8 Mbps wide`() {
+        assertEquals(HeroTrailerCaps(maxBitrate = 4_000_000, maxWidth = 1280), HeroTrailerCaps.forWidth(isCompactWidth = true))
+        assertEquals(HeroTrailerCaps(maxBitrate = 8_000_000, maxWidth = 1920), HeroTrailerCaps.forWidth(isCompactWidth = false))
+    }
 }
