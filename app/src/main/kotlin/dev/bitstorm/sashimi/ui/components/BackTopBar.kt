@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 
@@ -19,6 +20,8 @@ import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 fun BackTopBar(
     title: String,
     onBack: () -> Unit,
+    /** Transparent lets a picture drawn behind the bar run to the top edge. */
+    containerColor: Color = SashimiBackground,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     TopAppBar(
@@ -29,6 +32,6 @@ fun BackTopBar(
             }
         },
         actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = SashimiBackground),
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = containerColor),
     )
 }

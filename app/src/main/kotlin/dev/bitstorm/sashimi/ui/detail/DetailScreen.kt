@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -65,9 +66,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -219,21 +224,31 @@ fun DetailScreen(
             topBar = {
                 // Overflow actions now live in the detail action row's single labeled
                 // menu (iOS PhoneDetailView parity), so the top bar is just Back.
-                BackTopBar(title = "", onBack = onBack)
+                // Wide: transparent, so the picture behind it reaches the top edge.
+                BackTopBar(
+                    title = "",
+                    onBack = onBack,
+                    containerColor = if (isCompact) SashimiBackground else Color.Transparent,
+                )
             },
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                when {
-                    item == null && state.isLoading ->
-                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                    item == null ->
-                        Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Text("Could not load item.", color = SashimiTextSecondary)
-                        }
-                    isCompact ->
-                        CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
-                    else ->
-                        ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
+            Box(Modifier.fillMaxSize()) {
+                // Wide: the picture ignores the Scaffold's padding so it runs flush to
+                // the top and right edges, under the transparent top bar.
+                if (!isCompact && item != null) ExpandedBackdrop(item, libraryName, heroOwner)
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    when {
+                        item == null && state.isLoading ->
+                            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                        item == null ->
+                            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                Text("Could not load item.", color = SashimiTextSecondary)
+                            }
+                        isCompact ->
+                            CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
+                        else ->
+                            ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+                    }
                 }
             }
         }
@@ -321,7 +336,12 @@ private fun CompactLayout(
                 item.type != ItemType.EPISODE &&
                     item.backdropImageTags?.isNotEmpty() != true &&
                     !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
-            HeroTrailerBackdrop(heroOwner, Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) { fade ->
+            // Full width on a phone (the half-width hero is a wide-layout idea), so
+            // only the bottom edge fades, into the content below.
+            HeroTrailerBackdrop(
+                heroOwner,
+                Modifier.fillMaxWidth().height(220.dp).heroEdgeFade(fadeLeft = false).background(SashimiCard),
+            ) { fade ->
                 // The picture fades out over the trailer and back in after it.
                 Box(Modifier.matchParentSize().then(fade)) {
                     AsyncImage(
@@ -334,11 +354,6 @@ private fun CompactLayout(
                         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
                     }
                 }
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
-                    ),
-                )
             }
         }
         DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = true, modifier = Modifier.padding(16.dp))
@@ -388,6 +403,65 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
     }
 }
 
+/**
+ * The wide layout's picture, laid out like the Apple TV and iPad home hero:
+ * about half the screen, flush to the top and right edges, fading only into the
+ * info column on its left and the rows below. The trailer plays in the same
+ * frame, so the fade applies to it as well.
+ */
+@Composable
+private fun BoxScope.ExpandedBackdrop(
+    item: BaseItemDto,
+    libraryName: String?,
+    heroOwner: String,
+) {
+    val ytSeries = isYouTube(libraryName, item.path) && item.type == ItemType.SERIES
+    // Sized by the image; the trailer layer underneath matches it.
+    HeroTrailerBackdrop(
+        heroOwner,
+        Modifier
+            .fillMaxWidth(if (ytSeries) 0.65f else 0.55f)
+            .align(Alignment.TopEnd)
+            .heroEdgeFade(fadeLeft = true),
+    ) { fade ->
+        AsyncImage(
+            model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.TopEnd,
+            modifier = Modifier.fillMaxWidth().then(fade),
+        )
+    }
+}
+
+/**
+ * Fades the hero (picture and trailer together) to transparent: the left 35% from
+ * transparent to opaque when [fadeLeft], and the bottom 40% from opaque to
+ * transparent. Top and right never fade. An alpha mask rather than a gradient of
+ * the page colour, so it holds over whatever is behind the hero.
+ */
+private fun Modifier.heroEdgeFade(fadeLeft: Boolean): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            if (fadeLeft) {
+                drawRect(
+                    Brush.horizontalGradient(0f to Color.Transparent, HERO_LEFT_FADE to Color.Black),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+            drawRect(
+                Brush.verticalGradient(HERO_BOTTOM_FADE_START to Color.Black, 1f to Color.Transparent),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+
+/** Fraction of the hero's width, from its left edge, that fades in. */
+private const val HERO_LEFT_FADE = 0.35f
+
+/** Fraction of the hero's height where the fade-out at its bottom begins. */
+private const val HERO_BOTTOM_FADE_START = 0.6f
+
 @Composable
 private fun ExpandedLayout(
     state: DetailUiState,
@@ -397,40 +471,17 @@ private fun ExpandedLayout(
     onOpenDetail: (String, String?) -> Unit,
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
-    heroOwner: String,
 ) {
-    val yt = isYouTube(libraryName, item.path)
-    val ytSeries = yt && item.type == ItemType.SERIES
-    Box(Modifier.fillMaxSize()) {
-        // Sized by the image; the trailer layer underneath matches it.
-        HeroTrailerBackdrop(heroOwner, Modifier.fillMaxWidth(if (ytSeries) 0.65f else 0.55f).align(Alignment.TopEnd)) { fade ->
-            AsyncImage(
-                model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.TopEnd,
-                modifier = Modifier.fillMaxWidth().then(fade),
-            )
-        }
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.horizontalGradient(
-                    0.0f to SashimiBackground,
-                    0.5f to SashimiBackground,
-                    1.0f to Color.Transparent,
-                ),
-            ),
-        )
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.6f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
-        ) {
-            DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = false)
-        }
+    // The picture is drawn by DetailScreen, outside the Scaffold padding.
+    Column(
+        modifier =
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(0.6f)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+    ) {
+        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = false)
     }
 }
 
