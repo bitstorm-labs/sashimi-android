@@ -17,6 +17,13 @@ package dev.bitstorm.sashimi.core.herotrailer
  * over a detail composes before the one underneath is disposed, which is why
  * [hidden] only stops the player when the hidden screen is still the top owner.
  *
+ * A start waits out a settle delay before anything plays, so "the trailer for
+ * this source" means the one most recently started, whether it is still
+ * starting, playing, or has run out. A screen for that source appearing on
+ * top takes it over rather than counting it as already played: otherwise a
+ * quick tap from a series into an episode (or "Go to Series") inside the delay
+ * cancelled the start and left the whole visit without a trailer.
+ *
  * Not thread-safe by design: the owning controller confines every call to the
  * main thread.
  */
@@ -40,6 +47,9 @@ class HeroTrailerOwners {
     private val stack = mutableListOf<Entry>()
     private val played = mutableSetOf<String>()
 
+    /** The source of the last [Decision.Start] still in force, or null once stopped. */
+    private var started: String? = null
+
     /** The screen that should currently show the trailer. */
     val topOwner: String? get() = stack.lastOrNull()?.owner
 
@@ -54,14 +64,14 @@ class HeroTrailerOwners {
     ): Decision {
         stack.removeAll { it.owner == owner }
         stack.add(Entry(owner, sourceId))
-        if (sourceId == null) return Decision.Stop
-        if (sourceId == playingSourceId) return Decision.HandOff
-        if (!played.add(sourceId)) return Decision.Stop
+        if (sourceId != null && (sourceId == playingSourceId || sourceId == started)) return Decision.HandOff
+        if (sourceId == null || !played.add(sourceId)) return stop()
+        started = sourceId
         return Decision.Start(sourceId)
     }
 
     /** [owner] left the screen but is still on the back stack. */
-    fun hidden(owner: String): Decision = if (owner == topOwner) Decision.Stop else Decision.Ignore
+    fun hidden(owner: String): Decision = if (owner == topOwner) stop() else Decision.Ignore
 
     /** [owner] left the back stack for good. */
     fun dismissed(
@@ -75,15 +85,22 @@ class HeroTrailerOwners {
         val top = stack.lastOrNull()
         if (top == null) {
             played.clear()
-            return Decision.Stop
+            return stop()
         }
         if (!wasTop) return Decision.Ignore
-        if (playingSourceId != null && top.sourceId == playingSourceId) return Decision.HandOff
-        return Decision.Stop
+        val current = playingSourceId ?: started
+        if (current != null && top.sourceId == current) return Decision.HandOff
+        return stop()
     }
 
     fun reset() {
         stack.clear()
         played.clear()
+        started = null
+    }
+
+    private fun stop(): Decision {
+        started = null
+        return Decision.Stop
     }
 }
