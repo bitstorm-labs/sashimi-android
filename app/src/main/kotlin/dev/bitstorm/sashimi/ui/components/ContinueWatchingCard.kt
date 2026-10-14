@@ -41,6 +41,7 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.Formatting
 import dev.bitstorm.sashimi.ui.util.ImageUrls
+import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 
 private val ProgressTrack = Color(0xFF404040)
 
@@ -68,7 +69,7 @@ fun ContinueWatchingCard(
                     .background(SashimiCard),
         ) {
             AsyncImage(
-                model = ImageUrls.continueWatching(item, width.value.toInt()),
+                model = ImageUrls.continueWatching(item, rememberImageWidth(width)),
                 contentDescription = item.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

@@ -1,8 +1,13 @@
 package dev.bitstorm.sashimi.ui.util
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ImageRef
+import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemImages
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
@@ -32,42 +37,79 @@ open class ImageUrlBuilder(
         maxWidth: Int,
     ): String? = client.imageURL(ref, maxWidth)
 
+    /*
+     * Every width below is the REQUESTED pixel width: compute it from the on-screen
+     * size with [rememberImageWidth] (or ImageSizing in non-UI code), never a
+     * hard-coded number, or a dense screen gets an upscaled, soft picture.
+     */
+
     fun primary(
         item: BaseItemDto,
-        maxWidth: Int,
-    ): String? = url(ItemImages.primary(item), maxWidth)
+        widthPx: Int,
+    ): String? = url(ItemImages.primary(item), widthPx)
 
-    fun banner(item: BaseItemDto): String? = url(ItemImages.banner(item), 1920)
+    fun banner(
+        item: BaseItemDto,
+        widthPx: Int,
+    ): String? = url(ItemImages.banner(item), widthPx)
 
-    fun logo(item: BaseItemDto): String? = url(ItemImages.logo(item), 500)
+    fun logo(
+        item: BaseItemDto,
+        widthPx: Int,
+    ): String? = url(ItemImages.logo(item), widthPx)
 
-    fun seriesLogo(item: BaseItemDto): String? = ItemImages.seriesLogo(item)?.let { url(it, 500) }
+    fun seriesLogo(
+        item: BaseItemDto,
+        widthPx: Int,
+    ): String? = ItemImages.seriesLogo(item)?.let { url(it, widthPx) }
 
-    fun person(person: PersonInfo): String? = client.personImageURL(person.id, 150, person.primaryImageTag)
+    fun person(
+        person: PersonInfo,
+        widthPx: Int,
+    ): String? = client.personImageURL(person.id, widthPx, person.primaryImageTag)
 
     /** A person by id when only the route is at hand; [tag] when the caller has it. */
     fun person(
         personId: String,
         tag: String?,
-    ): String? = client.personImageURL(personId, 150, tag)
+        widthPx: Int,
+    ): String? = client.personImageURL(personId, widthPx, tag)
 
     /** Poster for a card: episodes use the series poster. */
     fun cardPoster(
         item: BaseItemDto,
-        width: Int,
-    ): String? = url(ItemImages.cardPoster(item), width * 2)
+        widthPx: Int,
+    ): String? = url(ItemImages.cardPoster(item), widthPx)
 
     /** 16:9 art for the Continue Watching card. */
     fun continueWatching(
         item: BaseItemDto,
-        width: Int,
-    ): String? = url(ItemImages.continueWatching(item), width * 3)
+        widthPx: Int,
+    ): String? = url(ItemImages.continueWatching(item), widthPx)
 
     /** Detail picture (see [ItemImages.detailBackdrop]). */
     fun detailBackdrop(
         item: BaseItemDto,
         isYouTubeSeries: Boolean,
-    ): String? = url(ItemImages.detailBackdrop(item, isYouTubeSeries), 1280)
+        widthPx: Int,
+    ): String? = url(ItemImages.detailBackdrop(item, isYouTubeSeries), widthPx)
+}
+
+/**
+ * The pixel width to request for an image shown [width] wide on this screen. For
+ * a ContentScale.Crop box, pass its [height] and the picture's [imageAspect]
+ * (width / height) so a wide picture in a tall box is not upscaled.
+ */
+@Composable
+fun rememberImageWidth(
+    width: Dp,
+    height: Dp? = null,
+    imageAspect: Float? = null,
+): Int {
+    val density = LocalDensity.current.density
+    return remember(width, height, imageAspect, density) {
+        ImageSizing.requestWidth(width.value, density, height?.value, imageAspect)
+    }
 }
 
 /** Image URLs for the active server. */
