@@ -379,7 +379,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
             Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
         ) {
             AsyncImage(
-                model = LocalImageUrls.current.banner(item.id),
+                model = LocalImageUrls.current.banner(item),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -392,7 +392,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
         }
         // Avatar centered on the banner's bottom edge (top offset = banner - r).
         AsyncImage(
-            model = LocalImageUrls.current.primary(item.id, 240),
+            model = LocalImageUrls.current.primary(item, 240),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier =
@@ -538,7 +538,7 @@ private fun TitleBlock(
                 }
                 if (!yt && seriesId != null) {
                     LogoImage(
-                        logoUrl = LocalImageUrls.current.logo(seriesId),
+                        logoUrl = LocalImageUrls.current.seriesLogo(item),
                         fallback = seriesNameText,
                         modifier = Modifier.heightIn(max = 60.dp).widthIn(max = 250.dp),
                     )
@@ -599,7 +599,7 @@ private fun LogoOrTitle(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AsyncImage(
-                    model = LocalImageUrls.current.primary(item.id, 240),
+                    model = LocalImageUrls.current.primary(item, 240),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(50.dp).clip(CircleShape).background(SashimiCard),
@@ -627,7 +627,7 @@ private fun LogoOrTitle(
         )
     }
     LogoImage(
-        logoUrl = LocalImageUrls.current.logo(item.id),
+        logoUrl = LocalImageUrls.current.logo(item),
         fallback = titleText,
         modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
     )
@@ -1327,7 +1327,7 @@ private fun EpisodeRow(
                 .background(SashimiCard),
         ) {
             AsyncImage(
-                model = LocalImageUrls.current.primary(episode.id, 400),
+                model = LocalImageUrls.current.primary(episode, 400),
                 contentDescription = episode.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -1411,7 +1411,7 @@ private fun CastCard(
         Box(Modifier.size(70.dp).clip(CircleShape).background(SashimiCard)) {
             if (person.primaryImageTag != null) {
                 AsyncImage(
-                    model = LocalImageUrls.current.person(person.id),
+                    model = LocalImageUrls.current.person(person),
                     contentDescription = person.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

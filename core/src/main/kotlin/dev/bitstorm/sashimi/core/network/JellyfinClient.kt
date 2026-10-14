@@ -4,6 +4,7 @@ import dev.bitstorm.sashimi.core.home.NextUpSelector
 import dev.bitstorm.sashimi.core.home.isSpecial
 import dev.bitstorm.sashimi.core.model.AuthenticationResult
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ImageRef
 import dev.bitstorm.sashimi.core.model.IntroSkipperSegment
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.ItemsResponse
@@ -627,7 +628,8 @@ class JellyfinClient(
                             "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
                             "Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags," +
                             "RemoteTrailers,LocalTrailerCount,Trickplay",
-                        "EnableImageTypes" to "Primary,Backdrop,Thumb",
+                        // Logo/Banner too, so their tags reach the logo and banner URLs.
+                        "EnableImageTypes" to "Primary,Backdrop,Thumb,Logo,Banner",
                     ),
             )
         return decode(data)
@@ -1050,18 +1052,30 @@ class JellyfinClient(
         return base + fullPath
     }
 
+    /**
+     * An item image. Pass the server's image [tag] whenever it is known: the
+     * image cache is keyed by URL, so without it a picture the server replaced
+     * keeps showing the cached old one.
+     */
     fun imageURL(
         itemId: String,
         imageType: String = "Primary",
         maxWidth: Int = 400,
+        tag: String? = null,
     ): String? {
         val base = serverUrl ?: return null
         return base.newBuilder()
             .addPathSegments("Items/$itemId/Images/$imageType")
             .addQueryParameter("maxWidth", "$maxWidth")
+            .apply { if (!tag.isNullOrEmpty()) addQueryParameter("tag", tag) }
             .build()
             .toString()
     }
+
+    fun imageURL(
+        ref: ImageRef,
+        maxWidth: Int,
+    ): String? = imageURL(ref.itemId, ref.type, maxWidth, ref.tag)
 
     fun userImageURL(
         userId: String,
@@ -1078,11 +1092,13 @@ class JellyfinClient(
     fun personImageURL(
         personId: String,
         maxWidth: Int = 150,
+        tag: String? = null,
     ): String? {
         val base = serverUrl ?: return null
         return base.newBuilder()
             .addPathSegments("Items/$personId/Images/Primary")
             .addQueryParameter("maxWidth", "$maxWidth")
+            .apply { if (!tag.isNullOrEmpty()) addQueryParameter("tag", tag) }
             .build()
             .toString()
     }
