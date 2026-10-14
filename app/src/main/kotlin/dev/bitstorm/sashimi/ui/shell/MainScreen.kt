@@ -25,6 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -357,7 +360,7 @@ private fun AppShell(
                         selected = currentDestination.isOnTab(dest),
                         onClick = { navigateToTab(dest) },
                         icon = { DestinationIcon(dest) },
-                        label = { Text(dest.label) },
+                        label = { NavLabel(dest.label) },
                     )
                 }
             }
@@ -372,7 +375,7 @@ private fun AppShell(
                             selected = currentDestination.isOnTab(dest),
                             onClick = { navigateToTab(dest) },
                             icon = { DestinationIcon(dest) },
-                            label = { Text(dest.label) },
+                            label = { NavLabel(dest.label) },
                         )
                     }
                 }
@@ -443,3 +446,20 @@ private fun FullScreenSheet(
         }
     }
 }
+
+/**
+ * Tab label that stays on one line. A system font scale above 1.2 is capped here
+ * (the tab icon carries the meaning), otherwise at 2.0 "Libraries"/"Downloads"
+ * broke mid-word; ellipsis is the last resort on a very narrow item.
+ */
+@Composable
+private fun NavLabel(text: String) {
+    val density = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(density.density, density.fontScale.coerceAtMost(MAX_NAV_LABEL_FONT_SCALE)),
+    ) {
+        Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private const val MAX_NAV_LABEL_FONT_SCALE = 1.2f
