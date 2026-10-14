@@ -118,9 +118,22 @@ data class HeroTrailerStream(
     val url: String,
     /** Null when the server reported none; the encoding then ends on the server's idle timeout. */
     val playSessionId: String?,
+)
+
+/**
+ * The hero trailer's transcode cap. A phone shows it full width at 220dp, so
+ * 1280 / 4 Mbps is plenty; the wide (tablet) hero is about half a large screen
+ * and looked soft at that, so it gets 1920 / 8 Mbps. Same caps as
+ * sashimi-apple#680.
+ */
+data class HeroTrailerCaps(
+    val maxBitrate: Int,
+    val maxWidth: Int,
 ) {
     companion object {
-        const val MAX_BITRATE = 4_000_000
-        const val MAX_WIDTH = 1280
+        val COMPACT = HeroTrailerCaps(maxBitrate = 4_000_000, maxWidth = 1280)
+        val EXPANDED = HeroTrailerCaps(maxBitrate = 8_000_000, maxWidth = 1920)
+
+        fun forWidth(isCompactWidth: Boolean): HeroTrailerCaps = if (isCompactWidth) COMPACT else EXPANDED
     }
 }

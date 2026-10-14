@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.core.playback
 
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerCaps
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import kotlinx.coroutines.runBlocking
@@ -90,7 +91,7 @@ class NegotiationBodyTest {
     @Test
     fun `the hero trailer stream is a forced small transcode with no video copy`() =
         runBlocking {
-            val stream = engine { TRANSCODE_1080 }.heroTrailerStream("trailer-1")
+            val stream = engine { TRANSCODE_1080 }.heroTrailerStream("trailer-1", HeroTrailerCaps.forWidth(isCompactWidth = true))
             val body = Json.parseToJsonElement(bodies.single()).jsonObject
             assertEquals(4_000_000, body.getValue("MaxStreamingBitrate").jsonPrimitive.int)
             assertEquals("false", body.getValue("EnableDirectPlay").jsonPrimitive.content)
@@ -105,9 +106,19 @@ class NegotiationBodyTest {
         }
 
     @Test
+    fun `the wide hero trailer asks for 1920 at 8 Mbps`() =
+        runBlocking {
+            engine { TRANSCODE_1080 }.heroTrailerStream("trailer-1", HeroTrailerCaps.forWidth(isCompactWidth = false))
+            val body = Json.parseToJsonElement(bodies.single()).jsonObject
+            assertEquals(8_000_000, body.getValue("MaxStreamingBitrate").jsonPrimitive.int)
+            assertEquals(listOf("1920"), widthCaps(bodies.single()))
+            assertEquals("false", body.getValue("AllowVideoStreamCopy").jsonPrimitive.content)
+        }
+
+    @Test
     fun `no hero trailer stream when the server offers no transcode`() =
         runBlocking {
-            assertEquals(null, engine { DIRECT_PLAY }.heroTrailerStream("trailer-1"))
+            assertEquals(null, engine { DIRECT_PLAY }.heroTrailerStream("trailer-1", HeroTrailerCaps.COMPACT))
         }
 
     @Test
