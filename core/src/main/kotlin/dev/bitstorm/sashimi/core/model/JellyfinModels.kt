@@ -167,6 +167,9 @@ data class BaseItemDto(
     @SerialName("ProductionYear") val productionYear: Int? = null,
     @SerialName("CommunityRating") val communityRating: Double? = null,
     @SerialName("OfficialRating") val officialRating: String? = null,
+    // Series air status ("Continuing" / "Ended" / "Unreleased"). Jellyfin sends it
+    // on series items without any Fields entry; see SeriesStatusBadge.
+    @SerialName("Status") val status: String? = null,
     @SerialName("Genres") val genres: List<String>? = null,
     @SerialName("Taglines") val taglines: List<String>? = null,
     @SerialName("People") val people: List<PersonInfo>? = null,
