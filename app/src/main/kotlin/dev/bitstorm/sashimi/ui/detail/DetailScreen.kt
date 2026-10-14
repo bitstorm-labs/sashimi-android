@@ -726,7 +726,7 @@ private fun RatingsAndMedia(
                 if (ac != null && ch != null) AudioBadge(codec = ac, channels = ch)
             }
         }
-        SeriesStatusBadge.from(item)?.let { SeriesStatusPill(it) }
+        SeriesStatusBadge.from(item, state.seriesStatus)?.let { SeriesStatusPill(it) }
     }
 }
 
@@ -735,7 +735,7 @@ private val StatusEnded = Color(0xFFB8B6C4)
 private val StatusUpcoming = Color(0xFF5CADE6)
 
 /**
- * Show-status pill at the end of the series info row: a dot then the word, on
+ * Show-status pill at the end of the info row (series, season, episode): a dot then the word, on
  * the status colour at 14% alpha. Same text size/weight and padding as MediaBadge.
  */
 @Composable

@@ -45,10 +45,36 @@ class SeriesStatusBadgeTest {
     }
 
     @Test
-    fun `non-series items never get a badge even with a status`() {
-        for (type in listOf(ItemType.SEASON, ItemType.EPISODE, ItemType.MOVIE, null)) {
-            assertNull("$type", SeriesStatusBadge.from(item(type, "Continuing")))
+    fun `movies and untyped items never get a badge`() {
+        for (type in listOf(ItemType.MOVIE, ItemType.VIDEO, null)) {
+            assertNull("$type", SeriesStatusBadge.from(item(type, "Continuing"), seriesStatus = "Continuing"))
         }
+    }
+
+    @Test
+    fun `episodes and seasons use the parent series status`() {
+        for (type in listOf(ItemType.EPISODE, ItemType.SEASON)) {
+            assertEquals(
+                "$type",
+                SeriesStatusBadge(SeriesStatusBadge.Kind.ENDED, "Ended"),
+                SeriesStatusBadge.from(item(type, status = null), seriesStatus = "Ended"),
+            )
+        }
+    }
+
+    @Test
+    fun `episodes and seasons ignore their own status and need the series one`() {
+        for (type in listOf(ItemType.EPISODE, ItemType.SEASON)) {
+            assertNull("$type", SeriesStatusBadge.from(item(type, "Continuing"), seriesStatus = null))
+        }
+    }
+
+    @Test
+    fun `a series ignores any passed series status and uses its own`() {
+        assertEquals(
+            SeriesStatusBadge.Kind.CONTINUING,
+            SeriesStatusBadge.from(item(ItemType.SERIES, "Continuing"), seriesStatus = "Ended")?.kind,
+        )
     }
 
     @Test
