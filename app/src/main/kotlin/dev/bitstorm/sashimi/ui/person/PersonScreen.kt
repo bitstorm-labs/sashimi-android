@@ -183,7 +183,7 @@ private fun PersonHeader(route: PersonRoute) {
             Icon(Icons.Filled.Person, contentDescription = null, tint = SashimiTextTertiary, modifier = Modifier.size(40.dp))
             if (route.primaryImageTag != null) {
                 AsyncImage(
-                    model = images.person(route.personId),
+                    model = images.person(route.personId, route.primaryImageTag),
                     contentDescription = route.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -242,7 +242,7 @@ private fun FilmographyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.width(56.dp).height(84.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))) {
-            images?.primary(item.id, 168)?.let { url ->
+            images?.primary(item, 168)?.let { url ->
                 AsyncImage(
                     model = url,
                     contentDescription = null,

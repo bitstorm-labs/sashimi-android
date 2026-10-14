@@ -1,6 +1,8 @@
 package dev.bitstorm.sashimi
 
 import android.app.Application
+import coil.imageLoader
+import dev.bitstorm.sashimi.core.util.ImageCacheEpoch
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -32,5 +34,29 @@ class SashimiApplication : Application() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO + restoreFailsafe).launch {
             ServiceLocator.session.restoreSession()
         }
+        clearStaleImageCacheOnce()
+    }
+
+    /**
+     * Drops Coil's caches once per [ImageCacheEpoch] bump, so pictures cached
+     * before image URLs carried the server's tag are refetched. The epoch is
+     * recorded only after the clear succeeds, so a failure retries next launch.
+     * Synchronous on purpose: it must finish before the first screen requests an
+     * image, and it runs once per epoch, not per launch.
+     */
+    private fun clearStaleImageCacheOnce() {
+        val prefs = getSharedPreferences(IMAGE_CACHE_PREFS, MODE_PRIVATE)
+        if (!ImageCacheEpoch.needsClear(prefs.getInt(KEY_EPOCH, 0))) return
+        val cleared =
+            runCatching {
+                imageLoader.memoryCache?.clear()
+                imageLoader.diskCache?.clear()
+            }.isSuccess
+        if (cleared) prefs.edit().putInt(KEY_EPOCH, ImageCacheEpoch.CURRENT).apply()
+    }
+
+    private companion object {
+        const val IMAGE_CACHE_PREFS = "image_cache"
+        const val KEY_EPOCH = "epoch"
     }
 }
