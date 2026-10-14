@@ -33,6 +33,8 @@ data class DetailUiState(
     val mediaInfo: MediaSourceInfo? = null,
     val seriesCommunityRating: Double? = null,
     val seriesCriticRating: Int? = null,
+    // The parent series' Status, for the status pill on season/episode screens.
+    val seriesStatus: String? = null,
     val deleted: Boolean = false,
     val error: String? = null,
 ) {
@@ -106,6 +108,7 @@ class DetailViewModel(
         when (item.type) {
             ItemType.SERIES -> loadSeriesContent(item)
             ItemType.EPISODE -> loadEpisodeContent(item)
+            ItemType.SEASON -> loadSeasonSeriesStatus(item)
             else -> {}
         }
         // Media badges for everything but series.
@@ -140,6 +143,16 @@ class DetailViewModel(
         }
     }
 
+    /** A season screen only needs its series' Status (for the status pill). */
+    private suspend fun loadSeasonSeriesStatus(item: BaseItemDto) {
+        val generation = loadGeneration
+        val seriesId = item.seriesId ?: return
+        // A failure here only means no pill; nothing else on the screen depends on it.
+        val series = runCatchingCancellable { client.getItem(seriesId) }.getOrNull()
+        if (generation != loadGeneration) return
+        _state.update { it.copy(seriesStatus = series?.status) }
+    }
+
     private suspend fun loadEpisodeContent(item: BaseItemDto) {
         val seriesId = item.seriesId ?: return
         val series = runCatching { client.getItem(seriesId) }.getOrNull()
@@ -149,6 +162,7 @@ class DetailViewModel(
                 seasons = seasons,
                 seriesCommunityRating = series?.communityRating,
                 seriesCriticRating = series?.criticRating,
+                seriesStatus = series?.status,
                 selectedSeasonId = item.seasonId,
             )
         }
