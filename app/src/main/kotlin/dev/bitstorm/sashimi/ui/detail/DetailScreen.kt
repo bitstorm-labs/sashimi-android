@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -92,6 +94,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
+import dev.bitstorm.sashimi.core.model.SeriesStatusBadge
 import dev.bitstorm.sashimi.core.model.cleanedYouTubeTitle
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.person.CastOrdering
@@ -660,6 +663,7 @@ private fun LogoImage(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MetadataRow(item: BaseItemDto) {
     val parts = Formatting.detailMetadata(item)
@@ -667,24 +671,34 @@ private fun MetadataRow(item: BaseItemDto) {
     val endsAt = item.runTimeTicks?.let { Formatting.endsAt(it, use24Hour) }
 
     if (parts.isNotEmpty() || endsAt != null) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // FlowRow: at a large font scale a plain Row squeezed "Ends at" into a
+        // one-word-per-line column at the right edge; now it drops to its own line.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (parts.isNotEmpty()) {
                 Text(parts.joinToString(" • "), color = SashimiTextSecondary, fontSize = 13.sp)
             }
             if (endsAt != null) {
-                if (parts.isNotEmpty()) Text("•", color = SashimiTextSecondary, fontSize = 13.sp)
-                Text(endsAt, color = SashimiAccent, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (parts.isNotEmpty()) Text("•", color = SashimiTextSecondary, fontSize = 13.sp)
+                    Text(endsAt, color = SashimiAccent, fontSize = 13.sp)
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RatingsAndMedia(
     state: DetailUiState,
     item: BaseItemDto,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    // FlowRow so the chips wrap on a narrow phone instead of squeezing the last one.
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         val community = item.communityRating ?: state.seriesCommunityRating
         val critic = item.criticRating ?: state.seriesCriticRating
         // TMDb community rating: the brand logo (colored, untinted) + score. Port
@@ -712,6 +726,37 @@ private fun RatingsAndMedia(
                 if (ac != null && ch != null) AudioBadge(codec = ac, channels = ch)
             }
         }
+        SeriesStatusBadge.from(item)?.let { SeriesStatusPill(it) }
+    }
+}
+
+private val StatusContinuing = Color(0xFF3FBF7F)
+private val StatusEnded = Color(0xFFB8B6C4)
+private val StatusUpcoming = Color(0xFF5CADE6)
+
+/**
+ * Show-status pill at the end of the series info row: a dot then the word, on
+ * the status colour at 14% alpha. Same text size/weight and padding as MediaBadge.
+ */
+@Composable
+private fun SeriesStatusPill(badge: SeriesStatusBadge) {
+    val color =
+        when (badge.kind) {
+            SeriesStatusBadge.Kind.CONTINUING -> StatusContinuing
+            SeriesStatusBadge.Kind.ENDED -> StatusEnded
+            SeriesStatusBadge.Kind.UPCOMING -> StatusUpcoming
+        }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.14f))
+                .padding(horizontal = 9.dp, vertical = 4.dp),
+    ) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+        Text(badge.label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
