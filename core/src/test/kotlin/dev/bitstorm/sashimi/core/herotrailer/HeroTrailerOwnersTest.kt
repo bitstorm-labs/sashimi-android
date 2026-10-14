@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.core.herotrailer
 
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerOwners.Decision
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class HeroTrailerOwnersTest {
@@ -28,11 +29,36 @@ class HeroTrailerOwnersTest {
     }
 
     @Test
-    fun `a finished trailer does not replay in the same visit`() {
+    fun `drilling in before the trailer has started hands the pending start over`() {
+        // The start waits out a settle delay, so a quick tap through to the
+        // episode (or "Go to Series") arrives while nothing is playing yet. That
+        // must keep the scheduled start, not count it as already played.
+        assertEquals(Decision.Start("s1"), owners.appeared("episode", "s1", null))
+        assertEquals(Decision.HandOff, owners.appeared("series", "s1", playingSourceId = null))
+        assertEquals("series", owners.topOwner)
+        assertEquals(Decision.Ignore, owners.hidden("episode"))
+        // Back before it starts: the episode takes the pending start back.
+        assertEquals(Decision.HandOff, owners.appeared("episode", "s1", playingSourceId = null))
+        assertEquals(Decision.Ignore, owners.dismissed("series", playingSourceId = null))
+    }
+
+    @Test
+    fun `a stopped trailer does not replay in the same visit`() {
+        owners.appeared("movie", "m", null)
+        // Play pressed: the player covers the screen and the trailer stops.
+        assertEquals(Decision.Stop, owners.hidden("movie"))
+        // Returning from the player re-shows the same screen: no replay.
+        assertEquals(Decision.Stop, owners.appeared("movie", "m", playingSourceId = null))
+        // Nor in a screen drilled into from there.
+        assertEquals(Decision.Stop, owners.appeared("season", "m", playingSourceId = null))
+    }
+
+    @Test
+    fun `a trailer that ran out never starts again in the same visit`() {
         owners.appeared("series", "s1", null)
-        assertEquals(Decision.Stop, owners.appeared("season", "s1", playingSourceId = null))
-        // Returning from the player re-shows the same screen: still no replay.
-        assertEquals(Decision.Stop, owners.appeared("season", "s1", playingSourceId = null))
+        // It played and ended on its own (nothing playing now): not a fresh start.
+        assertNotEquals(Decision.Start("s1"), owners.appeared("season", "s1", playingSourceId = null))
+        assertNotEquals(Decision.Start("s1"), owners.appeared("series", "s1", playingSourceId = null))
     }
 
     @Test
