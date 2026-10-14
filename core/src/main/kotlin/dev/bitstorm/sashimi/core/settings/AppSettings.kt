@@ -61,6 +61,16 @@ class AppSettings(context: Context) {
     val themeSongsEnabled: StateFlow<Boolean> = _themeSongsEnabled.asStateFlow()
 
     /**
+     * "Play trailers on detail screens", or null until the user picks. Unset, it
+     * follows the window: off at compact width, on when wide (see
+     * [dev.bitstorm.sashimi.core.herotrailer.HeroTrailerPolicy.settingOn]),
+     * the same split as iPhone and iPad.
+     */
+    private val _heroTrailers =
+        MutableStateFlow(if (prefs.contains(KEY_HERO_TRAILERS)) prefs.getBoolean(KEY_HERO_TRAILERS, false) else null)
+    val heroTrailers: StateFlow<Boolean?> = _heroTrailers.asStateFlow()
+
+    /**
      * Show clock times as 24-hour ("21:45") instead of 12-hour ("9:45 PM").
      * Defaults off, like the other clients. Read by [dev.bitstorm.sashimi.core.time.ClockFormat] callers.
      */
@@ -119,6 +129,11 @@ class AppSettings(context: Context) {
 
     fun setThemeSongsEnabled(value: Boolean) = putBoolean(_themeSongsEnabled, KEY_THEME_SONGS, value)
 
+    fun setHeroTrailers(value: Boolean) {
+        _heroTrailers.value = value
+        prefs.edit().putBoolean(KEY_HERO_TRAILERS, value).apply()
+    }
+
     fun setUse24HourTime(value: Boolean) = putBoolean(_use24HourTime, KEY_USE_24_HOUR_TIME, value)
 
     fun setTvShuffleMode(value: TvShuffleMode) {
@@ -159,6 +174,7 @@ class AppSettings(context: Context) {
         private const val KEY_PREF_AUDIO_LANG = "preferredAudioLanguage"
         private const val KEY_PREF_SUB_LANG = "preferredSubtitleLanguage"
         private const val KEY_THEME_SONGS = "themeSongsEnabled"
+        private const val KEY_HERO_TRAILERS = "playHeroTrailers"
         private const val KEY_USE_24_HOUR_TIME = "use24HourTime"
         private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
         private const val KEY_DEFAULT_VIEW_MODE = "defaultViewMode"
