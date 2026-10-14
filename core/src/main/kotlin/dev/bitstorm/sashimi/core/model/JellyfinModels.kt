@@ -162,6 +162,10 @@ data class BaseItemDto(
     @SerialName("ImageTags") val imageTags: Map<String, String>? = null,
     @SerialName("BackdropImageTags") val backdropImageTags: List<String>? = null,
     @SerialName("ParentBackdropImageTags") val parentBackdropImageTags: List<String>? = null,
+    // Image tags change when the server's picture changes; they go on image URLs
+    // (tag=) so the URL-keyed image cache can't keep serving a replaced picture.
+    @SerialName("SeriesPrimaryImageTag") val seriesPrimaryImageTag: String? = null,
+    @SerialName("ParentLogoImageTag") val parentLogoImageTag: String? = null,
     @SerialName("PrimaryImageAspectRatio") val primaryImageAspectRatio: Double? = null,
     @SerialName("MediaType") val mediaType: String? = null,
     @SerialName("ProductionYear") val productionYear: Int? = null,

@@ -2,7 +2,9 @@ package dev.bitstorm.sashimi.ui.util
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import dev.bitstorm.sashimi.core.model.BaseItemDto
-import dev.bitstorm.sashimi.core.model.ItemType
+import dev.bitstorm.sashimi.core.model.ImageRef
+import dev.bitstorm.sashimi.core.model.ItemImages
+import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.di.ServiceLocator
 
@@ -21,78 +23,51 @@ open class ImageUrlBuilder(
 ) {
     private val client get() = clientProvider()
 
-    fun primary(
-        itemId: String,
-        maxWidth: Int,
-    ): String? = client.imageURL(itemId, "Primary", maxWidth)
-
-    fun backdrop(
-        itemId: String,
-        maxWidth: Int = 1280,
-    ): String? = client.imageURL(itemId, "Backdrop", maxWidth)
-
-    fun logo(itemId: String): String? = client.imageURL(itemId, "Logo", 500)
-
-    fun banner(itemId: String): String? = client.imageURL(itemId, "Banner", 1920)
-
-    fun person(personId: String): String? = client.personImageURL(personId, 150)
-
     /**
-     * Poster for a card. Episodes use the series poster (regular shows) except
-     * YouTube landscape thumbnails; everything else uses its own Primary. Port
-     * of MobileRecentlyAddedCard.imageURL.
+     * Every URL carries the image's tag where the item knows it (see [ImageRef]),
+     * so a picture replaced on the server is fetched fresh, not served from cache.
      */
+    fun url(
+        ref: ImageRef,
+        maxWidth: Int,
+    ): String? = client.imageURL(ref, maxWidth)
+
+    fun primary(
+        item: BaseItemDto,
+        maxWidth: Int,
+    ): String? = url(ItemImages.primary(item), maxWidth)
+
+    fun banner(item: BaseItemDto): String? = url(ItemImages.banner(item), 1920)
+
+    fun logo(item: BaseItemDto): String? = url(ItemImages.logo(item), 500)
+
+    fun seriesLogo(item: BaseItemDto): String? = ItemImages.seriesLogo(item)?.let { url(it, 500) }
+
+    fun person(person: PersonInfo): String? = client.personImageURL(person.id, 150, person.primaryImageTag)
+
+    /** A person by id when only the route is at hand; [tag] when the caller has it. */
+    fun person(
+        personId: String,
+        tag: String?,
+    ): String? = client.personImageURL(personId, 150, tag)
+
+    /** Poster for a card: episodes use the series poster. */
     fun cardPoster(
         item: BaseItemDto,
         width: Int,
-    ): String? {
-        val id =
-            if (item.type == ItemType.EPISODE && item.seriesId != null) item.seriesId!! else item.id
-        return primary(id, width * 2)
-    }
+    ): String? = url(ItemImages.cardPoster(item), width * 2)
 
-    /**
-     * 16:9 art for the Continue Watching card. Regular episodes use the series
-     * backdrop; YouTube episodes (no parent backdrop) use the episode thumbnail;
-     * movies/series use their own backdrop. Port of MobileContinueWatchingCard.
-     */
+    /** 16:9 art for the Continue Watching card. */
     fun continueWatching(
         item: BaseItemDto,
         width: Int,
-    ): String? {
-        val seriesHasBackdrop = item.parentBackdropImageTags?.isNotEmpty() == true
-        val maxWidth = width * 3
-        return when (item.type) {
-            ItemType.EPISODE ->
-                if (seriesHasBackdrop) {
-                    client.imageURL(item.seriesId ?: item.id, "Backdrop", maxWidth)
-                } else {
-                    client.imageURL(item.id, "Primary", maxWidth)
-                }
-            ItemType.VIDEO -> client.imageURL(item.id, "Primary", maxWidth)
-            else -> client.imageURL(item.id, "Backdrop", maxWidth)
-        }
-    }
+    ): String? = url(ItemImages.continueWatching(item), width * 3)
 
-    /**
-     * Detail backdrop. Episodes → own Primary; YouTube series → Banner; else the
-     * item (or parent) Backdrop, falling back to Primary. Port of the Swift
-     * detail backdropImageURL.
-     */
+    /** Detail picture (see [ItemImages.detailBackdrop]). */
     fun detailBackdrop(
         item: BaseItemDto,
         isYouTubeSeries: Boolean,
-    ): String? {
-        if (item.type == ItemType.EPISODE) return primary(item.id, 1280)
-        if (isYouTubeSeries) return banner(item.id)
-        val id =
-            when {
-                item.backdropImageTags?.isNotEmpty() == true -> item.id
-                item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null -> item.seriesId!!
-                else -> return primary(item.id, 1280)
-            }
-        return backdrop(id, 1280)
-    }
+    ): String? = url(ItemImages.detailBackdrop(item, isYouTubeSeries), 1280)
 }
 
 /** Image URLs for the active server. */

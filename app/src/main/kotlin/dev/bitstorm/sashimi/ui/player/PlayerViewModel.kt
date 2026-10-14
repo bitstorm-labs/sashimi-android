@@ -23,6 +23,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadLookup
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ItemImages
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
@@ -1334,9 +1335,9 @@ class PlayerViewModel(
                 .getOrNull()
         key?.let { OfflineImages.localThumbnail(it) }?.let { return it }
         return if (episode.imageTags?.containsKey("Primary") != false) {
-            images.primary(episode.id, UP_NEXT_ART_WIDTH)
+            images.primary(episode, UP_NEXT_ART_WIDTH)
         } else {
-            episode.seriesId?.let { images.backdrop(it, UP_NEXT_ART_WIDTH) }
+            ItemImages.seriesBackdrop(episode)?.let { images.url(it, UP_NEXT_ART_WIDTH) }
         }
     }
 
