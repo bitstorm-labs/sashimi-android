@@ -735,8 +735,9 @@ private val StatusEnded = Color(0xFFB8B6C4)
 private val StatusUpcoming = Color(0xFF5CADE6)
 
 /**
- * Show-status pill at the end of the info row (series, season, episode): a dot then the word, on
- * the status colour at 14% alpha. Same text size/weight and padding as MediaBadge.
+ * Show-status pill at the end of the info row (series, season, episode): the word
+ * in the status colour on that colour at 14% alpha. Same text size/weight and
+ * padding as MediaBadge.
  */
 @Composable
 private fun SeriesStatusPill(badge: SeriesStatusBadge) {
@@ -746,18 +747,17 @@ private fun SeriesStatusPill(badge: SeriesStatusBadge) {
             SeriesStatusBadge.Kind.ENDED -> StatusEnded
             SeriesStatusBadge.Kind.UPCOMING -> StatusUpcoming
         }
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Text(
+        badge.label,
+        color = color,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
         modifier =
             Modifier
                 .clip(CircleShape)
                 .background(color.copy(alpha = 0.14f))
-                .padding(horizontal = 9.dp, vertical = 4.dp),
-    ) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(color))
-        Text(badge.label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-    }
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
 }
 
 /** Maps an audio codec to its Dolby/DTS wordmark drawable. Port of audioCodecLogoName. */
