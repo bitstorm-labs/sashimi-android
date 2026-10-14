@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.core.playback
 
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerCaps
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerStream
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
@@ -117,12 +118,15 @@ class PlaybackEngine(
      * background layer. The caller ends the encoding with [stopTranscode] when
      * the clip ends.
      */
-    suspend fun heroTrailerStream(trailerId: String): HeroTrailerStream? {
+    suspend fun heroTrailerStream(
+        trailerId: String,
+        caps: HeroTrailerCaps,
+    ): HeroTrailerStream? {
         val response =
             client.postPlaybackInfo(
                 itemId = trailerId,
-                deviceProfile = profileBuilder.build(HeroTrailerStream.MAX_BITRATE, HeroTrailerStream.MAX_WIDTH),
-                maxStreamingBitrate = HeroTrailerStream.MAX_BITRATE,
+                deviceProfile = profileBuilder.build(caps.maxBitrate, caps.maxWidth),
+                maxStreamingBitrate = caps.maxBitrate,
                 subtitleStreamIndex = SubtitleDecisions.NO_SERVER_SUBTITLE,
                 forceTranscode = true,
                 allowVideoStreamCopy = false,
