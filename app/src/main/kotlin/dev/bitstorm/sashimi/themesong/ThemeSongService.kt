@@ -25,6 +25,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -98,6 +101,14 @@ class ThemeSongService(
     private val targets = mutableMapOf<String, ThemeTarget>()
 
     private var player: ExoPlayer? = null
+
+    private val _isPlaying = MutableStateFlow(false)
+
+    /**
+     * True from the moment a theme starts until it is torn down. The hero
+     * trailer stays silent while it is.
+     */
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     /** The single in-flight command, so a later one cannot race an earlier one. */
     private var command: Job? = null
@@ -237,6 +248,7 @@ class ThemeSongService(
         active.setMediaItem(MediaItem.fromUri(url))
         active.prepare()
         active.play()
+        _isPlaying.value = true
         fadeTo(TARGET_VOLUME, FADE_IN_MS)
         awaitEnd(active)
     }
@@ -374,6 +386,7 @@ class ThemeSongService(
             it.release()
         }
         player = null
+        _isPlaying.value = false
         abandonFocus()
     }
 

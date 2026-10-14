@@ -22,6 +22,7 @@ import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.ServerScopedClients
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.herotrailer.HeroTrailerController
 import dev.bitstorm.sashimi.themesong.ThemeSongService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -82,6 +83,13 @@ object ServiceLocator {
         private set
 
     /**
+     * Owns the detail-screen hero trailer: the player, which screen shows it,
+     * and the server encode behind it. App-level like [themeSongs].
+     */
+    lateinit var heroTrailers: HeroTrailerController
+        private set
+
+    /**
      * Scope for work that must outlive the UI that started it -- a mutation the
      * user has already committed to must not be cancelled just because they
      * navigated away or the row scrolled out of view.
@@ -134,6 +142,17 @@ object ServiceLocator {
         themeSongs = ThemeSongService(app, serverClients::clientFor, appSettings, appScope)
 
         networkMonitor = NetworkMonitor(app)
+        heroTrailers =
+            HeroTrailerController(
+                context = app,
+                client = { client },
+                engine = { playbackEngine },
+                activeServerId = { session.activeServerId.value },
+                settings = appSettings,
+                network = networkMonitor,
+                themeIsPlaying = themeSongs.isPlaying,
+                appScope = appScope,
+            )
         downloadFileManager = DownloadFileManager(app)
         val db =
             Room.databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")

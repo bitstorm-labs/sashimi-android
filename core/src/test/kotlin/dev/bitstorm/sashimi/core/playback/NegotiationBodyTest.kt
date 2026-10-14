@@ -88,6 +88,29 @@ class NegotiationBodyTest {
         }
 
     @Test
+    fun `the hero trailer stream is a forced small transcode with no video copy`() =
+        runBlocking {
+            val stream = engine { TRANSCODE_1080 }.heroTrailerStream("trailer-1")
+            val body = Json.parseToJsonElement(bodies.single()).jsonObject
+            assertEquals(4_000_000, body.getValue("MaxStreamingBitrate").jsonPrimitive.int)
+            assertEquals("false", body.getValue("EnableDirectPlay").jsonPrimitive.content)
+            assertEquals("false", body.getValue("EnableDirectStream").jsonPrimitive.content)
+            assertEquals("true", body.getValue("EnableTranscoding").jsonPrimitive.content)
+            assertEquals("false", body.getValue("AllowVideoStreamCopy").jsonPrimitive.content)
+            assertEquals(-1, body.getValue("SubtitleStreamIndex").jsonPrimitive.int)
+            assertEquals(listOf("1280"), widthCaps(bodies.single()))
+            assertTrue("no bandwidth probe for a fixed cap: $paths", paths.none { it.endsWith("/BitrateTest") })
+            assertTrue(stream!!.url.startsWith("https://remote.example/videos/item-1/master.m3u8"))
+            assertEquals("ps", stream.playSessionId)
+        }
+
+    @Test
+    fun `no hero trailer stream when the server offers no transcode`() =
+        runBlocking {
+            assertEquals(null, engine { DIRECT_PLAY }.heroTrailerStream("trailer-1"))
+        }
+
+    @Test
     fun `transcode reasons come from the TranscodingUrl when the field is absent`() {
         val source =
             MediaSourceInfo(

@@ -722,6 +722,8 @@ class JellyfinClient(
         forceTranscode: Boolean = false,
         /** The media source to negotiate; defaults to the item's primary one (its own id). See [PlaybackInfoRequest.mediaSourceId]. */
         mediaSourceId: String = itemId,
+        /** False makes a forced transcode really re-encode the video instead of remuxing it untouched. */
+        allowVideoStreamCopy: Boolean = true,
     ): PlaybackInfoResponse {
         val uid = requireUserId()
         val flags = NegotiationFlags.derive(forceDirectPlay = forceDirectPlay, forceTranscode = forceTranscode)
@@ -737,6 +739,7 @@ class JellyfinClient(
                 enableDirectPlay = flags.enableDirectPlay,
                 enableDirectStream = flags.enableDirectStream,
                 enableTranscoding = flags.enableTranscoding,
+                allowVideoStreamCopy = allowVideoStreamCopy,
             )
         val body = playbackJson.encodeToString(request)
         val data =

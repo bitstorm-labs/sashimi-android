@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.downloads.StorageAccounting
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerPolicy
 import dev.bitstorm.sashimi.core.playback.VideoViewMode
 import dev.bitstorm.sashimi.core.session.ServerConfig
 import dev.bitstorm.sashimi.core.session.SessionManager
@@ -101,6 +102,8 @@ fun SettingsScreen(
     session: SessionManager,
     onAddServer: () -> Unit,
     onOpenRowOrder: () -> Unit,
+    /** Compact width decides the hero-trailer default until the user picks one. */
+    isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val servers by session.servers.collectAsStateWithLifecycle()
@@ -164,6 +167,13 @@ fun SettingsScreen(
                     themeSongs,
                     settings::setThemeSongsEnabled,
                     subtitle = "Play a show's theme music while you browse its page.",
+                )
+                val heroTrailers by settings.heroTrailers.collectAsStateWithLifecycle()
+                SwitchRow(
+                    "Play trailers on detail screens",
+                    HeroTrailerPolicy.settingOn(heroTrailers, isCompact),
+                    settings::setHeroTrailers,
+                    subtitle = "Play a short clip of a title's trailer behind its page. Never on mobile data.",
                 )
                 val use24Hour by settings.use24HourTime.collectAsStateWithLifecycle()
                 SwitchRow("24-Hour Time", use24Hour, settings::setUse24HourTime)
