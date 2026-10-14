@@ -107,3 +107,9 @@ dependencies {
 
     testImplementation(libs.junit)
 }
+
+// MainActivityLaunchModeTest reads the source manifest; declare it so a manifest
+// edit re-runs the tests instead of reusing an up-to-date result.
+tasks.withType<Test>().configureEach {
+    inputs.file("src/main/AndroidManifest.xml")
+}
