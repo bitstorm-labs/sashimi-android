@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.ui.shell
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
@@ -377,7 +378,9 @@ private fun AppShell(
                 }
             },
         ) { innerPadding ->
-            host(Modifier.fillMaxSize().padding(innerPadding))
+            // Consume what innerPadding already covers, or every pushed screen's
+            // own top bar adds the status bar height a second time.
+            host(Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding))
         }
     }
 
