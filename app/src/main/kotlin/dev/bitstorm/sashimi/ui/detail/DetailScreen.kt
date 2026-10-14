@@ -76,11 +76,13 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -92,6 +94,7 @@ import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
 import dev.bitstorm.sashimi.core.downloads.DownloadQuality
 import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.PersonInfo
 import dev.bitstorm.sashimi.core.model.SeriesStatusBadge
@@ -118,6 +121,7 @@ import dev.bitstorm.sashimi.ui.util.Formatting
 import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import dev.bitstorm.sashimi.ui.util.LocalImageUrls
+import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 import kotlinx.coroutines.launch
 
 private val WatchedGreen = Color(red = 0.29f, green = 0.73f, blue = 0.47f)
@@ -348,7 +352,13 @@ private fun CompactLayout(
                 // The picture fades out over the trailer and back in after it.
                 Box(Modifier.matchParentSize().then(fade)) {
                     AsyncImage(
-                        model = LocalImageUrls.current.detailBackdrop(item, false),
+                        // Full screen width x 220dp, a 16:9 picture cropped into it.
+                        model =
+                            LocalImageUrls.current.detailBackdrop(
+                                item,
+                                false,
+                                rememberImageWidth(screenWidth(), 220.dp, ImageSizing.LANDSCAPE_ASPECT),
+                            ),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
@@ -379,7 +389,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
             Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
         ) {
             AsyncImage(
-                model = LocalImageUrls.current.banner(item),
+                model = LocalImageUrls.current.banner(item, rememberImageWidth(screenWidth())),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -392,7 +402,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
         }
         // Avatar centered on the banner's bottom edge (top offset = banner - r).
         AsyncImage(
-            model = LocalImageUrls.current.primary(item, 240),
+            model = LocalImageUrls.current.primary(item, rememberImageWidth(avatarSize)),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier =
@@ -419,16 +429,18 @@ private fun BoxScope.ExpandedBackdrop(
     heroOwner: String,
 ) {
     val ytSeries = isYouTube(libraryName, item.path) && item.type == ItemType.SERIES
+    val heroFraction = if (ytSeries) 0.65f else 0.55f
     // Sized by the image; the trailer layer underneath matches it.
     HeroTrailerBackdrop(
         heroOwner,
         Modifier
-            .fillMaxWidth(if (ytSeries) 0.65f else 0.55f)
+            .fillMaxWidth(heroFraction)
             .align(Alignment.TopEnd)
             .heroEdgeFade(fadeLeft = true),
     ) { fade ->
         AsyncImage(
-            model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
+            // Fit to a fraction of the screen width (slightly over: the rail is ignored).
+            model = LocalImageUrls.current.detailBackdrop(item, ytSeries, rememberImageWidth(screenWidth() * heroFraction)),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             alignment = Alignment.TopEnd,
@@ -538,7 +550,7 @@ private fun TitleBlock(
                 }
                 if (!yt && seriesId != null) {
                     LogoImage(
-                        logoUrl = LocalImageUrls.current.seriesLogo(item),
+                        logoUrl = LocalImageUrls.current.seriesLogo(item, rememberImageWidth(250.dp)),
                         fallback = seriesNameText,
                         modifier = Modifier.heightIn(max = 60.dp).widthIn(max = 250.dp),
                     )
@@ -599,7 +611,7 @@ private fun LogoOrTitle(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AsyncImage(
-                    model = LocalImageUrls.current.primary(item, 240),
+                    model = LocalImageUrls.current.primary(item, rememberImageWidth(50.dp)),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(50.dp).clip(CircleShape).background(SashimiCard),
@@ -627,7 +639,7 @@ private fun LogoOrTitle(
         )
     }
     LogoImage(
-        logoUrl = LocalImageUrls.current.logo(item),
+        logoUrl = LocalImageUrls.current.logo(item, rememberImageWidth(300.dp)),
         fallback = titleText,
         modifier = Modifier.heightIn(max = 100.dp).widthIn(max = 300.dp),
     )
@@ -1327,7 +1339,7 @@ private fun EpisodeRow(
                 .background(SashimiCard),
         ) {
             AsyncImage(
-                model = LocalImageUrls.current.primary(episode, 400),
+                model = LocalImageUrls.current.primary(episode, rememberImageWidth(120.dp, 68.dp, ImageSizing.LANDSCAPE_ASPECT)),
                 contentDescription = episode.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -1411,7 +1423,7 @@ private fun CastCard(
         Box(Modifier.size(70.dp).clip(CircleShape).background(SashimiCard)) {
             if (person.primaryImageTag != null) {
                 AsyncImage(
-                    model = LocalImageUrls.current.person(person),
+                    model = LocalImageUrls.current.person(person, rememberImageWidth(70.dp)),
                     contentDescription = person.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -1432,3 +1444,7 @@ private fun CastCard(
         }
     }
 }
+
+/** The window width, for full-width pictures sized before layout. */
+@Composable
+private fun screenWidth(): Dp = LocalConfiguration.current.screenWidthDp.dp
