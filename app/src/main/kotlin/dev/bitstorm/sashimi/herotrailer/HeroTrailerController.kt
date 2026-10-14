@@ -174,7 +174,7 @@ class HeroTrailerController(
             is HeroTrailerOwners.Decision.Start -> {
                 stop()
                 _activeOwner.value = owners.topOwner
-                scheduleStart(decision.sourceId, owners.topOwner)
+                scheduleStart(decision.sourceId)
             }
             HeroTrailerOwners.Decision.HandOff -> _activeOwner.value = owners.topOwner
             HeroTrailerOwners.Decision.Stop -> {
@@ -185,28 +185,28 @@ class HeroTrailerController(
         }
     }
 
-    private fun scheduleStart(
-        sourceId: String,
-        owner: String?,
-    ) {
+    /**
+     * Not tied to the screen that asked: a screen for the same source pushed on
+     * top during the delay takes the start over (a hand-off), and whatever ends
+     * the visit instead goes through [stop], which cancels this job.
+     */
+    private fun scheduleStart(sourceId: String) {
         startJob =
             scope.launch {
                 // The image shows first; the trailer only starts once the screen
                 // has settled, so flicking past a title costs no transcode.
                 delay(START_DELAY_MS)
-                if (_activeOwner.value != owner) return@launch
                 val serverId = activeServerId()
                 val resolver =
                     resolvers.getOrPut(serverId) {
                         HeroTrailerResolver { id -> HeroTrailerSource.from(client().getLocalTrailers(id)) }
                     }
                 val trailer = resolver.resolve(sourceId) ?: return@launch
-                if (_activeOwner.value != owner) return@launch
                 val streamEngine = engine()
                 val stream =
                     runCatchingCancellable { streamEngine.heroTrailerStream(trailer.id) }.getOrNull()
                         ?: return@launch
-                if (_activeOwner.value != owner || activeServerId() != serverId) {
+                if (activeServerId() != serverId) {
                     stream.playSessionId?.let { session -> appScope.launch { streamEngine.stopTranscode(session) } }
                     return@launch
                 }
