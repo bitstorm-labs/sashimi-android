@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,21 +21,30 @@ class NetworkMonitor(context: Context) {
     private val _isOnline = MutableStateFlow(currentlyOnline())
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
+    private val _isMetered = MutableStateFlow(currentlyMetered())
+
+    /**
+     * Whether the current network is billed by the byte (mobile data, a metered
+     * hotspot). The analogue of iOS `isExpensive`: optional background traffic,
+     * like a detail screen's hero trailer, is skipped on it.
+     */
+    val isMetered: StateFlow<Boolean> = _isMetered.asStateFlow()
+
     private val callback =
         object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                _isOnline.value = currentlyOnline()
+                update()
             }
 
             override fun onLost(network: Network) {
-                _isOnline.value = currentlyOnline()
+                update()
             }
 
             override fun onCapabilitiesChanged(
                 network: Network,
                 caps: NetworkCapabilities,
             ) {
-                _isOnline.value = currentlyOnline()
+                update()
             }
 
             /**
@@ -48,7 +58,7 @@ class NetworkMonitor(context: Context) {
                 network: Network,
                 blocked: Boolean,
             ) {
-                _isOnline.value = if (blocked) false else currentlyOnline()
+                if (blocked) _isOnline.value = false else update()
             }
         }
 
@@ -62,7 +72,24 @@ class NetworkMonitor(context: Context) {
      * foreground, independent of which system callback did or didn't fire.
      */
     fun refresh() {
+        update()
+    }
+
+    private fun update() {
         _isOnline.value = currentlyOnline()
+        _isMetered.value = currentlyMetered()
+    }
+
+    /** Unknown counts as metered, so nothing optional streams on a guess. */
+    private fun currentlyMetered(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return true
+        val caps = connectivityManager.getNetworkCapabilities(network) ?: return true
+        if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) return false
+        // An unlimited 5G plan marks itself temporarily unmetered (API 30+).
+        return !(
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED)
+        )
     }
 
     private fun currentlyOnline(): Boolean {

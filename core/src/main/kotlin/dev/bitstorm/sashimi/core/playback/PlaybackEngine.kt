@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.core.playback
 
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerStream
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import kotlin.math.roundToLong
@@ -104,6 +105,31 @@ class PlaybackEngine(
             )
         val source = response.mediaSources?.firstOrNull() ?: throw PlaybackError.NoMediaSource
         return response to source
+    }
+
+    /**
+     * A small transcode of a local trailer for a detail screen's hero, or null
+     * when the server offers no transcode for it.
+     *
+     * Trailers from Trailarr are MKV with VP9 and Opus, so everything is forced
+     * through one 1280-wide, 4 Mbps HLS encode with no video stream copy: a
+     * copied 4K VP9 stream would be neither small nor reliably decodable as a
+     * background layer. The caller ends the encoding with [stopTranscode] when
+     * the clip ends.
+     */
+    suspend fun heroTrailerStream(trailerId: String): HeroTrailerStream? {
+        val response =
+            client.postPlaybackInfo(
+                itemId = trailerId,
+                deviceProfile = profileBuilder.build(HeroTrailerStream.MAX_BITRATE, HeroTrailerStream.MAX_WIDTH),
+                maxStreamingBitrate = HeroTrailerStream.MAX_BITRATE,
+                subtitleStreamIndex = SubtitleDecisions.NO_SERVER_SUBTITLE,
+                forceTranscode = true,
+                allowVideoStreamCopy = false,
+            )
+        val path = response.mediaSources?.firstOrNull()?.transcodingUrl?.takeIf { it.isNotEmpty() } ?: return null
+        val url = client.buildURL(path) ?: return null
+        return HeroTrailerStream(url, response.playSessionId)
     }
 
     /**

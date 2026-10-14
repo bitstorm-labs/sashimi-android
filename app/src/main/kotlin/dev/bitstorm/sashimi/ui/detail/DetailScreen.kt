@@ -93,6 +93,8 @@ import dev.bitstorm.sashimi.core.person.CastOrdering
 import dev.bitstorm.sashimi.core.person.ServerMediaGrouping
 import dev.bitstorm.sashimi.core.person.displayRole
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.herotrailer.HeroTrailerBackdrop
+import dev.bitstorm.sashimi.herotrailer.rememberHeroTrailerOwner
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.components.isYouTube
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
@@ -186,6 +188,16 @@ fun DetailScreen(
     // a title from another server against that server.
     dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(item, serverId = serverId?.takeIf { it != activeServerId })
 
+    // Hero trailer: report this screen; HeroTrailerController decides. A
+    // YouTube channel's banner hero has no trailer layer.
+    val heroOwner =
+        rememberHeroTrailerOwner(
+            item,
+            serverId = serverId,
+            isCompact = isCompact,
+            hasTrailerLayer = item == null || !(isYouTube(libraryName, item.path) && item.type == ItemType.SERIES),
+        )
+
     val openPerson: (PersonInfo) -> Unit = { person ->
         item?.let { current -> onOpenPerson(personRoute(person, current, serverId ?: activeServerId)) }
     }
@@ -219,9 +231,9 @@ fun DetailScreen(
                             Text("Could not load item.", color = SashimiTextSecondary)
                         }
                     isCompact ->
-                        CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+                        CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
                     else ->
-                        ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
+                        ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
                 }
             }
         }
@@ -290,6 +302,7 @@ private fun CompactLayout(
     onOpenDetail: (String, String?) -> Unit,
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
+    heroOwner: String,
 ) {
     val yt = isYouTube(libraryName, item.path)
     val ytSeries = yt && item.type == ItemType.SERIES
@@ -308,15 +321,18 @@ private fun CompactLayout(
                 item.type != ItemType.EPISODE &&
                     item.backdropImageTags?.isNotEmpty() != true &&
                     !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
-            Box(Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) {
-                AsyncImage(
-                    model = LocalImageUrls.current.detailBackdrop(item, false),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
-                )
-                if (posterFallback) {
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+            HeroTrailerBackdrop(heroOwner, Modifier.fillMaxWidth().height(220.dp).background(SashimiCard)) { fade ->
+                // The picture fades out over the trailer and back in after it.
+                Box(Modifier.matchParentSize().then(fade)) {
+                    AsyncImage(
+                        model = LocalImageUrls.current.detailBackdrop(item, false),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
+                    )
+                    if (posterFallback) {
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+                    }
                 }
                 Box(
                     Modifier.fillMaxSize().background(
@@ -381,17 +397,21 @@ private fun ExpandedLayout(
     onOpenDetail: (String, String?) -> Unit,
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
+    heroOwner: String,
 ) {
     val yt = isYouTube(libraryName, item.path)
     val ytSeries = yt && item.type == ItemType.SERIES
     Box(Modifier.fillMaxSize()) {
-        AsyncImage(
-            model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.TopEnd,
-            modifier = Modifier.fillMaxWidth(if (ytSeries) 0.65f else 0.55f).align(Alignment.TopEnd),
-        )
+        // Sized by the image; the trailer layer underneath matches it.
+        HeroTrailerBackdrop(heroOwner, Modifier.fillMaxWidth(if (ytSeries) 0.65f else 0.55f).align(Alignment.TopEnd)) { fade ->
+            AsyncImage(
+                model = LocalImageUrls.current.detailBackdrop(item, ytSeries),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopEnd,
+                modifier = Modifier.fillMaxWidth().then(fade),
+            )
+        }
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(

@@ -40,6 +40,7 @@ import dev.bitstorm.sashimi.core.deeplink.DeepLinkResolver
 import dev.bitstorm.sashimi.core.deeplink.DeepLinkTarget
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.herotrailer.DetailAmbience
 import dev.bitstorm.sashimi.ui.auth.AuthScreen
 import dev.bitstorm.sashimi.ui.auth.AuthViewModel
 import dev.bitstorm.sashimi.ui.auth.AuthViewModelFactory
@@ -160,7 +161,7 @@ private fun AppShell(
         val target = DeepLinkResolver.resolve(pendingDeepLink) ?: return@LaunchedEffect
         when (target) {
             is DeepLinkTarget.Play -> {
-                ServiceLocator.themeSongs.stopForPlayback()
+                DetailAmbience.stopForPlayback()
                 navController.navigate(PlayerRoute(itemId = target.itemId))
             }
             is DeepLinkTarget.Detail -> navController.navigate(DetailRoute(itemId = target.itemId))
@@ -227,7 +228,7 @@ private fun AppShell(
                         // download came from (DownloadedItemEntity.serverId). The
                         // download's server still picks WHICH copy to play.
                         onPlay = { key ->
-                            ServiceLocator.themeSongs.stopForPlayback()
+                            DetailAmbience.stopForPlayback()
                             navController.navigate(PlayerRoute(itemId = key.itemId, downloadServerId = key.serverId))
                         },
                         onOpenSeries = { id -> navController.navigate(DetailRoute(id)) },
@@ -253,6 +254,7 @@ private fun AppShell(
                     session = session,
                     onAddServer = { showAddServer = true },
                     onOpenRowOrder = { navController.navigate(HomeRowOrderRoute) },
+                    isCompact = isCompact,
                 )
             }
             composable<HomeRowOrderRoute> {
@@ -293,7 +295,7 @@ private fun AppShell(
                     onOpenPerson = { navController.navigate(it) },
                     // Playback stays on the title's server too, without switching servers.
                     onPlay = { playId, fromBeginning ->
-                        ServiceLocator.themeSongs.stopForPlayback()
+                        DetailAmbience.stopForPlayback()
                         // Online, a detail belongs to a server, so only that
                         // server's download of the item plays. Offline, the
                         // detail was rebuilt from the download store with no
@@ -309,7 +311,7 @@ private fun AppShell(
                         )
                     },
                     onPlayTrailer = { trailerId ->
-                        ServiceLocator.themeSongs.stopForPlayback()
+                        DetailAmbience.stopForPlayback()
                         navController.navigate(PlayerRoute(itemId = trailerId, trailerItemId = trailerId, serverId = route.serverId))
                     },
                 )
@@ -329,9 +331,9 @@ private fun AppShell(
                 val route = entry.toRoute<PlayerRoute>()
                 // Backstop for the four navigate(PlayerRoute) call sites above:
                 // every route into video, including any added later, is composed
-                // here, and the theme must be silent before the player's audio
-                // starts. Cheap and idempotent when the theme is already gone.
-                LaunchedEffect(Unit) { ServiceLocator.themeSongs.stopForPlayback() }
+                // here, and the theme and hero trailer must be silent before the player's audio
+                // starts. Cheap and idempotent when both are already gone.
+                LaunchedEffect(Unit) { DetailAmbience.stopForPlayback() }
                 PlayerScreen(
                     itemId = route.itemId,
                     startFromBeginning = route.startFromBeginning,

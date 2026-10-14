@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.herotrailer.DetailAmbience
 import dev.bitstorm.sashimi.ui.shell.MainScreen
 import dev.bitstorm.sashimi.ui.theme.SashimiTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Theme songs stop when the app leaves the foreground.
+     * Theme songs and hero trailers stop when the app leaves the foreground.
      *
      * ON_STOP rather than ON_PAUSE, per the player lesson: a PiP window keeps
      * the activity STARTED, and pausing on ON_PAUSE would also silence the
@@ -80,7 +81,7 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) ServiceLocator.themeSongs.onAppBackgrounded()
+        if (!isChangingConfigurations) DetailAmbience.onAppBackgrounded()
     }
 
     private fun stashDeepLink(intent: Intent?) {
