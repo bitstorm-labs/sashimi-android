@@ -15,11 +15,13 @@ import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerCaps
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerClip
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerConditions
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerKind
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerOwners
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerPolicy
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerResolver
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerSource
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerStream
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerTheme
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.PlaybackEngine
@@ -29,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +66,8 @@ class HeroTrailerController(
     private val settings: AppSettings,
     private val network: NetworkMonitor,
     private val themeIsPlaying: StateFlow<Boolean>,
+    /** Fires as a theme begins its natural end fade (see ThemeSongService.endingNaturally). */
+    private val themeEnding: Flow<Unit>,
     private val appScope: CoroutineScope,
 ) {
     private val appContext = context.applicationContext
@@ -88,6 +93,13 @@ class HeroTrailerController(
     val isVisible: StateFlow<Boolean> = _isVisible.asStateFlow()
 
     private var playingSourceId: String? = null
+
+    /** The running trailer's clip, and what the series theme has done while it ran. */
+    private var playingClip: HeroTrailerClip? = null
+    private var theme: HeroTrailerTheme = HeroTrailerTheme.None
+
+    /** Which length rule each source follows, recorded when a screen for it shows. */
+    private val sourceKinds = mutableMapOf<String, HeroTrailerKind>()
     private var playSessionId: String? = null
 
     /** The engine that opened the running encode, so the stop goes to the same server. */
@@ -118,9 +130,20 @@ class HeroTrailerController(
     init {
         // A theme that starts after the trailer silences it; one that ends does
         // not bring the sound back, so audio never appears out of nowhere.
+        // It also ties a series trailer's end to the theme: one heard while the
+        // trailer runs carries the trailer until it ends (see clipEnd).
         scope.launch {
-            themeIsPlaying.collect { playing -> if (playing) _player.value?.volume = 0f }
+            themeIsPlaying.collect { playing ->
+                if (playing) {
+                    _player.value?.volume = 0f
+                    if (_player.value != null && !isFinishing) theme = theme.started()
+                } else {
+                    // A theme cut short (focus loss, setting off) ends it too.
+                    themeEnded()
+                }
+            }
         }
+        scope.launch { themeEnding.collect { themeEnded() } }
         // Turning the setting off mid-play stops what is already playing.
         scope.launch {
             settings.heroTrailers.collect { stored -> if (stored == false) stop() }
@@ -153,6 +176,7 @@ class HeroTrailerController(
                 activeServerId = activeServerId(),
             ).isEligible
         val sourceId = if (eligible && item != null) HeroTrailerPolicy.trailerSourceId(item) else null
+        if (sourceId != null && item != null) HeroTrailerPolicy.trailerKind(item)?.let { sourceKinds[sourceId] = it }
         // The newest screen decides the cap; a start it triggers uses it.
         caps = HeroTrailerCaps.forWidth(isCompactWidth)
         apply(owners.appeared(owner, sourceId, playingSourceId))
@@ -216,7 +240,8 @@ class HeroTrailerController(
                     stream.playSessionId?.let { session -> appScope.launch { streamEngine.stopTranscode(session) } }
                     return@launch
                 }
-                play(stream, sourceId, HeroTrailerPolicy.clip(trailer.seconds), streamEngine)
+                val kind = sourceKinds[sourceId] ?: HeroTrailerKind.SERIES
+                play(stream, sourceId, HeroTrailerPolicy.clip(trailer.seconds, kind), streamEngine)
             }
     }
 
@@ -251,24 +276,36 @@ class HeroTrailerController(
             }
         _player.value = created
         playingSourceId = sourceId
+        playingClip = clip
+        theme = if (themeIsPlaying.value) HeroTrailerTheme.Playing else HeroTrailerTheme.None
         playSessionId = stream.playSessionId
         sessionEngine = streamEngine
 
         // Fade out while the last moments still play, rather than on a frozen
-        // frame with the sound cut mid-word. The item's own end (or an error)
-        // is the fallback for a trailer shorter than the server said.
-        val fadeAtMs = (maxOf(clip.start, clip.end - CROSS_FADE_MS / 1000.0) * 1000).toLong()
+        // frame with the sound cut mid-word. The end is re-read every poll
+        // because a series theme moves it. The item's own end (or an error) is
+        // the fallback for a trailer with no known end, or one shorter than the
+        // server said.
         clipJob =
             scope.launch {
                 while (true) {
                     delay(POSITION_POLL_MS)
                     if (_player.value !== created) return@launch
+                    val end = HeroTrailerPolicy.clipEnd(clip, theme) ?: continue
+                    val fadeAtMs = (maxOf(clip.start, end - CROSS_FADE_MS / 1000.0) * 1000).toLong()
                     if (created.currentPosition >= fadeAtMs) {
                         finish()
                         return@launch
                     }
                 }
             }
+    }
+
+    /** The theme ended or began its end fade: a series trailer following it ends with it. */
+    private fun themeEnded() {
+        val running = _player.value ?: return
+        if (isFinishing || playingClip == null) return
+        theme = theme.ended(at = running.currentPosition / 1000.0)
     }
 
     /**
@@ -313,6 +350,8 @@ class HeroTrailerController(
         }
         _player.value = null
         playingSourceId = null
+        playingClip = null
+        theme = HeroTrailerTheme.None
         val session = playSessionId
         val stopper = sessionEngine
         playSessionId = null
