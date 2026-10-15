@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.di
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.room.Room
 import dev.bitstorm.sashimi.core.downloads.DownloadDatabase
 import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
@@ -198,7 +199,7 @@ object ServiceLocator {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getString(KEY_DEVICE_ID, null)?.let { return it }
         val id = JellyfinClient.newDeviceId()
-        prefs.edit().putString(KEY_DEVICE_ID, id).apply()
+        prefs.edit { putString(KEY_DEVICE_ID, id) }
         return id
     }
 }

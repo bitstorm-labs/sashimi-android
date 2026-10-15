@@ -13,6 +13,7 @@
   the user at runtime and is unknown at build time, so a base config that
   permits cleartext is the only option that keeps LAN servers working.
 -->
-<network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!-- Intentional: user-entered LAN Jellyfin servers are plain HTTP (see above). -->
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" />
 </network-security-config>

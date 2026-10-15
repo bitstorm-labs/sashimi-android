@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi
 
 import android.app.Application
+import androidx.core.content.edit
 import coil.imageLoader
 import dev.bitstorm.sashimi.core.util.ImageCacheEpoch
 import dev.bitstorm.sashimi.di.ServiceLocator
@@ -52,7 +53,7 @@ class SashimiApplication : Application() {
                 imageLoader.memoryCache?.clear()
                 imageLoader.diskCache?.clear()
             }.isSuccess
-        if (cleared) prefs.edit().putInt(KEY_EPOCH, ImageCacheEpoch.CURRENT).apply()
+        if (cleared) prefs.edit { putInt(KEY_EPOCH, ImageCacheEpoch.CURRENT) }
     }
 
     private companion object {
