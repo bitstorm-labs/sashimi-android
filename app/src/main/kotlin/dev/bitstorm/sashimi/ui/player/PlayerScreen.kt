@@ -5,16 +5,25 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -32,6 +41,7 @@ import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Button
@@ -55,10 +65,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,13 +94,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import dev.bitstorm.sashimi.MainActivity
+import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.playback.AudioTrack
 import dev.bitstorm.sashimi.core.playback.QualityOption
+import dev.bitstorm.sashimi.core.playback.SkipCountdown
 import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
 import dev.bitstorm.sashimi.core.playback.VideoViewMode
 import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
 import dev.bitstorm.sashimi.di.ServiceLocator
+import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import kotlinx.coroutines.delay
 
 private val SpeedOptions = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
@@ -245,15 +272,6 @@ fun PlayerScreen(
             )
         }
 
-        // Skip Intro/Credits — always tappable, independent of the overlay.
-        state.skipSegment?.takeIf { !inPip && state.upNext == null }?.let { segment ->
-            SkipButton(
-                label = skipLabel(segment.type),
-                onClick = vm::skipCurrentSegment,
-                modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(24.dp),
-            )
-        }
-
         AnimatedVisibility(
             visible = overlayVisible && !state.isLoading && !inPip && state.upNext == null,
             enter = fadeIn(),
@@ -265,6 +283,22 @@ fun PlayerScreen(
                 vm = vm,
                 onClose = onExit,
                 onOpenSettings = { showSettings = true },
+            )
+        }
+
+        // Skip Intro/Credits: drawn after the overlay so it stays on top and
+        // tappable, and lifted clear of the scrubber while the controls show
+        // (it used to sit on the seek bar and its time label).
+        state.skipSegment?.takeIf { !inPip && state.upNext == null }?.let { segment ->
+            val lift by animateDpAsState(
+                if (overlayVisible && !state.isLoading) SKIP_PILL_CONTROLS_LIFT else 0.dp,
+                label = "skipLift",
+            )
+            SkipCountdownPill(
+                segment = segment,
+                positionMs = { vm.absolutePositionMs },
+                onClick = vm::skipCurrentSegment,
+                modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(24.dp).offset(y = -lift),
             )
         }
 
@@ -484,30 +518,111 @@ private fun StreamChip(
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
         val text = info.detail?.let { "${info.label} · $it" } ?: info.label
-        Text(text, color = Color.White, fontSize = 11.sp)
-        // The quality in force, so a softer picture after a step down has
-        // an explanation on screen.
-        activeQuality?.let { Text("· $it", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp) }
+        // The quality in force, so a softer picture after a step down has an
+        // explanation on screen. One Text: as a second Text it got squeezed by a
+        // long first one and wrapped to "·" over "Auto" below the chip.
+        Text(
+            buildAnnotatedString {
+                append(text)
+                activeQuality?.let { withStyle(SpanStyle(color = Color.White.copy(alpha = 0.8f))) { append(" · $it") } }
+            },
+            color = Color.White,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
+/**
+ * Skip Intro / Skip Credits, "countdown fill" design (same on Apple and Roku): a
+ * dark translucent capsule with a skip icon, the label and the time left, and an
+ * accent fill sweeping left to right as the segment plays. Focused (D-pad) or
+ * pressed it grows, gets a white ring and goes full accent.
+ *
+ * The position is polled here, 5x a second, and the fill animates between
+ * polls; a seek simply moves the next poll, so the fill follows it.
+ */
 @Composable
-private fun SkipButton(
-    label: String,
+private fun SkipCountdownPill(
+    segment: MediaSegmentDto,
+    positionMs: () -> Long,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    var positionSeconds by remember(segment.id) { mutableStateOf(positionMs() / 1000.0) }
+    LaunchedEffect(segment.id) {
+        while (true) {
+            positionSeconds = positionMs() / 1000.0
+            delay(SKIP_PILL_POLL_MS)
+        }
+    }
+    val fraction by animateFloatAsState(
+        targetValue = SkipCountdown.fraction(segment, positionSeconds),
+        animationSpec = tween(SKIP_PILL_POLL_MS.toInt(), easing = LinearEasing),
+        label = "skipFill",
+    )
+    val secondsLeft = SkipCountdown.secondsLeft(segment, positionSeconds)
+    val description = SkipCountdown.contentDescription(segment.type, secondsLeft)
+
+    val interaction = remember { MutableInteractionSource() }
+    // With a remote or keyboard the pill takes focus when it appears (as on
+    // Apple TV), so OK skips. A failed request (nothing focusable yet) is harmless.
+    val focusRequester = remember { FocusRequester() }
+    val inputMode = LocalInputModeManager.current.inputMode
+    LaunchedEffect(segment.id, inputMode) {
+        // Only for a remote or keyboard: in touch mode a focused pill would
+        // look permanently "pressed".
+        if (inputMode == InputMode.Keyboard) runCatching { focusRequester.requestFocus() }
+    }
+    val focused by interaction.collectIsFocusedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val active = focused || pressed
+    val scale by animateFloatAsState(if (active) 1.08f else 1f, label = "skipScale")
+    val fillAlpha by animateFloatAsState(if (active) 1f else 0.55f, label = "skipFillAlpha")
+    val shape = CircleShape
+
+    Box(
         modifier =
             modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }.shadow(if (active) 12.dp else 0.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+                .clip(shape)
+                .background(SkipPillBackground)
+                .drawBehind {
+                    drawRect(
+                        color = SashimiAccent.copy(alpha = fillAlpha),
+                        size = Size(size.width * fraction, size.height),
+                    )
+                }.border(if (active) 3.dp else 1.dp, Color.White.copy(alpha = if (active) 1f else 0.16f), shape)
+                .focusRequester(focusRequester)
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+                .semantics(mergeDescendants = true) { contentDescription = description }
+                .padding(start = 14.dp, end = 18.dp, top = 10.dp, bottom = 10.dp),
     ) {
-        Text(label, color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(SkipCountdown.label(segment.type), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(
+                SkipCountdown.clock(secondsLeft),
+                color = Color.White.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                style = TextStyle(fontFeatureSettings = "tnum"),
+            )
+        }
     }
 }
+
+/** #14121C at 70%: Compose has no backdrop blur, so this is the fallback the design allows. */
+private val SkipPillBackground = Color(0xB314121C)
+
+private const val SKIP_PILL_POLL_MS = 200L
+
+/** Clears the scrubber (slider + time row + padding) while the controls show. */
+private val SKIP_PILL_CONTROLS_LIFT = 88.dp
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -607,15 +722,6 @@ private fun ChoiceChip(
 ) {
     FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
 }
-
-private fun skipLabel(type: dev.bitstorm.sashimi.core.model.MediaSegmentType): String =
-    when (type) {
-        dev.bitstorm.sashimi.core.model.MediaSegmentType.INTRO -> "Skip Intro"
-        dev.bitstorm.sashimi.core.model.MediaSegmentType.OUTRO -> "Skip Credits"
-        dev.bitstorm.sashimi.core.model.MediaSegmentType.RECAP -> "Skip Recap"
-        dev.bitstorm.sashimi.core.model.MediaSegmentType.PREVIEW -> "Skip Preview"
-        else -> "Skip"
-    }
 
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"
