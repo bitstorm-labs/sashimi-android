@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -134,7 +136,7 @@ fun PlayerScreen(
         PlayerServerUnavailable(onExit)
         return
     }
-    val app = LocalActivity().application
+    val app = rememberActivity().application
     val vm: PlayerViewModel =
         viewModel(
             key = "player-${serverId ?: "active"}-$itemId-${trailerItemId ?: ""}",
@@ -158,7 +160,7 @@ fun PlayerScreen(
     // activity STARTED, so PiP playback keeps running while a genuine background
     // transition pauses. The isInPictureInPictureMode check is belt-and-braces
     // for OEMs that stop the activity anyway.
-    val playerActivity = LocalActivity()
+    val playerActivity = rememberActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer =
@@ -298,7 +300,10 @@ fun PlayerScreen(
                 segment = segment,
                 positionMs = { vm.absolutePositionMs },
                 onClick = vm::skipCurrentSegment,
-                modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(24.dp).offset(y = -lift),
+                modifier =
+                    Modifier.align(
+                        Alignment.BottomEnd,
+                    ).safeDrawingPadding().padding(24.dp).offset { IntOffset(0, -lift.roundToPx()) },
             )
         }
 
@@ -380,7 +385,7 @@ private fun PlayerOverlay(
                     }
                     state.streamInfo?.let { StreamChip(it, state.activeQuality) }
                 }
-                val activity = LocalActivity()
+                val activity = rememberActivity()
                 IconButton(onClick = { activity.enterPip(state) }) {
                     Icon(Icons.Filled.PictureInPicture, contentDescription = "Picture in picture", tint = Color.White)
                 }
@@ -550,7 +555,7 @@ private fun SkipCountdownPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var positionSeconds by remember(segment.id) { mutableStateOf(positionMs() / 1000.0) }
+    var positionSeconds by remember(segment.id) { mutableDoubleStateOf(positionMs() / 1000.0) }
     LaunchedEffect(segment.id) {
         while (true) {
             positionSeconds = positionMs() / 1000.0
@@ -735,7 +740,7 @@ private fun formatTime(ms: Long): String {
 // MARK: - Activity helpers (PiP)
 
 @Composable
-private fun LocalActivity(): Activity {
+private fun rememberActivity(): Activity {
     val context = androidx.compose.ui.platform.LocalContext.current
     return remember(context) { context.findActivity() }
 }

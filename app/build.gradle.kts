@@ -10,6 +10,12 @@ android {
     namespace = "dev.bitstorm.sashimi"
     compileSdk = 36
 
+    lint {
+        // Version bumps are owned by Dependabot (.github/dependabot.yml), so lint's
+        // "newer version available" notices only duplicate its PRs.
+        disable += setOf("GradleDependency", "AndroidGradlePluginVersion")
+    }
+
     defaultConfig {
         applicationId = "dev.bitstorm.sashimi"
         minSdk = 26

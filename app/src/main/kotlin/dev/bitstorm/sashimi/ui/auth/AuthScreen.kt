@@ -38,10 +38,10 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 @Composable
 fun AuthScreen(
     viewModel: AuthViewModel,
+    modifier: Modifier = Modifier,
     onCancel: (() -> Unit)? = null,
     onComplete: () -> Unit = {},
     banner: String? = null,
-    modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -81,7 +81,7 @@ fun AuthScreen(
                 onServerUrlChange = viewModel::onServerUrlChange,
                 onConnect = viewModel::connect,
                 onCancelAttempt = viewModel::cancelAttempt,
-                fieldModifier = fieldModifier,
+                modifier = fieldModifier,
             )
         } else {
             LoginEntry(
@@ -94,7 +94,7 @@ fun AuthScreen(
                 onSignIn = { viewModel.signIn(onComplete) },
                 onUseDifferentServer = viewModel::useDifferentServer,
                 onCancelAttempt = viewModel::cancelAttempt,
-                fieldModifier = fieldModifier,
+                modifier = fieldModifier,
             )
         }
 
@@ -126,7 +126,7 @@ private fun ServerEntry(
     onServerUrlChange: (String) -> Unit,
     onConnect: () -> Unit,
     onCancelAttempt: () -> Unit,
-    fieldModifier: Modifier,
+    modifier: Modifier,
 ) {
     Text(
         text = "Enter your Jellyfin server address",
@@ -142,12 +142,12 @@ private fun ServerEntry(
         singleLine = true,
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-        modifier = fieldModifier,
+        modifier = modifier,
     )
     Button(
         onClick = onConnect,
         enabled = serverUrl.isNotEmpty() && !isConnecting,
-        modifier = fieldModifier.padding(top = 16.dp),
+        modifier = modifier.padding(top = 16.dp),
     ) {
         if (isConnecting) {
             CircularProgressIndicator(modifier = Modifier.padding(2.dp))
@@ -155,7 +155,7 @@ private fun ServerEntry(
             Text("Connect")
         }
     }
-    if (isConnecting) CancelAttemptButton(onCancelAttempt, fieldModifier)
+    if (isConnecting) CancelAttemptButton(onCancelAttempt, modifier)
 }
 
 @Composable
@@ -169,7 +169,7 @@ private fun LoginEntry(
     onSignIn: () -> Unit,
     onUseDifferentServer: () -> Unit,
     onCancelAttempt: () -> Unit,
-    fieldModifier: Modifier,
+    modifier: Modifier,
 ) {
     Text(
         text = "Enter your credentials",
@@ -183,7 +183,7 @@ private fun LoginEntry(
         label = { Text("Username") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-        modifier = fieldModifier,
+        modifier = modifier,
     )
     OutlinedTextField(
         value = password,
@@ -199,12 +199,12 @@ private fun LoginEntry(
             } else {
                 null
             },
-        modifier = fieldModifier.padding(top = 12.dp),
+        modifier = modifier.padding(top = 12.dp),
     )
     Button(
         onClick = onSignIn,
         enabled = username.isNotEmpty() && !isConnecting,
-        modifier = fieldModifier.padding(top = 16.dp),
+        modifier = modifier.padding(top = 16.dp),
     ) {
         if (isConnecting) {
             CircularProgressIndicator(modifier = Modifier.padding(2.dp))
@@ -213,11 +213,11 @@ private fun LoginEntry(
         }
     }
     if (isConnecting) {
-        CancelAttemptButton(onCancelAttempt, fieldModifier)
+        CancelAttemptButton(onCancelAttempt, modifier)
     } else {
         TextButton(
             onClick = onUseDifferentServer,
-            modifier = fieldModifier.padding(top = 4.dp),
+            modifier = modifier.padding(top = 4.dp),
         ) {
             Text("Use Different Server")
         }
@@ -228,11 +228,11 @@ private fun LoginEntry(
 @Composable
 private fun CancelAttemptButton(
     onCancelAttempt: () -> Unit,
-    fieldModifier: Modifier,
+    modifier: Modifier,
 ) {
     TextButton(
         onClick = onCancelAttempt,
-        modifier = fieldModifier.padding(top = 4.dp),
+        modifier = modifier.padding(top = 4.dp),
     ) {
         Text("Cancel")
     }

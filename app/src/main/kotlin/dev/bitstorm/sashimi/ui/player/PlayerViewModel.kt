@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.ui.player
 
 import android.app.Application
 import androidx.annotation.OptIn
+import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -741,9 +742,7 @@ class PlayerViewModel(
                                 return@mapNotNull null
                             }
                         } else {
-                            android.net.Uri.parse(
-                                engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null,
-                            )
+                            (engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null).toUri()
                         }
                     MediaItem.SubtitleConfiguration.Builder(uri)
                         .setMimeType(MimeTypes.TEXT_VTT)
