@@ -46,22 +46,94 @@ object HeroTrailerPolicy {
     ): Boolean = themeIsPlaying || otherAudioPlaying
 
     /**
+     * Which length rule a screen's trailer follows. Seasons and episodes play
+     * their series' trailer, so they follow the series rule too.
+     */
+    fun trailerKind(item: BaseItemDto): HeroTrailerKind? =
+        when (item.type) {
+            ItemType.MOVIE -> HeroTrailerKind.MOVIE
+            ItemType.SERIES, ItemType.SEASON, ItemType.EPISODE -> HeroTrailerKind.SERIES
+            else -> null
+        }
+
+    /**
      * The part of a trailer the hero plays.
      *
-     * A full trailer runs about two minutes, far more than a background preview
-     * should. The first seconds of a full trailer are almost always a rating
-     * card or a studio logo, so they are skipped; a short clip has no such
-     * opening and plays from the start. The end never runs past the trailer's
-     * own end, so the fade always has a moment of video left to fade.
+     * The first seconds of a full trailer are almost always a rating card or a
+     * studio logo, so they are skipped; a short clip has no such opening and
+     * plays from the start.
+     *
+     * A movie plays to the trailer's own end (or, when the length is unknown,
+     * until the item itself ends). A series plays a [HeroTrailerClip.LENGTH]
+     * clip unless its theme song is heard during the trailer; see [clipEnd].
+     * Nothing ever runs past the trailer's own end, so the fade always has a
+     * moment of video left to fade.
      */
-    fun clip(trailerSeconds: Double?): HeroTrailerClip {
-        if (trailerSeconds == null || trailerSeconds < HeroTrailerClip.MINIMUM_FOR_SKIP) {
-            val end = minOf(HeroTrailerClip.LENGTH, trailerSeconds ?: Double.POSITIVE_INFINITY)
-            return HeroTrailerClip(start = 0.0, end = end)
+    fun clip(
+        trailerSeconds: Double?,
+        kind: HeroTrailerKind,
+    ): HeroTrailerClip {
+        val start =
+            if (trailerSeconds != null && trailerSeconds >= HeroTrailerClip.MINIMUM_FOR_SKIP) HeroTrailerClip.OPENING_SKIP else 0.0
+        return when (kind) {
+            HeroTrailerKind.MOVIE -> HeroTrailerClip(start = start, end = trailerSeconds, trailerEnd = trailerSeconds)
+            HeroTrailerKind.SERIES ->
+                HeroTrailerClip(
+                    start = start,
+                    end = minOf(start + HeroTrailerClip.LENGTH, trailerSeconds ?: Double.POSITIVE_INFINITY),
+                    trailerEnd = trailerSeconds,
+                    followsTheme = true,
+                )
         }
-        val start = HeroTrailerClip.OPENING_SKIP
-        return HeroTrailerClip(start = start, end = start + HeroTrailerClip.LENGTH)
     }
+
+    /**
+     * Seconds into the trailer where [clip] ends given what its series' theme
+     * song has done while the trailer ran, or null for "when the item ends".
+     *
+     * A theme heard during the trailer replaces the fixed clip: the trailer
+     * runs while the theme does and ends with it, but always shows at least
+     * [HeroTrailerClip.MINIMUM_WITH_THEME] seconds of video and never runs past
+     * its own end. A movie ignores the theme.
+     */
+    fun clipEnd(
+        clip: HeroTrailerClip,
+        theme: HeroTrailerTheme,
+    ): Double? {
+        if (!clip.followsTheme) return clip.end
+        return when (theme) {
+            HeroTrailerTheme.None -> clip.end
+            HeroTrailerTheme.Playing -> clip.trailerEnd
+            is HeroTrailerTheme.Ended -> {
+                val end = maxOf(theme.at, clip.start + HeroTrailerClip.MINIMUM_WITH_THEME)
+                clip.trailerEnd?.let { minOf(end, it) } ?: end
+            }
+        }
+    }
+}
+
+/** Which length rule a hero trailer follows. */
+enum class HeroTrailerKind { MOVIE, SERIES }
+
+/**
+ * The series theme song as a running trailer sees it. Only a theme heard
+ * while the trailer plays counts, and only its first ending.
+ */
+sealed interface HeroTrailerTheme {
+    /** No theme has played during this trailer. */
+    data object None : HeroTrailerTheme
+
+    /** A theme is playing during this trailer. */
+    data object Playing : HeroTrailerTheme
+
+    /** The theme heard during this trailer ended (or began its end fade) [at] seconds into the trailer. */
+    data class Ended(val at: Double) : HeroTrailerTheme
+
+    /** A theme is playing now. */
+    fun started(): HeroTrailerTheme = if (this == None) Playing else this
+
+    /** The theme ended, or began its end fade, [at] seconds into the trailer. */
+    fun ended(at: Double): HeroTrailerTheme = if (this == Playing) Ended(at) else this
 }
 
 /** What decides whether a trailer may start at all right now. */
@@ -88,12 +160,22 @@ data class HeroTrailerConditions(
 /** Seconds into the trailer where the hero starts and stops it. */
 data class HeroTrailerClip(
     val start: Double,
-    val end: Double,
+    /** Where it stops with no theme in play; null = when the item ends. */
+    val end: Double?,
+    /** The trailer's own length, when the server knows it. */
+    val trailerEnd: Double?,
+    /** True when a theme heard during the trailer moves the end (series). */
+    val followsTheme: Boolean = false,
 ) {
     companion object {
         const val OPENING_SKIP = 10.0
+
+        /** A series clip with no theme in play. */
         const val LENGTH = 30.0
         const val MINIMUM_FOR_SKIP = 45.0
+
+        /** The least video a series trailer shows when its theme ends early. */
+        const val MINIMUM_WITH_THEME = 20.0
     }
 }
 

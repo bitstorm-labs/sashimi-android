@@ -65,21 +65,128 @@ class HeroTrailerPolicyTest {
     }
 
     @Test
-    fun `a full trailer skips its opening and plays thirty seconds`() {
-        assertEquals(HeroTrailerClip(10.0, 40.0), HeroTrailerPolicy.clip(121.0))
-        assertEquals(HeroTrailerClip(10.0, 40.0), HeroTrailerPolicy.clip(45.0))
+    fun `movies and series follow the movie and series rules`() {
+        assertEquals(HeroTrailerKind.MOVIE, HeroTrailerPolicy.trailerKind(item(ItemType.MOVIE)))
+        assertEquals(HeroTrailerKind.SERIES, HeroTrailerPolicy.trailerKind(item(ItemType.SERIES)))
+        assertEquals(HeroTrailerKind.SERIES, HeroTrailerPolicy.trailerKind(item(ItemType.SEASON, seriesId = "s")))
+        assertEquals(HeroTrailerKind.SERIES, HeroTrailerPolicy.trailerKind(item(ItemType.EPISODE, seriesId = "s")))
+    }
+
+    // Movies
+
+    @Test
+    fun `a movie trailer skips its opening and plays to its own end`() {
+        val clip = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.MOVIE)
+        assertEquals(10.0, clip.start, 0.0)
+        assertEquals(121.0, clip.end!!, 0.0)
     }
 
     @Test
-    fun `a short clip or unknown length plays from the start`() {
-        assertEquals(HeroTrailerClip(0.0, 30.0), HeroTrailerPolicy.clip(44.9))
-        assertEquals(0.0, HeroTrailerPolicy.clip(null).start, 0.0)
-        assertEquals(30.0, HeroTrailerPolicy.clip(null).end, 0.0)
+    fun `a short movie clip plays from the start to its own end`() {
+        val clip = HeroTrailerPolicy.clip(44.9, HeroTrailerKind.MOVIE)
+        assertEquals(0.0, clip.start, 0.0)
+        assertEquals(44.9, clip.end!!, 0.0)
     }
 
     @Test
-    fun `the clip never runs past the trailer`() {
-        assertEquals(HeroTrailerClip(0.0, 20.0), HeroTrailerPolicy.clip(20.0))
+    fun `a movie trailer of unknown length plays until the item ends`() {
+        val clip = HeroTrailerPolicy.clip(null, HeroTrailerKind.MOVIE)
+        assertEquals(0.0, clip.start, 0.0)
+        assertNull(clip.end)
+    }
+
+    @Test
+    fun `a theme song never changes where a movie trailer ends`() {
+        val clip = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.MOVIE)
+        assertEquals(121.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Playing)!!, 0.0)
+        assertEquals(121.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Ended(at = 25.0))!!, 0.0)
+    }
+
+    // Series without a theme: today's thirty-second clip
+
+    @Test
+    fun `a series trailer with no theme skips its opening and plays thirty seconds`() {
+        val clip = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.SERIES)
+        assertEquals(10.0, clip.start, 0.0)
+        assertEquals(40.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.None)!!, 0.0)
+        assertEquals(40.0, HeroTrailerPolicy.clipEnd(HeroTrailerPolicy.clip(45.0, HeroTrailerKind.SERIES), HeroTrailerTheme.None)!!, 0.0)
+    }
+
+    @Test
+    fun `a short or unknown-length series trailer with no theme plays thirty seconds from the start`() {
+        val short = HeroTrailerPolicy.clip(44.9, HeroTrailerKind.SERIES)
+        assertEquals(0.0, short.start, 0.0)
+        assertEquals(30.0, HeroTrailerPolicy.clipEnd(short, HeroTrailerTheme.None)!!, 0.0)
+        val unknown = HeroTrailerPolicy.clip(null, HeroTrailerKind.SERIES)
+        assertEquals(0.0, unknown.start, 0.0)
+        assertEquals(30.0, HeroTrailerPolicy.clipEnd(unknown, HeroTrailerTheme.None)!!, 0.0)
+    }
+
+    @Test
+    fun `the series clip never runs past the trailer`() {
+        assertEquals(20.0, HeroTrailerPolicy.clipEnd(HeroTrailerPolicy.clip(20.0, HeroTrailerKind.SERIES), HeroTrailerTheme.None)!!, 0.0)
+    }
+
+    // Series with a theme: the trailer ends with the theme
+
+    @Test
+    fun `while the theme plays the series trailer is not cut at thirty seconds`() {
+        val clip = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.SERIES)
+        assertEquals(121.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Playing)!!, 0.0)
+    }
+
+    @Test
+    fun `the series trailer ends when the theme ends`() {
+        val clip = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.SERIES)
+        // Theme ended 45 s into the trailer: past the 30 s clip, before the trailer's end.
+        assertEquals(45.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Ended(at = 45.0))!!, 0.0)
+    }
+
+    @Test
+    fun `the series trailer still runs twenty seconds when the theme ends sooner`() {
+        val full = HeroTrailerPolicy.clip(121.0, HeroTrailerKind.SERIES)
+        assertEquals(30.0, HeroTrailerPolicy.clipEnd(full, HeroTrailerTheme.Ended(at = 14.0))!!, 0.0)
+        val short = HeroTrailerPolicy.clip(40.0, HeroTrailerKind.SERIES)
+        assertEquals(20.0, HeroTrailerPolicy.clipEnd(short, HeroTrailerTheme.Ended(at = 5.0))!!, 0.0)
+    }
+
+    @Test
+    fun `the series trailer never runs past its own end when the theme outlasts it`() {
+        val clip = HeroTrailerPolicy.clip(60.0, HeroTrailerKind.SERIES)
+        assertEquals(60.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Playing)!!, 0.0)
+        assertEquals(60.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Ended(at = 90.0))!!, 0.0)
+        // Shorter than the twenty-second minimum: its own end still wins.
+        val tiny = HeroTrailerPolicy.clip(12.0, HeroTrailerKind.SERIES)
+        assertEquals(12.0, HeroTrailerPolicy.clipEnd(tiny, HeroTrailerTheme.Ended(at = 3.0))!!, 0.0)
+    }
+
+    @Test
+    fun `an unknown-length series trailer with a theme runs until the theme ends or the item does`() {
+        val clip = HeroTrailerPolicy.clip(null, HeroTrailerKind.SERIES)
+        assertNull(HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Playing))
+        assertEquals(50.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Ended(at = 50.0))!!, 0.0)
+        assertEquals(20.0, HeroTrailerPolicy.clipEnd(clip, HeroTrailerTheme.Ended(at = 8.0))!!, 0.0)
+    }
+
+    // The theme as seen by a running trailer
+
+    @Test
+    fun `a theme counts once it plays during the trailer and ends where it stopped`() {
+        assertEquals(HeroTrailerTheme.Playing, HeroTrailerTheme.None.started())
+        assertEquals(HeroTrailerTheme.Ended(at = 33.0), HeroTrailerTheme.Playing.ended(at = 33.0))
+    }
+
+    @Test
+    fun `a theme ending that was never heard during the trailer changes nothing`() {
+        assertEquals(HeroTrailerTheme.None, HeroTrailerTheme.None.ended(at = 12.0))
+    }
+
+    @Test
+    fun `the first theme ending is the one that counts`() {
+        val ended = HeroTrailerTheme.Ended(at = 33.0)
+        assertEquals(ended, ended.ended(at = 34.5))
+        assertEquals(ended, ended.started())
+        assertEquals(HeroTrailerTheme.Playing, HeroTrailerTheme.Playing.started())
     }
 
     @Test
