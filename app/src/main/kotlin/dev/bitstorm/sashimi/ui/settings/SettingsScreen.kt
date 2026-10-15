@@ -173,7 +173,7 @@ fun SettingsScreen(
                     "Play trailers on detail screens",
                     HeroTrailerPolicy.settingOn(heroTrailers, isCompact),
                     settings::setHeroTrailers,
-                    subtitle = "Play a short clip of a title's trailer behind its page. Never on mobile data.",
+                    subtitle = "Play a title's trailer behind its page. Never on mobile data.",
                 )
                 val use24Hour by settings.use24HourTime.collectAsStateWithLifecycle()
                 SwitchRow("24-Hour Time", use24Hour, settings::setUse24HourTime)
