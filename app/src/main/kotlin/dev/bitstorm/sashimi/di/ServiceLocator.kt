@@ -151,6 +151,7 @@ object ServiceLocator {
                 settings = appSettings,
                 network = networkMonitor,
                 themeIsPlaying = themeSongs.isPlaying,
+                themeEnding = themeSongs.endingNaturally,
                 appScope = appScope,
             )
         downloadFileManager = DownloadFileManager(app)

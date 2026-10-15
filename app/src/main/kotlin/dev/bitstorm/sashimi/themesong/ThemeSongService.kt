@@ -25,8 +25,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -109,6 +112,15 @@ class ThemeSongService(
      * trailer stays silent while it is.
      */
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _endingNaturally = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
+     * Fires when a theme reaches its natural end: as its end fade begins, or
+     * when it simply stops at the end of the track. A series hero trailer ends
+     * with it. [isPlaying] only turns false after the fade has finished.
+     */
+    val endingNaturally: SharedFlow<Unit> = _endingNaturally.asSharedFlow()
 
     /** The single in-flight command, so a later one cannot race an earlier one. */
     private var command: Job? = null
@@ -313,9 +325,13 @@ class ThemeSongService(
     private suspend fun awaitEnd(active: ExoPlayer) {
         while (true) {
             delay(END_POLL_MS)
-            if (active.playbackState == Player.STATE_ENDED) break
+            if (active.playbackState == Player.STATE_ENDED) {
+                _endingNaturally.tryEmit(Unit)
+                break
+            }
             val duration = active.duration
             if (duration != C.TIME_UNSET && duration > 0 && duration - active.currentPosition <= FADE_END_MS) {
+                _endingNaturally.tryEmit(Unit)
                 fadeTo(0f, FADE_END_MS)
                 break
             }
