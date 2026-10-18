@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.di
 import android.content.Context
 import androidx.core.content.edit
 import androidx.room.Room
+import dev.bitstorm.sashimi.BuildConfig
 import dev.bitstorm.sashimi.core.admin.AdminGate
 import dev.bitstorm.sashimi.core.downloads.DownloadDatabase
 import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
@@ -153,7 +154,9 @@ object ServiceLocator {
         if (::client.isInitialized) return
         val app = context.applicationContext
 
-        client = JellyfinClient(deviceId = stableDeviceId(app))
+        // The version the server dashboard shows for this device. Without it every
+        // session reported the client's placeholder default, 0.1.0 (#163).
+        client = JellyfinClient(deviceId = stableDeviceId(app), clientVersion = BuildConfig.VERSION_NAME)
         val serverStore = PrefsServerStore(app)
         session =
             SessionManager(
