@@ -86,6 +86,10 @@ class PlayModesTest {
     @Test
     fun `HDR to SDR tone-mapping is converting video`() {
         assertEquals(PlayMode.CONVERTING_VIDEO, PlayModes.of(ti(false, true, "VideoRangeTypeNotSupported")))
+        // Re-encodes the picture whatever the flags say, as burn-in does.
+        assertEquals(PlayMode.CONVERTING_VIDEO, PlayModes.of(ti(true, true, "VideoRangeTypeNotSupported")))
+        assertEquals(PlayMode.CONVERTING_VIDEO, PlayModes.of(ti(true, false, "VideoRangeTypeNotSupported")))
+        assertFalse(PlayModes.isRemux(ti(true, true, "VideoRangeTypeNotSupported")))
     }
 
     @Test
@@ -137,7 +141,7 @@ class PlayModesTest {
     @Test
     fun `audio conversion detail lists the reasons and the codec change`() {
         assertEquals(
-            "4K Dolby Vision · Audio codec · DTS → AC3",
+            "4K Dolby Vision · Audio format not supported · DTS → AC3",
             PlayModes.detail(session(ti(true, false, "AudioCodecNotSupported", audioCodec = "ac3"))),
         )
     }
@@ -153,7 +157,7 @@ class PlayModesTest {
     @Test
     fun `video conversion at the same tier shows the codec change`() {
         assertEquals(
-            "4K Dolby Vision · Video codec · HEVC → H264",
+            "4K Dolby Vision · Video format not supported · HEVC → H264",
             PlayModes.detail(session(ti(false, true, "VideoCodecNotSupported", width = 3840, height = 2160, videoCodec = "h264"))),
         )
     }
@@ -161,7 +165,7 @@ class PlayModesTest {
     @Test
     fun `the reason line lists every reason`() {
         assertEquals(
-            "4K Dolby Vision · Subtitle burn-in · Audio codec · 4K → 1080p · DTS → AAC",
+            "4K Dolby Vision · Subtitles burned in · Audio format not supported · 4K → 1080p · DTS → AAC",
             PlayModes.detail(
                 session(
                     ti(
@@ -188,6 +192,6 @@ class PlayModesTest {
                 playState = PlayStateDto(audioStreamIndex = 2),
                 transcodingInfo = ti(true, false, "AudioCodecNotSupported", audioCodec = "mp3"),
             )
-        assertEquals("4K Dolby Vision · Audio codec · AAC → MP3", PlayModes.detail(s))
+        assertEquals("4K Dolby Vision · Audio format not supported · AAC → MP3", PlayModes.detail(s))
     }
 }

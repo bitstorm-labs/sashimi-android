@@ -63,7 +63,7 @@ object ActivityRows {
 
 /** Whether the server has hardware transcoding set up, and by what name. */
 object HardwareTranscoding {
-    fun isOn(type: String?): Boolean = !type.isNullOrBlank() && type != "none"
+    fun isOn(type: String?): Boolean = !type.isNullOrBlank() && !type.equals("none", ignoreCase = true)
 
     fun label(type: String?): String =
         when {

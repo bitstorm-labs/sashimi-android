@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -60,10 +63,12 @@ import dev.bitstorm.sashimi.core.admin.PlayModes
 import dev.bitstorm.sashimi.core.admin.ServerSummary
 import dev.bitstorm.sashimi.core.admin.SessionInfoDto
 import dev.bitstorm.sashimi.core.admin.SessionTitles
+import dev.bitstorm.sashimi.core.admin.StreamCards
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
+import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 import java.time.Instant
@@ -208,6 +213,14 @@ private fun Header(
     }
 }
 
+/**
+ * One Now playing card, OpsDec style (design revision 2026-10-18) compacted
+ * into the phone row: poster with a state dot, title with the series and an
+ * S04E03 tag, avatar initial and user, app and device, progress, the pills
+ * (wrapping), then the reason and Local/Remote. Every string comes from
+ * [StreamCards], shared word for word with the Roku and Apple clients.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StreamCard(
     session: SessionInfoDto,
@@ -216,13 +229,14 @@ private fun StreamCard(
     onMessage: () -> Unit,
 ) {
     val item = session.nowPlayingItem
+    val title = StreamCards.title(item)
     Row(
         modifier =
             Modifier.fillMaxWidth().clip(
                 RoundedCornerShape(16.dp),
             ).background(SashimiCard).clickable(onClick = onDetails).padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Box(Modifier.width(44.dp).height(66.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
             if (item != null) {
@@ -233,41 +247,58 @@ private fun StreamCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            Box(
+                Modifier.align(
+                    Alignment.TopEnd,
+                ).padding(4.dp).size(8.dp).clip(CircleShape).background(stateColor(StreamCards.state(session))),
+            )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                SessionTitles.title(item),
+                title.title.ifEmpty { SessionTitles.title(item) },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            SessionTitles.episodeLine(item)?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (title.sub.isNotEmpty() || title.ep.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (title.sub.isNotEmpty()) {
+                        Text(
+                            title.sub,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SashimiTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    if (title.ep.isNotEmpty()) {
+                        Text(
+                            title.ep,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = SashimiAccent,
+                            modifier =
+                                Modifier.clip(RoundedCornerShape(4.dp)).background(SashimiAccent.copy(alpha = 0.18f))
+                                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
-            Text(
-                listOfNotNull(session.userName, session.deviceName).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = SashimiTextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PlayModeBadge(PlayModes.of(session.transcodingInfo))
-                val rate = ServerSummary.bitrate(session)?.let(ServerSummary::mbps)
-                val paused = if (session.playState?.isPaused == true) "paused" else null
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(20.dp).clip(CircleShape).background(AvatarBg), contentAlignment = Alignment.Center) {
+                    Text(
+                        StreamCards.initialOf(session.userName),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
                 Text(
-                    listOfNotNull(rate, paused).joinToString(" · "),
+                    listOf(session.userName.orEmpty(), StreamCards.deviceLine(session)).filter { it.isNotEmpty() }.joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = SashimiTextSecondary,
-                )
-            }
-            PlayModes.detail(session).takeIf { it.isNotEmpty() }?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SashimiTextSecondary,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -281,8 +312,29 @@ private fun StreamCard(
                     modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                 )
             }
-            SessionTitles.position(session.playState?.positionTicks, item?.runTimeTicks)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = SashimiTextSecondary)
+            val position = SessionTitles.position(session.playState?.positionTicks, item?.runTimeTicks)
+            val percent = StreamCards.percentText(session)
+            if (position != null || percent.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(position.orEmpty(), style = MaterialTheme.typography.labelSmall, color = SashimiTextSecondary)
+                    Text(percent, style = MaterialTheme.typography.labelSmall, color = SashimiTextSecondary)
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val mode = PlayModes.of(session.transcodingInfo)
+                StreamCards.pills(session).forEach { StreamPill(it, mode) }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    StreamCards.footerReason(session),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SashimiTextTertiary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(StreamCards.whereLabel(session), style = MaterialTheme.typography.labelSmall, color = SashimiTextTertiary)
             }
         }
         StreamMenu(session, onDetails, onStop, onMessage)
