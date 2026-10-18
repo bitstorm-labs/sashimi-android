@@ -63,6 +63,7 @@ import dev.bitstorm.sashimi.core.playback.UpNext
 import dev.bitstorm.sashimi.core.playback.UpNextEvent
 import dev.bitstorm.sashimi.core.playback.UpNextState
 import dev.bitstorm.sashimi.core.playback.UpgradeDecision
+import dev.bitstorm.sashimi.core.remote.RemoteControlPresence
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
@@ -158,6 +159,8 @@ class PlayerViewModel(
     private val downloadServerId: String?,
     /** The active server when the route opened, for an unscoped lookup. */
     private val activeServerId: () -> String?,
+    /** Told while this player plays, so the server can still reach it with Stop (#161). */
+    private val remotePresence: RemoteControlPresence,
 ) : AndroidViewModel(app) {
     /** Artwork for the system media surfaces, from the item's own server. */
     private val images = ImageUrlBuilder { client }
@@ -306,6 +309,7 @@ class PlayerViewModel(
     private val playerListener =
         object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                remotePresence.setPlaying(this@PlayerViewModel, isPlaying)
                 // Immediate progress report on any play/pause transition (Swift rateObserver).
                 reportProgressNow()
             }
@@ -1546,6 +1550,7 @@ class PlayerViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        remotePresence.setPlaying(this, false)
         watchdogJob?.cancel()
         // After the end (the Up Next screen, or a credit skip that ended the
         // item early) the item is finished. Reporting the credits position here
@@ -1606,6 +1611,7 @@ class PlayerViewModel(
                 trailerItemId = trailerItemId,
                 downloadServerId = downloadServerId,
                 activeServerId = { ServiceLocator.session.activeServerId.value },
+                remotePresence = ServiceLocator.remotePresence,
             ) as T
     }
 

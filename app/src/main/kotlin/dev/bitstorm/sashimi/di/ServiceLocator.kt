@@ -18,6 +18,11 @@ import dev.bitstorm.sashimi.core.playback.DeviceProfileBuilder
 import dev.bitstorm.sashimi.core.playback.PlaybackEngine
 import dev.bitstorm.sashimi.core.playback.PrefsThroughputPersistence
 import dev.bitstorm.sashimi.core.playback.SustainedThroughputStore
+import dev.bitstorm.sashimi.core.remote.RemoteCommand
+import dev.bitstorm.sashimi.core.remote.RemoteControlConnection
+import dev.bitstorm.sashimi.core.remote.RemoteControlPresence
+import dev.bitstorm.sashimi.core.remote.RemoteMessageBoard
+import dev.bitstorm.sashimi.core.remote.RemoteSessionKey
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
@@ -36,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 
 /**
@@ -68,6 +74,21 @@ object ServiceLocator {
      * sign-in (Quick Connect included) and server switch.
      */
     val adminGate = AdminGate()
+
+    /** Whether the session socket should be open: the app is foreground or something plays. */
+    val remotePresence = RemoteControlPresence()
+
+    /**
+     * The active server's session socket: it makes this device controllable
+     * from the server dashboard (Stop, Send a message). Commands arrive on
+     * [RemoteControlConnection.commands]; the player handles Stop.
+     */
+    lateinit var remoteControl: RemoteControlConnection
+        private set
+
+    /** The server message on screen, drawn over everything by MainScreen. */
+    lateinit var remoteMessages: RemoteMessageBoard
+        private set
 
     lateinit var homeRowSettings: HomeRowSettings
         private set
@@ -161,6 +182,7 @@ object ServiceLocator {
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
         networkMonitor = NetworkMonitor(app)
+        startRemoteControl()
         playbackEngine =
             PlaybackEngine(
                 client,
@@ -206,6 +228,35 @@ object ServiceLocator {
                 scope = appScope,
                 tierEncodes = PrefsTierEncodeLedger(app),
             )
+    }
+
+    /**
+     * Opens the socket for the active server's signed-in user while
+     * [remotePresence] wants it, and routes DisplayMessage to the board. The
+     * socket follows the shared [client], which always tracks the active server.
+     */
+    private fun startRemoteControl() {
+        remoteMessages = RemoteMessageBoard(appScope)
+        remoteControl =
+            RemoteControlConnection(
+                connector = client.remoteSocketConnector(),
+                resolveTarget = client::remoteTarget,
+                registerCapabilities = { client.reportCapabilities() },
+            )
+        val keys =
+            combine(
+                session.isAuthenticated,
+                session.activeServerId,
+                session.currentUser,
+                remotePresence.wanted,
+                networkMonitor.isOnline,
+            ) { auth, server, user, wanted, online ->
+                RemoteSessionKey.of(auth, server, user?.id, wanted, online)
+            }
+        appScope.launch { remoteControl.run(keys) }
+        appScope.launch {
+            remoteControl.commands.filterIsInstance<RemoteCommand.DisplayMessage>().collect(remoteMessages::show)
+        }
     }
 
     /** Re-reads the admin flag for the active server's user. */
