@@ -62,6 +62,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,9 +105,11 @@ import dev.bitstorm.sashimi.core.playback.StreamInfo
 import dev.bitstorm.sashimi.core.playback.StreamMethod
 import dev.bitstorm.sashimi.core.playback.VideoViewMode
 import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
+import dev.bitstorm.sashimi.core.remote.RemoteCommand
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 private val SpeedOptions = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -146,6 +149,17 @@ fun PlayerScreen(
 
     LaunchedEffect(state.playbackEnded) {
         if (state.playbackEnded) onExit()
+    }
+
+    // Stop from the server dashboard (#161) leaves exactly as the close button
+    // does: popping the route clears the VM, whose onCleared saves the position
+    // and reports the stop. Only for the active server's titles, the one the
+    // socket belongs to. first(): a second Stop must not pop the screen below.
+    val exit by rememberUpdatedState(onExit)
+    LaunchedEffect(serverId) {
+        if (serverId != null) return@LaunchedEffect
+        ServiceLocator.remoteControl.commands.first { it == RemoteCommand.Stop }
+        exit()
     }
 
     // Nothing else stops playback when the app leaves the foreground: the player
