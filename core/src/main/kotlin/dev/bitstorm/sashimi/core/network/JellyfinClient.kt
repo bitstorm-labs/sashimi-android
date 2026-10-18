@@ -836,6 +836,22 @@ class JellyfinClient(
         }
 
     /**
+     * GETs a small text resource on this server (an HLS multivariant
+     * playlist) with this client's authorization, or null when it cannot be
+     * read. Fetching Jellyfin's master playlist starts no ffmpeg; that waits
+     * for the first segment request.
+     */
+    suspend fun fetchText(url: String): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                httpClient.newBuilder().callTimeout(TEXT_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+                    .newCall(Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build())
+                    .execute()
+                    .use { r -> if (r.isSuccessful) r.body?.string() else null }
+            }.getOrNull()
+        }
+
+    /**
      * Tears down a running server transcode. DELETE /Videos/ActiveEncodings with
      * lowercase query keys (deviceId / playSessionId), matching the Swift
      * stopActiveEncoding. Only call when a transcode was actually running.
@@ -1156,6 +1172,9 @@ class JellyfinClient(
 
         /** See [fetchSubtitleVtt]. */
         private const val SUBTITLE_EXTRACT_TIMEOUT_MINUTES = 4L
+
+        /** A playlist is a few hundred bytes; past this, play the master as before. */
+        private const val TEXT_FETCH_TIMEOUT_SECONDS = 5L
 
         /** Connection setup allowed on top of the probe's own time budget. */
         private const val PROBE_CONNECT_ALLOWANCE_MS = 5_000L

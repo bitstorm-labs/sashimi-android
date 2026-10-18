@@ -95,6 +95,23 @@ only lowers the bitrate delivers 1080p at a lower bitrate. Also,
 `AllowVideoStreamCopy: true` lets the server satisfy a requested transcode by
 remuxing untouched, so a quality change can be a literal no-op. (Open: #19.)
 
+### Jellyfin: HDR stream copy brings same-bandwidth SDR fallback variants
+
+The HLS transcoding profile lists `h264,hevc` (h264 first: that is what the
+server encodes to) so an HEVC source can be copied when only its audio or
+container needs converting. For an HDR copy, Jellyfin's master playlist then
+adds `AllowVideoStreamCopy=false` SDR re-encode variants at the same
+bandwidth; a variant switch restarts ffmpeg and stalls. `PlaybackEngine` pins
+the primary variant's `main.m3u8` (`HlsMultivariant`, #155). Check the master's
+variant list first for any HLS/HDR playback bug.
+
+### Kotlin `by` delegation skips Java default methods
+
+`class X(d: LoadControl) : LoadControl by d` forwards only the abstract
+members; every Java `default` method (`shouldStartPlayback`, `onPrepared`,
+...) runs the interface stub. Subclass the Media3 default instead, or
+override each default explicitly and check with `javap`.
+
 ### Jellyfin: never leave `SubtitleStreamIndex` null
 
 A null lets the server apply the user's own subtitle preference, and if that

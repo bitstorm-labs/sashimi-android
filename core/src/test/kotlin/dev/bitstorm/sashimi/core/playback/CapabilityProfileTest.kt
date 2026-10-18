@@ -67,6 +67,17 @@ class CapabilityProfileTest {
     }
 
     @Test
+    fun `an SDR display admits no HDR range, so HDR10 and DV-with-HDR10 sources get a tone-mapped encode`() {
+        // Media3 does not tone-map HDR for an SDR panel; the server does (#155).
+        val sdrPanel =
+            uhd10BitHdr.copy(
+                rangeTypes = VideoRanges.playable(hdr10 = false, hdr10Plus = false, hlg = false, dolbyVision = false),
+            )
+        val ranges = build(video = mapOf(CodecCapabilities.MimeTypes.HEVC to sdrPanel)).forCodec("hevc").getValue("VideoRangeType").value
+        assertEquals(setOf("SDR", "DOVIWithSDR"), ranges.split("|").toSet())
+    }
+
+    @Test
     fun `dolby vision needs a DV decoder and display`() {
         val ranges = VideoRanges.playable(hdr10 = true, hdr10Plus = true, hlg = false, dolbyVision = true)
         assertTrue(ranges.containsAll(listOf("DOVI", "DOVIWithEL", "HDR10Plus", "DOVIWithHDR10Plus")))

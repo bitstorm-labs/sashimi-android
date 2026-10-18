@@ -22,6 +22,13 @@ class PlaybackEngine(
     private val profileBuilder: DeviceProfileBuilder,
     /** Shared across every engine (and so every server's client); keyed by server URL. */
     private val bandwidth: BandwidthMonitor = BandwidthMonitor(),
+    /**
+     * What playback itself has downloaded at, per server and link kind. Null
+     * (tests that predate adaptive Auto) leaves Auto on the probe alone.
+     */
+    private val throughput: SustainedThroughputStore? = null,
+    /** The link playback runs over now. The default trusts the probe, as before adaptive Auto. */
+    private val linkKind: () -> LinkKind = { LinkKind.WIRED },
 ) {
     /**
      * Negotiate playback for [itemId].
@@ -47,7 +54,7 @@ class PlaybackEngine(
         subtitleStreamIndex: Int = SubtitleDecisions.NO_SERVER_SUBTITLE,
         mediaSourceId: String = itemId,
     ): PlaybackSource {
-        val streamingBitrate = maxBitrate ?: autoCap()
+        val streamingBitrate = maxBitrate ?: autoCeiling()
 
         suspend fun post(width: Int?) =
             post(
@@ -150,6 +157,33 @@ class PlaybackEngine(
         return AutoBitrate.cap(measured, local)
     }
 
+    /**
+     * What Auto asks for: [autoCap], lowered on a non-wired link to what the
+     * link has sustained during playback (see [AdaptiveAuto.linkCeiling]).
+     */
+    suspend fun autoCeiling(): Int {
+        val cap = autoCap()
+        val kind = linkKind()
+        return AdaptiveAuto.linkCeiling(cap, kind, throughput?.sustainedBitrate(client.currentServerUrl, kind))
+    }
+
+    /** Auto's inputs right now, without waiting for a probe: for the mid-stream upgrade check. */
+    fun autoStatus(): AutoStatus {
+        val server = client.currentServerUrl
+        val kind = linkKind()
+        val cap = AutoBitrate.cap(server?.let(bandwidth::measured), ServerLocality.isLocal(server))
+        return AutoStatus(cap = cap, linkKind = kind, sustainedBitrate = throughput?.sustainedBitrate(server, kind))
+    }
+
+    /** Remember a reading of what playback downloaded at from this server, over the current link. */
+    fun recordThroughput(
+        bitsPerSecond: Int,
+        bytes: Long,
+    ) {
+        val server = client.currentServerUrl ?: return
+        throughput?.record(server, linkKind(), bitsPerSecond, bytes)
+    }
+
     /** Start measuring this server's link in the background, if nothing fresh is known. */
     fun prewarmBandwidth() {
         val server = client.currentServerUrl ?: return
@@ -165,7 +199,7 @@ class PlaybackEngine(
         bandwidth.limitTo(server, bitsPerSecond)
     }
 
-    private fun buildSource(
+    private suspend fun buildSource(
         itemId: String,
         source: MediaSourceInfo,
         playSessionId: String?,
@@ -175,7 +209,7 @@ class PlaybackEngine(
         val (url, method) =
             when (val choice = SourceSelector.choose(source)) {
                 is SourceChoice.Transcode ->
-                    (client.buildURL(choice.path) ?: throw PlaybackError.NoStreamUrl) to PlayMethod.TRANSCODE
+                    pinPrimaryVariant(client.buildURL(choice.path) ?: throw PlaybackError.NoStreamUrl) to PlayMethod.TRANSCODE
                 is SourceChoice.DirectStream ->
                     (client.buildURL(choice.path) ?: throw PlaybackError.NoStreamUrl) to PlayMethod.DIRECT_STREAM
                 SourceChoice.DirectPlay ->
@@ -211,7 +245,19 @@ class PlaybackEngine(
             transcodeReasons = TranscodeReasons.of(source).orEmpty().map(::humanTranscodeReason),
             deliveredBitrate = deliveredBitrate(method, source, url)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
             negotiatedCap = negotiatedCap,
+            sourceBitrate = sourceBitrate(source)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
         )
+    }
+
+    /**
+     * The primary variant's media playlist when the master carries Jellyfin's
+     * same-bandwidth HDR to SDR fallback variants (see [HlsMultivariant]),
+     * else [url] itself. A master that cannot be read is played as before.
+     */
+    private suspend fun pinPrimaryVariant(url: String): String {
+        if (!HlsMultivariant.isMultivariant(url)) return url
+        val playlist = client.fetchText(url) ?: return url
+        return HlsMultivariant.primaryVariantUrl(playlist, url) ?: url
     }
 
     /**
@@ -219,7 +265,8 @@ class PlaybackEngine(
      * negotiates, streams, and tears down its transcode on that server. The
      * device profile is the device's, so it is shared, as is the bandwidth memory.
      */
-    fun withClient(other: JellyfinClient): PlaybackEngine = if (other === client) this else PlaybackEngine(other, profileBuilder, bandwidth)
+    fun withClient(other: JellyfinClient): PlaybackEngine =
+        if (other === client) this else PlaybackEngine(other, profileBuilder, bandwidth, throughput, linkKind)
 
     fun subtitleStreamUrl(
         itemId: String,
@@ -355,6 +402,13 @@ class PlaybackEngine(
             "UnknownVideoStreamInfo", "UnknownAudioStreamInfo" -> "stream info"
             else -> reason
         }
+
+    /** See [autoStatus]. */
+    data class AutoStatus(
+        val cap: Int,
+        val linkKind: LinkKind,
+        val sustainedBitrate: Int?,
+    )
 
     companion object {
         /** Ticks per millisecond (100-ns ticks → ms). */
