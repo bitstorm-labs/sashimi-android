@@ -18,6 +18,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
 import dev.bitstorm.sashimi.core.downloads.DownloadKey
 import dev.bitstorm.sashimi.core.downloads.DownloadLookup
@@ -29,6 +30,8 @@ import dev.bitstorm.sashimi.core.model.ItemImages
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSegmentDto
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.playback.AdaptiveAuto
+import dev.bitstorm.sashimi.core.playback.AdaptiveAutoState
 import dev.bitstorm.sashimi.core.playback.AudioTrack
 import dev.bitstorm.sashimi.core.playback.AutoBitrate
 import dev.bitstorm.sashimi.core.playback.AutoPlayNextResolver
@@ -54,9 +57,12 @@ import dev.bitstorm.sashimi.core.playback.SubtitleChange
 import dev.bitstorm.sashimi.core.playback.SubtitleDecisions
 import dev.bitstorm.sashimi.core.playback.SubtitleDelivery
 import dev.bitstorm.sashimi.core.playback.SubtitleTrack
+import dev.bitstorm.sashimi.core.playback.SustainedUpgradeContext
+import dev.bitstorm.sashimi.core.playback.ThroughputMeter
 import dev.bitstorm.sashimi.core.playback.UpNext
 import dev.bitstorm.sashimi.core.playback.UpNextEvent
 import dev.bitstorm.sashimi.core.playback.UpNextState
+import dev.bitstorm.sashimi.core.playback.UpgradeDecision
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
@@ -159,8 +165,20 @@ class PlayerViewModel(
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    /**
+     * Turns the player's own downloads into link readings for adaptive Auto
+     * (see [onThroughputReading]). Fed from the loader threads.
+     */
+    private val throughputMeter = ThroughputMeter()
+
     val player: ExoPlayer =
         ExoPlayer.Builder(app)
+            .setBandwidthMeter(
+                MeteringBandwidthMeter(DefaultBandwidthMeter.getSingletonInstance(app), throughputMeter) { reading ->
+                    viewModelScope.launch(Dispatchers.Main) { onThroughputReading(reading) }
+                },
+            )
+            .setLoadControl(PauseObservingLoadControl(throughputMeter::loadingPaused))
             .setHandleAudioBecomingNoisy(true)
             // The chrome's seek icons are Replay10/Forward10, and the same
             // increments back the PiP actions and the MediaSession's seek
@@ -267,6 +285,16 @@ class PlayerViewModel(
 
     private var recoveryAttempts = 0
     private var sameQualityRetries = 0
+    private var lastRecoveryAtMs: Long? = null
+
+    /** Adaptive Auto's step-down mark, cool-down and failed-upgrade count, for the player's whole life (Up Next included). */
+    private val adaptiveAuto = AdaptiveAutoState { android.os.SystemClock.elapsedRealtime() }
+
+    /**
+     * A recovery found the device cannot play the original (a decode or
+     * source failure): an automatic step back up must keep the transcode.
+     */
+    private var transcodeRequiredByDevice = false
     private var healthyPlayingMs = 0L
     private var lastFailure = PlaybackFailure.OTHER
     private val stallDetector = StallDetector(clock = { android.os.SystemClock.elapsedRealtime() })
@@ -602,6 +630,9 @@ class PlayerViewModel(
         }
 
         val mediaItem = buildMediaItem(item, source)
+        // A progressive direct play holds one transfer open and stops reading
+        // when the buffer is full; HLS segments are fetched whole.
+        throughputMeter.reset(cutOnLoadPause = !source.isTranscoding)
         player.setMediaItem(mediaItem, source.playerStartPositionMs)
         player.prepare()
         applyTrackSelections()
@@ -901,6 +932,8 @@ class PlayerViewModel(
 
     fun selectQuality(quality: QualityOption) {
         val item = currentItem ?: return
+        // The viewer's pick is theirs: adaptive Auto never overrides it.
+        adaptiveAuto.onViewerPick()
         val posTicks = absolutePositionMs * TICKS_PER_MS
         // A manual pick starts the ladder afresh from the new tier.
         resetRecovery()
@@ -986,6 +1019,7 @@ class PlayerViewModel(
         }
         recoveryAttempts++
         healthyPlayingMs = 0
+        lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
         PlaybackRecoveryPlan.notice(decision)?.let(::showNotice)
         val posTicks = lastGoodPositionMs * TICKS_PER_MS
         val quality = _state.value.selectedQuality
@@ -996,6 +1030,7 @@ class PlayerViewModel(
             }
             RecoveryDecision.ForceTranscode -> {
                 sameQualityRetries = 0
+                transcodeRequiredByDevice = true
                 renegotiate { prepare(item, posTicks, quality, forceTranscode = true) }
             }
             is RecoveryDecision.StepDown -> {
@@ -1003,6 +1038,10 @@ class PlayerViewModel(
                 // Auto does not start above it again.
                 if (failure == PlaybackFailure.STALL || failure == PlaybackFailure.NETWORK) {
                     source.deliveredBitrate?.let(engine::noteLinkLimit) ?: engine.noteLinkLimit(decision.to.maxBitrate!! * 2)
+                    // A link step-down from Auto is Auto's own: it may step
+                    // back up once the link recovers. A decode step-down is
+                    // not, since going back up would fail the same way.
+                    adaptiveAuto.onStepDown(fromViewerAuto = adaptiveAuto.isViewerOnAuto(settings.maxBitrate.value, quality))
                 }
                 // The step becomes the selected quality, so the menu and the
                 // next episode match what is actually playing.
@@ -1010,6 +1049,53 @@ class PlayerViewModel(
             }
             RecoveryDecision.GiveUp -> Unit
         }
+    }
+
+    // MARK: - Adaptive Auto
+
+    /**
+     * A reading of what the player just downloaded at: remembered for this
+     * server and link, then asked whether Auto (or its own step-down) is now
+     * holding the stream needlessly low.
+     */
+    private fun onThroughputReading(reading: ThroughputMeter.Reading) {
+        if (isLocalPlayback || currentSource == null) return
+        engine.recordThroughput(reading.bitsPerSecond, reading.bytes)
+        considerSustainedUpgrade()
+    }
+
+    /**
+     * Rebuilds at the current position back on Auto when the link now carries
+     * the source, or at least twice the current cap; the negotiation then
+     * picks the best stream the link carries. See [AdaptiveAuto.sustainedUpgrade].
+     */
+    private fun considerSustainedUpgrade() {
+        val item = currentItem ?: return
+        val source = currentSource ?: return
+        if (prepareJob?.isActive == true || isHandlingEnd) return
+        val status = engine.autoStatus()
+        val now = android.os.SystemClock.elapsedRealtime()
+        val decision =
+            AdaptiveAuto.sustainedUpgrade(
+                SustainedUpgradeContext(
+                    isAuto = adaptiveAuto.isViewerOnAuto(settings.maxBitrate.value, _state.value.selectedQuality),
+                    linkKind = status.linkKind,
+                    autoCap = status.cap,
+                    activeCap = source.negotiatedCap,
+                    sourceBitrate = source.sourceBitrate,
+                    sustainedBitrate = status.sustainedBitrate,
+                    isTranscoding = source.isTranscoding,
+                    isBusy = player.playbackState == Player.STATE_BUFFERING,
+                    msSinceRecovery = lastRecoveryAtMs?.let { now - it },
+                    msSinceQualityChange = adaptiveAuto.msSinceQualityChange(),
+                    failedUpgrades = adaptiveAuto.failedUpgrades,
+                ),
+            )
+        if (decision != UpgradeDecision.Now) return
+        adaptiveAuto.onUpgrade()
+        val posTicks = absolutePositionMs * TICKS_PER_MS
+        showNotice("Raising quality for your connection")
+        renegotiate { prepare(item, posTicks, QualityOption.AUTO, forceTranscode = transcodeRequiredByDevice) }
     }
 
     private fun showNotice(text: String) {
@@ -1272,6 +1358,8 @@ class PlayerViewModel(
         userChoseSubtitle = false
         desiredAudioIndex = null
         burnInSubtitle = false
+        // A decoder that could not play the last episode's file says nothing about this one.
+        transcodeRequiredByDevice = false
         resetRecovery()
         // Mirror loadInitial: prefer a completed download. Without this,
         // auto-play-next always server-negotiated -- so with a whole

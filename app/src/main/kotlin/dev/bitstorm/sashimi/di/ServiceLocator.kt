@@ -15,6 +15,8 @@ import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
 import dev.bitstorm.sashimi.core.playback.DeviceProfileBuilder
 import dev.bitstorm.sashimi.core.playback.PlaybackEngine
+import dev.bitstorm.sashimi.core.playback.PrefsThroughputPersistence
+import dev.bitstorm.sashimi.core.playback.SustainedThroughputStore
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
@@ -139,10 +141,16 @@ object ServiceLocator {
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
-        playbackEngine = PlaybackEngine(client, DeviceProfileBuilder(AndroidCodecCapabilities(app)))
+        networkMonitor = NetworkMonitor(app)
+        playbackEngine =
+            PlaybackEngine(
+                client,
+                DeviceProfileBuilder(AndroidCodecCapabilities(app)),
+                throughput = SustainedThroughputStore(PrefsThroughputPersistence(app)),
+                linkKind = networkMonitor::linkKind,
+            )
         themeSongs = ThemeSongService(app, serverClients::clientFor, appSettings, appScope)
 
-        networkMonitor = NetworkMonitor(app)
         heroTrailers =
             HeroTrailerController(
                 context = app,
