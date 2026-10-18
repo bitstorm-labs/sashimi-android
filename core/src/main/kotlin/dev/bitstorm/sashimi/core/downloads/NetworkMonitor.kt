@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
+import dev.bitstorm.sashimi.core.playback.LinkKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +90,19 @@ class NetworkMonitor(context: Context) {
         return !(
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED)
+        )
+    }
+
+    /**
+     * The link playback runs over now, for adaptive Auto: Ethernet, metered,
+     * or anything else (Wi-Fi). Read fresh on each call, since a phone moves
+     * between Wi-Fi and mobile data mid-episode. Unknown counts as metered.
+     */
+    fun linkKind(): LinkKind {
+        val caps = connectivityManager.activeNetwork?.let(connectivityManager::getNetworkCapabilities)
+        return LinkKind.classify(
+            isEthernet = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true,
+            isMetered = currentlyMetered(),
         )
     }
 

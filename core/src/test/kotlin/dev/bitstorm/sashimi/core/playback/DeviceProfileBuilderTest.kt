@@ -51,6 +51,19 @@ class DeviceProfileBuilderTest {
     }
 
     @Test
+    fun `an hevc decoder lets the transcode copy hevc while h264 stays the encode target`() {
+        // h264 first: Jellyfin encodes to the first codec. hevc listed: an HEVC
+        // source whose audio needs converting is remuxed, not re-encoded (#155).
+        assertEquals("h264,hevc", build(CodecCapabilities.MimeTypes.HEVC).transcodingProfiles.single().videoCodec)
+        assertEquals("h264", build().transcodingProfiles.single().videoCodec)
+        // VP9 and AV1 do not go into MPEG-TS segments.
+        assertEquals(
+            "h264",
+            build(CodecCapabilities.MimeTypes.VP9, CodecCapabilities.MimeTypes.AV1).transcodingProfiles.single().videoCodec,
+        )
+    }
+
+    @Test
     fun `text subtitles declared external, image subtitles only as burn-in`() {
         val subs = build().subtitleProfiles
         val external = subs.filter { it.method == "External" }.map { it.format }.toSet()
