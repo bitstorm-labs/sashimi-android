@@ -76,6 +76,8 @@ android {
 
     buildFeatures {
         compose = true
+        // VERSION_NAME goes to the server as the client version (#163).
+        buildConfig = true
     }
 }
 
