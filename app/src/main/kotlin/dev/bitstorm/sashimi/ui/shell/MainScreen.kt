@@ -78,6 +78,7 @@ import dev.bitstorm.sashimi.ui.nav.ServerDashboardRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
 import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
+import dev.bitstorm.sashimi.ui.remote.RemoteMessageBanner
 import dev.bitstorm.sashimi.ui.search.SearchScreen
 import dev.bitstorm.sashimi.ui.settings.SettingsScreen
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -125,7 +126,11 @@ fun MainScreen(
                     }
                 AuthScreen(viewModel = vm, banner = banner, onComplete = { session.consumeLogoutReason() })
             } else {
-                AppShell(session = session, widthSizeClass = widthSizeClass)
+                // Above the shell, so a server message also shows over the player.
+                Box(Modifier.fillMaxSize()) {
+                    AppShell(session = session, widthSizeClass = widthSizeClass)
+                    RemoteMessageBanner(ServiceLocator.remoteMessages, Modifier.align(Alignment.TopCenter))
+                }
             }
         }
     }

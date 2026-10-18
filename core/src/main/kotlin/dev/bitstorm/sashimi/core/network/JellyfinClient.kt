@@ -30,6 +30,11 @@ import dev.bitstorm.sashimi.core.playback.BandwidthProbeMath
 import dev.bitstorm.sashimi.core.playback.DeviceProfile
 import dev.bitstorm.sashimi.core.playback.NegotiationFlags
 import dev.bitstorm.sashimi.core.playback.PlaybackInfoRequest
+import dev.bitstorm.sashimi.core.remote.ClientCapabilitiesDto
+import dev.bitstorm.sashimi.core.remote.OkHttpRemoteSocketConnector
+import dev.bitstorm.sashimi.core.remote.RemoteProtocol
+import dev.bitstorm.sashimi.core.remote.RemoteSocketConnector
+import dev.bitstorm.sashimi.core.remote.RemoteTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -923,6 +928,28 @@ class JellyfinClient(
         val body = json.encodeToString(SessionMessage(header = "Sashimi", text = text, timeoutMs = timeoutMs))
         execute("POST", "/Sessions/$sessionId/Message", jsonBody = body, isAdminRequest = true)
     }
+
+    // MARK: - Remote control (session socket, issue #161)
+
+    /** Declares what this session accepts. Re-sent on every socket open: the server forgets it with the session. */
+    suspend fun reportCapabilities(capabilities: ClientCapabilitiesDto = RemoteProtocol.CAPABILITIES) {
+        execute("POST", "/Sessions/Capabilities/Full", jsonBody = json.encodeToString(capabilities))
+    }
+
+    /**
+     * The active server's session socket, or null when signed out. Authenticated
+     * by header: Jellyfin refuses `/socket?api_key=` with 403.
+     */
+    fun remoteTarget(): RemoteTarget? {
+        if (!isConfigured) return null
+        return RemoteTarget(
+            socketUrl = buildUrl("/socket", listOf("deviceId" to deviceId)),
+            authorization = authorizationHeader(),
+        )
+    }
+
+    /** Opens session sockets over this client's connection pool. */
+    fun remoteSocketConnector(): RemoteSocketConnector = OkHttpRemoteSocketConnector.forSockets(httpClient)
 
     /**
      * External VTT subtitle stream URL for app/player-side rendering (never
