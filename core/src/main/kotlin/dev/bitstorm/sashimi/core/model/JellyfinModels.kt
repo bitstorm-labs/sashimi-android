@@ -108,6 +108,8 @@ data class MediaStream(
     @SerialName("VideoRange") val videoRange: String? = null,
     @SerialName("BitDepth") val bitDepth: Int? = null,
     @SerialName("BitRate") val bitRate: Int? = null,
+    @SerialName("RealFrameRate") val realFrameRate: Float? = null,
+    @SerialName("AverageFrameRate") val averageFrameRate: Float? = null,
 )
 
 @Serializable
