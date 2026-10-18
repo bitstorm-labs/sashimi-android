@@ -20,7 +20,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.bitstorm.sashimi.core.admin.Pill
+import dev.bitstorm.sashimi.core.admin.PillKind
 import dev.bitstorm.sashimi.core.admin.PlayMode
+import dev.bitstorm.sashimi.core.admin.StreamState
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 
@@ -33,15 +36,51 @@ internal val VideoFg = Color(0xFFF2B84B)
 internal val VideoBg = Color(0xFF43341A)
 internal val ErrorColor = Color(0xFFFF6B6B)
 internal val WarningColor = VideoFg
+internal val IdleGrey = Color(0xFF6B7684)
+internal val AvatarBg = Color(0xFF3B4452)
+
+/** The poster's state dot: green playing, amber paused, grey unknown. */
+internal fun stateColor(state: StreamState): Color =
+    when (state) {
+        StreamState.PLAYING -> DirectFg
+        StreamState.PAUSED -> VideoFg
+        StreamState.OTHER -> IdleGrey
+    }
+
+/** One stream pill, in the OpsDec colours shared with Roku; the mode pill takes the badge's. */
+@Composable
+internal fun StreamPill(
+    pill: Pill,
+    mode: PlayMode,
+) {
+    val (fg, bg) =
+        when (pill.kind) {
+            PillKind.RESOLUTION -> Color(0xFF6CC6F0) to Color(0xFF15303F)
+            PillKind.VIDEO -> Color(0xFFB79CF5) to Color(0xFF2A2140)
+            PillKind.AUDIO -> Color(0xFFF2C46B) to Color(0xFF3A2D12)
+            PillKind.BITRATE -> Color(0xFF5FD3C4) to Color(0xFF123331)
+            PillKind.MODE -> badgeColors(mode)
+        }
+    Text(
+        pill.text,
+        color = fg,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.ExtraBold,
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 8.dp, vertical = 2.dp),
+    )
+}
+
+internal fun badgeColors(mode: PlayMode): Pair<Color, Color> =
+    when (mode) {
+        PlayMode.DIRECT_PLAY -> DirectFg to DirectBg
+        PlayMode.CONVERTING_AUDIO -> AudioFg to AudioBg
+        PlayMode.CONVERTING_VIDEO -> VideoFg to VideoBg
+    }
 
 @Composable
 internal fun PlayModeBadge(mode: PlayMode) {
-    val (fg, bg) =
-        when (mode) {
-            PlayMode.DIRECT_PLAY -> DirectFg to DirectBg
-            PlayMode.CONVERTING_AUDIO -> AudioFg to AudioBg
-            PlayMode.CONVERTING_VIDEO -> VideoFg to VideoBg
-        }
+    val (fg, bg) = badgeColors(mode)
     Text(
         mode.label,
         color = fg,

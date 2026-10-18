@@ -17,16 +17,19 @@ enum class PlayMode(val label: String) {
 
 object PlayModes {
     private const val BURN_IN = "SubtitleCodecNotSupported"
+    internal const val TONE_MAP = "VideoRangeTypeNotSupported"
 
     /**
-     * Truth table, in order: no TranscodingInfo → direct; subtitle burn-in →
-     * video; both direct → direct (a remux); video direct → audio; else video.
-     * A missing flag counts as converted: the badge never claims direct play
-     * the server did not report.
+     * Truth table, in order: no TranscodingInfo → direct; subtitle burn-in or
+     * HDR → SDR tone-mapping → video (both re-encode the picture whatever the
+     * flags say); both direct → direct (a remux); video direct → audio; else
+     * video. A missing flag counts as converted: the badge never claims direct
+     * play the server did not report.
      */
     fun of(info: TranscodingInfoDto?): PlayMode {
         if (info == null) return PlayMode.DIRECT_PLAY
-        if (BURN_IN in info.transcodeReasons.orEmpty()) return PlayMode.CONVERTING_VIDEO
+        val reasons = info.transcodeReasons.orEmpty()
+        if (BURN_IN in reasons || TONE_MAP in reasons) return PlayMode.CONVERTING_VIDEO
         val video = info.isVideoDirect == true
         val audio = info.isAudioDirect == true
         return when {
@@ -96,20 +99,11 @@ object PlayModes {
         return if (from != to) "$from → $to" else null
     }
 
+    /** The card's tiers ([StreamCards.resolutionLabel]), so the two never disagree. */
     private fun tier(
         width: Int?,
         height: Int?,
-    ): String? {
-        val w = width ?: 0
-        val h = height ?: 0
-        return when {
-            w == 0 && h == 0 -> null
-            w >= 3200 || h >= 2000 -> "4K"
-            w >= 1800 || h >= 1000 -> "1080p"
-            w >= 1200 || h >= 700 -> "720p"
-            else -> "${h}p"
-        }
-    }
+    ): String? = StreamCards.resolutionLabel(width, height).ifEmpty { null }
 
     private fun range(type: String?): String? =
         when {
