@@ -1,57 +1,60 @@
 package dev.bitstorm.sashimi.core.admin
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TranscodeReasonWordsTest {
     @Test
-    fun `every reason Jellyfin 12 knows has plain words`() {
+    fun `every reason Jellyfin 12 knows has the Roku client's plain words`() {
         val expected =
             mapOf(
-                "ContainerNotSupported" to "Container",
-                "VideoCodecNotSupported" to "Video codec",
-                "AudioCodecNotSupported" to "Audio codec",
-                "SubtitleCodecNotSupported" to "Subtitle burn-in",
-                "AudioIsExternal" to "External audio",
-                "SecondaryAudioNotSupported" to "Second audio track",
-                "VideoProfileNotSupported" to "Video profile",
-                "VideoLevelNotSupported" to "Video level",
-                "VideoResolutionNotSupported" to "Resolution",
-                "VideoBitDepthNotSupported" to "Bit depth",
-                "VideoFramerateNotSupported" to "Frame rate",
-                "RefFramesNotSupported" to "Reference frames",
-                "AnamorphicVideoNotSupported" to "Anamorphic video",
+                "ContainerNotSupported" to "Container not supported",
+                "VideoCodecNotSupported" to "Video format not supported",
+                "AudioCodecNotSupported" to "Audio format not supported",
+                "SubtitleCodecNotSupported" to "Subtitles burned in",
+                "AudioIsExternal" to "External audio track",
+                "SecondaryAudioNotSupported" to "Extra audio track not supported",
+                "VideoProfileNotSupported" to "Video profile not supported",
+                "VideoLevelNotSupported" to "Video level not supported",
+                "VideoResolutionNotSupported" to "Resolution too high",
+                "VideoBitDepthNotSupported" to "Bit depth not supported",
+                "VideoFramerateNotSupported" to "Frame rate not supported",
+                "RefFramesNotSupported" to "Too many reference frames",
+                "AnamorphicVideoNotSupported" to "Anamorphic video not supported",
                 "InterlacedVideoNotSupported" to "Interlaced video",
-                "AudioChannelsNotSupported" to "Audio channels",
-                "AudioProfileNotSupported" to "Audio profile",
-                "AudioSampleRateNotSupported" to "Sample rate",
-                "AudioBitDepthNotSupported" to "Audio bit depth",
+                "AudioChannelsNotSupported" to "Too many audio channels",
+                "AudioProfileNotSupported" to "Audio profile not supported",
+                "AudioSampleRateNotSupported" to "Sample rate not supported",
+                "AudioBitDepthNotSupported" to "Audio bit depth not supported",
                 "ContainerBitrateExceedsLimit" to "Bitrate cap",
-                "VideoBitrateNotSupported" to "Video bitrate",
-                "AudioBitrateNotSupported" to "Audio bitrate",
-                "UnknownVideoStreamInfo" to "Unknown video",
-                "UnknownAudioStreamInfo" to "Unknown audio",
+                "VideoBitrateNotSupported" to "Video bitrate too high",
+                "AudioBitrateNotSupported" to "Audio bitrate too high",
+                "UnknownVideoStreamInfo" to "Unknown video stream",
+                "UnknownAudioStreamInfo" to "Unknown audio stream",
                 "DirectPlayError" to "Direct play failed",
                 "VideoRangeTypeNotSupported" to "HDR → SDR",
-                "VideoCodecTagNotSupported" to "Video codec tag",
+                "VideoCodecTagNotSupported" to "Video codec tag not supported",
                 "StreamCountExceedsLimit" to "Too many streams",
-                "VideoRotationNotSupported" to "Rotated video",
+                "VideoRotationNotSupported" to "Video rotation not supported",
             )
         expected.forEach { (reason, words) -> assertEquals(reason, words, TranscodeReasonWords.of(reason)) }
     }
 
     @Test
     fun `an unknown future reason is split into words, never shown raw`() {
-        assertEquals("Spatial audio", TranscodeReasonWords.of("SpatialAudioNotSupported"))
+        // Roku's humanize(): every capital after the first becomes " " + lower case.
+        assertEquals("Spatial audio not supported", TranscodeReasonWords.of("SpatialAudioNotSupported"))
+        assertEquals("", TranscodeReasonWords.of(""))
         assertEquals("Hdr metadata missing", TranscodeReasonWords.of("HdrMetadataMissing"))
-        assertFalse(TranscodeReasonWords.of("SpatialAudioNotSupported").contains("NotSupported"))
     }
 
     @Test
     fun `the line joins all reasons, and none gives null`() {
-        assertEquals("Container · Audio codec", TranscodeReasonWords.line(listOf("ContainerNotSupported", "AudioCodecNotSupported")))
+        assertEquals(
+            "Container not supported · Audio format not supported",
+            TranscodeReasonWords.line(listOf("ContainerNotSupported", "AudioCodecNotSupported")),
+        )
         assertNull(TranscodeReasonWords.line(emptyList()))
         assertNull(TranscodeReasonWords.line(null))
     }

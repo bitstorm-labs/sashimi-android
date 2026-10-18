@@ -32,12 +32,15 @@ data class SessionInfoDto(
     @SerialName("NowPlayingItem") val nowPlayingItem: BaseItemDto? = null,
     @SerialName("PlayState") val playState: PlayStateDto? = null,
     @SerialName("TranscodingInfo") val transcodingInfo: TranscodingInfoDto? = null,
+    /** Only ever classified as Local/Remote ([StreamCards.whereLabel]); never shown, never sent anywhere. */
+    @SerialName("RemoteEndPoint") val remoteEndPoint: String? = null,
 )
 
 @Serializable
 data class PlayStateDto(
     @SerialName("PositionTicks") val positionTicks: Long? = null,
-    @SerialName("IsPaused") val isPaused: Boolean = false,
+    /** Null when the server leaves it out: the card's state dot then reads "other". */
+    @SerialName("IsPaused") val isPaused: Boolean? = null,
     @SerialName("PlayMethod") val playMethod: String? = null,
     @SerialName("AudioStreamIndex") val audioStreamIndex: Int? = null,
 )
@@ -53,6 +56,8 @@ data class TranscodingInfoDto(
     @SerialName("Width") val width: Int? = null,
     @SerialName("Height") val height: Int? = null,
     @SerialName("AudioChannels") val audioChannels: Int? = null,
+    /** The encoder's frames per second; absent on a remux. */
+    @SerialName("Framerate") val framerate: Float? = null,
     @SerialName("HardwareAccelerationType") val hardwareAccelerationType: String? = null,
     @SerialName("TranscodeReasons") val transcodeReasons: List<String>? = null,
 )
