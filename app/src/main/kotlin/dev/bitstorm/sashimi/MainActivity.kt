@@ -59,6 +59,13 @@ class MainActivity : ComponentActivity() {
         _isInPip.value = isInPictureInPictureMode
     }
 
+    // The session socket (#161) is wanted while the app is visible. A PiP window
+    // keeps the activity STARTED, so PiP playback stays reachable.
+    override fun onStart() {
+        super.onStart()
+        ServiceLocator.remotePresence.setForeground(true)
+    }
+
     override fun onResume() {
         super.onResume()
         // Re-check connectivity on every foreground so a stale offline state (e.g.
@@ -81,7 +88,10 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) DetailAmbience.onAppBackgrounded()
+        if (!isChangingConfigurations) {
+            DetailAmbience.onAppBackgrounded()
+            ServiceLocator.remotePresence.setForeground(false)
+        }
     }
 
     private fun stashDeepLink(intent: Intent?) {
