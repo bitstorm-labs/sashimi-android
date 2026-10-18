@@ -45,6 +45,9 @@ import dev.bitstorm.sashimi.core.deeplink.DeepLinkTarget
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.herotrailer.DetailAmbience
+import dev.bitstorm.sashimi.ui.admin.AdminActivityScreen
+import dev.bitstorm.sashimi.ui.admin.AdminHealthScreen
+import dev.bitstorm.sashimi.ui.admin.ServerDashboardScreen
 import dev.bitstorm.sashimi.ui.auth.AuthScreen
 import dev.bitstorm.sashimi.ui.auth.AuthViewModel
 import dev.bitstorm.sashimi.ui.auth.AuthViewModelFactory
@@ -59,6 +62,8 @@ import dev.bitstorm.sashimi.ui.home.HomeScreen
 import dev.bitstorm.sashimi.ui.home.RecentlyAddedGridScreen
 import dev.bitstorm.sashimi.ui.library.LibrariesScreen
 import dev.bitstorm.sashimi.ui.library.LibraryBrowseScreen
+import dev.bitstorm.sashimi.ui.nav.AdminActivityRoute
+import dev.bitstorm.sashimi.ui.nav.AdminHealthRoute
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
 import dev.bitstorm.sashimi.ui.nav.DownloadsRoute
 import dev.bitstorm.sashimi.ui.nav.HomeRoute
@@ -69,6 +74,7 @@ import dev.bitstorm.sashimi.ui.nav.PersonRoute
 import dev.bitstorm.sashimi.ui.nav.PlayerRoute
 import dev.bitstorm.sashimi.ui.nav.RecentlyAddedRoute
 import dev.bitstorm.sashimi.ui.nav.SearchRoute
+import dev.bitstorm.sashimi.ui.nav.ServerDashboardRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
 import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
@@ -258,8 +264,22 @@ private fun AppShell(
                     session = session,
                     onAddServer = { showAddServer = true },
                     onOpenRowOrder = { navController.navigate(HomeRowOrderRoute) },
+                    onOpenServerDashboard = { navController.navigate(ServerDashboardRoute) },
                     isCompact = isCompact,
                 )
+            }
+            composable<ServerDashboardRoute> {
+                ServerDashboardScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenActivity = { navController.navigate(AdminActivityRoute) },
+                    onOpenHealth = { navController.navigate(AdminHealthRoute) },
+                )
+            }
+            composable<AdminActivityRoute> {
+                AdminActivityScreen(onBack = { navController.popBackStack() })
+            }
+            composable<AdminHealthRoute> {
+                AdminHealthScreen(onBack = { navController.popBackStack() })
             }
             composable<HomeRowOrderRoute> {
                 dev.bitstorm.sashimi.ui.settings.HomeRowOrderScreen(settings = ServiceLocator.homeRowSettings)

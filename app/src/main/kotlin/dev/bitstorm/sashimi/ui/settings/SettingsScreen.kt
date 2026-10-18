@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,8 @@ fun SettingsScreen(
     session: SessionManager,
     onAddServer: () -> Unit,
     onOpenRowOrder: () -> Unit,
+    /** Opens the admin dashboard; the row only exists for an administrator. */
+    onOpenServerDashboard: () -> Unit,
     /** Compact width decides the hero-trailer default until the user picks one. */
     isCompact: Boolean,
     modifier: Modifier = Modifier,
@@ -110,6 +113,13 @@ fun SettingsScreen(
     val activeId by session.activeServerId.collectAsStateWithLifecycle()
     val settings = ServiceLocator.appSettings
     val downloads by ServiceLocator.downloadManager.downloads.collectAsStateWithLifecycle()
+
+    val isAdmin by ServiceLocator.adminGate.isAdmin.collectAsStateWithLifecycle()
+    val authenticated by session.isAuthenticated.collectAsStateWithLifecycle()
+    // A gate read that failed at launch (offline) is retried when Settings opens.
+    LaunchedEffect(authenticated) {
+        if (authenticated && ServiceLocator.adminGate.needsRefresh) ServiceLocator.refreshAdminGate()
+    }
 
     var showSignOut by remember { mutableStateOf(false) }
     var showDeleteAll by remember { mutableStateOf(false) }
@@ -145,6 +155,11 @@ fun SettingsScreen(
                     Icon(Icons.Filled.Add, contentDescription = null)
                     Text("Add Server", modifier = Modifier.padding(start = 8.dp))
                 }
+            }
+
+            if (isAdmin) {
+                item { SectionHeader("ADMIN") }
+                item { NavRow("Server dashboard", onClick = onOpenServerDashboard) }
             }
 
             item { SectionHeader("HOME SCREEN") }

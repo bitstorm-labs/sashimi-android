@@ -18,6 +18,9 @@ sealed class JellyfinError(message: String) : Exception(message) {
 
     object SessionExpired : JellyfinError("Session expired. Please sign in again.")
 
+    /** An admin endpoint refused a valid token (403): the user is not an admin. */
+    object Forbidden : JellyfinError("This needs an administrator account.")
+
     object DecodingError : JellyfinError("Could not load content. Try again.")
 
     data class HttpError(val statusCode: Int) : JellyfinError(
