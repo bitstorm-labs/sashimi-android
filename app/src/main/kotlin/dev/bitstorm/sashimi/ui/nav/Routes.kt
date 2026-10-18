@@ -22,6 +22,18 @@ object DownloadsRoute
 @Serializable
 object SettingsRoute
 
+/** Admin-only server dashboard (phone layout), pushed from Settings. */
+@Serializable
+object ServerDashboardRoute
+
+/** The dashboard's full activity log. */
+@Serializable
+object AdminActivityRoute
+
+/** The dashboard's health page: tasks, library scan, storage, hardware transcoding. */
+@Serializable
+object AdminHealthRoute
+
 /** Home row order + visibility editor, pushed from Settings. */
 @Serializable
 object HomeRowOrderRoute
