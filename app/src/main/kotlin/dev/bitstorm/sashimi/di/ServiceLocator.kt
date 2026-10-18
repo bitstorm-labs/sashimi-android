@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.di
 import android.content.Context
 import androidx.core.content.edit
 import androidx.room.Room
+import dev.bitstorm.sashimi.core.admin.AdminGate
 import dev.bitstorm.sashimi.core.downloads.DownloadDatabase
 import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
@@ -32,6 +33,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /**
  * Minimal hand-rolled DI. M1 has no need for a framework; a single process-wide
@@ -56,6 +61,13 @@ object ServiceLocator {
      */
     lateinit var serverClients: ServerScopedClients<JellyfinClient>
         private set
+
+    /**
+     * Whether the signed-in user is a Jellyfin administrator, which decides
+     * whether Settings offers the server dashboard. Re-read on every launch,
+     * sign-in (Quick Connect included) and server switch.
+     */
+    val adminGate = AdminGate()
 
     lateinit var homeRowSettings: HomeRowSettings
         private set
@@ -138,6 +150,13 @@ object ServiceLocator {
             ) { server, token ->
                 client.forServer(serverUrl = server.url, accessToken = token, userId = server.userId)
             }
+        appScope.launch {
+            combine(session.isAuthenticated, session.activeServerId, session.currentUser) { auth, server, user ->
+                Triple(auth, server, user?.id)
+            }.distinctUntilChanged().collectLatest { (auth, _, _) ->
+                if (auth) refreshAdminGate() else adminGate.signedOut()
+            }
+        }
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
@@ -188,6 +207,9 @@ object ServiceLocator {
                 tierEncodes = PrefsTierEncodeLedger(app),
             )
     }
+
+    /** Re-reads the admin flag for the active server's user. */
+    suspend fun refreshAdminGate() = adminGate.refresh { client.getCurrentUser() }
 
     /**
      * The per-server client for a saved server, or null when that server is no

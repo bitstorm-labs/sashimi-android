@@ -1,5 +1,14 @@
 package dev.bitstorm.sashimi.core.network
 
+import dev.bitstorm.sashimi.core.admin.ActivityLogEntryDto
+import dev.bitstorm.sashimi.core.admin.ActivityLogResult
+import dev.bitstorm.sashimi.core.admin.CurrentUserDto
+import dev.bitstorm.sashimi.core.admin.EncodingOptionsDto
+import dev.bitstorm.sashimi.core.admin.ScheduledTaskDto
+import dev.bitstorm.sashimi.core.admin.SessionInfoDto
+import dev.bitstorm.sashimi.core.admin.SessionMessage
+import dev.bitstorm.sashimi.core.admin.SystemInfoDto
+import dev.bitstorm.sashimi.core.admin.SystemStorageDto
 import dev.bitstorm.sashimi.core.home.NextUpSelector
 import dev.bitstorm.sashimi.core.home.isSpecial
 import dev.bitstorm.sashimi.core.model.AuthenticationResult
@@ -206,6 +215,7 @@ class JellyfinClient(
         jsonBody: String? = null,
         isAuthRequest: Boolean = false,
         isSignInStep: Boolean = false,
+        isAdminRequest: Boolean = false,
         retryCount: Int = 0,
     ): String {
         val url = buildUrl(path, query)
@@ -231,12 +241,20 @@ class JellyfinClient(
             } catch (e: Exception) {
                 if (mayRetry && retryCount < maxRetries) {
                     delay(backoffMillis(retryCount))
-                    return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, retryCount + 1)
+                    return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, isAdminRequest, retryCount + 1)
                 }
                 throw JellyfinError.NetworkError(e)
             }
 
         val code = response.code()
+
+        if (code == 403 && isAdminRequest) {
+            // An admin endpoint refusing a valid token means "not an admin
+            // (any more)", not a dead session: the dashboard closes, the user
+            // stays signed in.
+            response.errorBody()?.close()
+            throw JellyfinError.Forbidden
+        }
 
         if (code == 401 || code == 403) {
             response.errorBody()?.close()
@@ -248,7 +266,7 @@ class JellyfinClient(
         if (code in 500..599 && mayRetry && retryCount < maxRetries) {
             response.errorBody()?.close()
             delay(backoffMillis(retryCount))
-            return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, retryCount + 1)
+            return execute(method, path, query, jsonBody, isAuthRequest, isSignInStep, isAdminRequest, retryCount + 1)
         }
 
         if (code !in 200..299) {
@@ -862,6 +880,48 @@ class JellyfinClient(
             path = "/Videos/ActiveEncodings",
             query = listOf("deviceId" to deviceId, "playSessionId" to playSessionId),
         )
+    }
+
+    // MARK: - Admin dashboard (verified against Jellyfin 12.2, see plans/sashimi-android)
+
+    /** `GET /Users/Me`: the signed-in user with their policy (the admin gate). */
+    suspend fun getCurrentUser(): CurrentUserDto = decode(execute("GET", "/Users/Me"))
+
+    /** Every session the server saw in the last 16 minutes (all users, for an admin). */
+    suspend fun getAdminSessions(): List<SessionInfoDto> =
+        decode(execute("GET", "/Sessions", query = listOf("activeWithinSeconds" to "960"), isAdminRequest = true))
+
+    suspend fun getActivityLog(limit: Int): List<ActivityLogEntryDto> =
+        decode<ActivityLogResult>(
+            execute("GET", "/System/ActivityLog/Entries", query = listOf("limit" to limit.toString()), isAdminRequest = true),
+        ).items
+
+    suspend fun getScheduledTasks(): List<ScheduledTaskDto> = decode(execute("GET", "/ScheduledTasks", isAdminRequest = true))
+
+    suspend fun getSystemInfo(): SystemInfoDto = decode(execute("GET", "/System/Info", isAdminRequest = true))
+
+    /** Null when the server has no storage endpoint (it is newer than 10.9). */
+    suspend fun getStorage(): SystemStorageDto? =
+        try {
+            decode<SystemStorageDto>(execute("GET", "/System/Info/Storage", isAdminRequest = true))
+        } catch (e: JellyfinError.HttpError) {
+            if (e.statusCode == 404) null else throw e
+        }
+
+    suspend fun getEncodingOptions(): EncodingOptionsDto = decode(execute("GET", "/System/Configuration/encoding", isAdminRequest = true))
+
+    suspend fun stopSession(sessionId: String) {
+        execute("POST", "/Sessions/$sessionId/Playing/Stop", isAdminRequest = true)
+    }
+
+    /** Shows [text] on the viewer's screen for [timeoutMs]. */
+    suspend fun sendSessionMessage(
+        sessionId: String,
+        text: String,
+        timeoutMs: Long = 10_000,
+    ) {
+        val body = json.encodeToString(SessionMessage(header = "Sashimi", text = text, timeoutMs = timeoutMs))
+        execute("POST", "/Sessions/$sessionId/Message", jsonBody = body, isAdminRequest = true)
     }
 
     /**
