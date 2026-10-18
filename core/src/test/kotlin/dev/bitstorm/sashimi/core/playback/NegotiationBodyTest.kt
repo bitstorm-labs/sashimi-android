@@ -25,7 +25,12 @@ class NegotiationBodyTest {
     private val bodies = mutableListOf<String>()
     private val paths = mutableListOf<String>()
 
-    private fun engine(respond: (Request) -> String): PlaybackEngine {
+    private fun engine(
+        serverUrl: String = "https://remote.example",
+        throughput: SustainedThroughputStore? = null,
+        linkKind: LinkKind = LinkKind.WIRED,
+        respond: (Request) -> String,
+    ): PlaybackEngine {
         val http =
             OkHttpClient.Builder()
                 .addInterceptor { chain ->
@@ -42,8 +47,13 @@ class NegotiationBodyTest {
                         .body(respond(request).toResponseBody("application/json".toMediaType()))
                         .build()
                 }.build()
-        val client = JellyfinClient("dev", httpClient = http).apply { configure("https://remote.example", "t", "u") }
-        return PlaybackEngine(client, DeviceProfileBuilder(FixedCodecCapabilities(emptySet())))
+        val client = JellyfinClient("dev", httpClient = http).apply { configure(serverUrl, "t", "u") }
+        return PlaybackEngine(
+            client,
+            DeviceProfileBuilder(FixedCodecCapabilities(emptySet())),
+            throughput = throughput,
+            linkKind = { linkKind },
+        )
     }
 
     private fun widthCaps(body: String): List<String> =
@@ -86,6 +96,79 @@ class NegotiationBodyTest {
             assertEquals(4_000_000, source.negotiatedCap)
             assertEquals(listOf("audio codec", "bitrate limit"), source.transcodeReasons)
             assertTrue("probe went to the server: $paths", paths.any { it.endsWith("/Playback/BitrateTest") })
+        }
+
+    private fun postedBitrates() =
+        bodies.filter { it.contains("DeviceProfile") }.map {
+            Json.parseToJsonElement(it).jsonObject.getValue("MaxStreamingBitrate").jsonPrimitive.int
+        }
+
+    @Test
+    fun `local Auto over Wi-Fi with nothing remembered asks for the smooth 4K bitrate, wired for the full cap`() =
+        runBlocking {
+            val lan = "http://192.168.86.151:9096"
+            engine(lan, SustainedThroughputStore(InMemoryThroughputPersistence()), LinkKind.WIRELESS) { DIRECT_PLAY }
+                .negotiate(itemId = "item-1")
+            assertEquals(listOf(24_000_000), postedBitrates())
+            bodies.clear()
+            engine(lan, SustainedThroughputStore(InMemoryThroughputPersistence()), LinkKind.WIRED) { DIRECT_PLAY }
+                .negotiate(itemId = "item-1")
+            assertEquals(listOf(100_000_000), postedBitrates())
+        }
+
+    @Test
+    fun `a Wi-Fi link that has sustained 120 Mbps is trusted with 60, and the source bitrate comes back`() =
+        runBlocking {
+            val lan = "http://192.168.86.151:9096"
+            val store = SustainedThroughputStore(InMemoryThroughputPersistence())
+            store.record(lan, LinkKind.WIRELESS, 120_000_000, SustainedThroughputStore.MINIMUM_BYTES)
+            // An empty probe body measures nothing, so the cap stays the LAN default.
+            val engine =
+                engine(lan, store, LinkKind.WIRELESS) { r -> if (r.url.encodedPath.endsWith("/BitrateTest")) "" else DIRECT_PLAY_44 }
+            val source = engine.negotiate(itemId = "item-1")
+            assertEquals(listOf(60_000_000), postedBitrates())
+            assertEquals(60_000_000, source.negotiatedCap)
+            assertEquals(44_268_472, source.sourceBitrate)
+            assertEquals(PlaybackEngine.AutoStatus(100_000_000, LinkKind.WIRELESS, 120_000_000), engine.autoStatus())
+        }
+
+    @Test
+    fun `an explicit cap ignores the link memory`() =
+        runBlocking {
+            val store = SustainedThroughputStore(InMemoryThroughputPersistence())
+            engine("http://192.168.86.151:9096", store, LinkKind.WIRELESS) { DIRECT_PLAY }
+                .negotiate(itemId = "item-1", maxBitrate = BitrateResolver.NO_CAP)
+            assertEquals(listOf(BitrateResolver.NO_CAP), postedBitrates())
+        }
+
+    @Test
+    fun `recorded readings land under the engine's server and current link`() {
+        val store = SustainedThroughputStore(InMemoryThroughputPersistence())
+        val lan = "http://192.168.86.151:9096"
+        engine(lan, store, LinkKind.METERED) { DIRECT_PLAY }.recordThroughput(9_000_000, SustainedThroughputStore.MINIMUM_BYTES)
+        assertEquals(9_000_000, store.sustainedBitrate(lan, LinkKind.METERED))
+        assertEquals(null, store.sustainedBitrate(lan, LinkKind.WIRELESS))
+    }
+
+    @Test
+    fun `a transcode whose master carries fallback variants plays the primary variant's media playlist`() =
+        runBlocking {
+            val source =
+                engine { r ->
+                    when {
+                        r.url.encodedPath.endsWith("/master.m3u8") -> FALLBACK_MASTER
+                        else -> TRANSCODE_1080
+                    }
+                }.negotiate(itemId = "item-1", maxBitrate = 8_000_000)
+            assertTrue(source.streamUrl, source.streamUrl.startsWith("https://remote.example/videos/item-1/main.m3u8?VideoCodec=h264,hevc"))
+            assertTrue("master was read: $paths", paths.any { it.endsWith("/master.m3u8") })
+        }
+
+    @Test
+    fun `an unreadable or plain master is played as before`() =
+        runBlocking {
+            val source = engine { TRANSCODE_1080 }.negotiate(itemId = "item-1", maxBitrate = 8_000_000)
+            assertTrue(source.streamUrl, source.streamUrl.startsWith("https://remote.example/videos/item-1/master.m3u8"))
         }
 
     @Test
@@ -139,6 +222,12 @@ class NegotiationBodyTest {
     }
 
     private companion object {
+        const val FALLBACK_MASTER =
+            "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=46449896,VIDEO-RANGE=PQ\nmain.m3u8?VideoCodec=h264,hevc\n" +
+                "#EXT-X-STREAM-INF:BANDWIDTH=46449896,VIDEO-RANGE=SDR\nmain.m3u8?VideoCodec=h264&AllowVideoStreamCopy=false\n"
+        const val DIRECT_PLAY_44 =
+            """{"MediaSources":[{"Id":"item-1","Container":"mkv","Bitrate":44268472,"MediaStreams":[]}],""" +
+                """"PlaySessionId":"ps"}"""
         const val DIRECT_PLAY = """{"MediaSources":[{"Id":"item-1","Container":"mp4","MediaStreams":[]}],"PlaySessionId":"ps"}"""
         const val TRANSCODE_1080 =
             """{"MediaSources":[{"Id":"item-1","Container":"mkv",

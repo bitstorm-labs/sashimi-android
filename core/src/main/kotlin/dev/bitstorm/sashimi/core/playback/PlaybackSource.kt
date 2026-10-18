@@ -118,6 +118,8 @@ data class PlaybackSource(
     val deliveredBitrate: Int? = null,
     /** The bitrate cap this stream was negotiated with. */
     val negotiatedCap: Int = 0,
+    /** The source file's own bitrate: what adaptive Auto would copy untouched if the link carries it. */
+    val sourceBitrate: Int? = null,
 )
 
 sealed class PlaybackError(

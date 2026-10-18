@@ -127,7 +127,9 @@ data class PlaybackInfoRequest(
  * - Audio: only codecs with a decoder. ExoPlayer has no software AC-3, E-AC-3,
  *   DTS or TrueHD decoder, so advertising them statically made a device without
  *   one direct-play audio it could not decode.
- * - Transcode: HLS h264 + aac, which every device decodes. Audio is not copied
+ * - Transcode: HLS h264 + aac, which every device decodes, plus HEVC when the
+ *   device decodes it so the server can COPY an HEVC stream into the HLS
+ *   output (see [transcodeVideoCodecs]). Audio is not copied
  *   into the transcode even when the device could decode it: a copied 640 kbps
  *   AC-3 track is most of a low tier's budget.
  * - Subtitles: text formats External (the app side-loads them as VTT); image
@@ -199,7 +201,7 @@ class DeviceProfileBuilder(
                 listOf(
                     TranscodingProfile(
                         container = "ts",
-                        videoCodec = "h264",
+                        videoCodec = transcodeVideoCodecs(video.keys),
                         audioCodec = "aac",
                         protocol = "hls",
                         // Stereo on the low tiers: a 5.1 AAC track costs
@@ -212,6 +214,20 @@ class DeviceProfileBuilder(
                     IMAGE_SUBTITLE_FORMATS.map { SubtitleProfile(format = it, method = "Encode") },
         )
     }
+
+    /**
+     * Video codecs the HLS transcode may carry. h264 stays first, because the
+     * first is what Jellyfin ENCODES to and every device decodes it. HEVC
+     * follows when there is a decoder, which is what lets the server copy an
+     * HEVC source instead of re-encoding it: with h264 alone, a 4K HDR10 or
+     * Dolby Vision (HDR10 base) film whose audio needs converting was re-encoded
+     * whole to h264 SDR ("300": VideoCodecNotSupported + AudioCodecNotSupported;
+     * with HEVC listed only AudioCodecNotSupported, video copied). The HEVC
+     * CodecProfile's range, depth and size conditions still decide whether a
+     * copy is allowed, so an SDR display still gets a tone-mapped encode.
+     * VP9 and AV1 are not offered: they do not go into MPEG-TS segments.
+     */
+    private fun transcodeVideoCodecs(decodable: Set<String>): String = if ("hevc" in decodable) "h264,hevc" else "h264"
 
     /** The decodable video codecs, in preference order, with their limits. */
     private fun videoCodecs(): LinkedHashMap<String, VideoDecodeSupport> =
