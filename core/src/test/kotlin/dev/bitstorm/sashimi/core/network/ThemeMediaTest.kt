@@ -71,7 +71,13 @@ class ThemeMediaTest {
             }
             """.trimIndent()
         val decoded = json.decodeFromString<ThemeMediaResponse>(body)
-        assertEquals("theme-1", decoded.themeSongsResult?.items?.firstOrNull()?.id)
+        assertEquals(
+            "theme-1",
+            decoded.themeSongsResult
+                ?.items
+                ?.firstOrNull()
+                ?.id,
+        )
         assertEquals(1, decoded.themeSongsResult?.totalRecordCount)
     }
 
@@ -83,7 +89,12 @@ class ThemeMediaTest {
             """.trimIndent()
         val decoded = json.decodeFromString<ThemeMediaResponse>(body)
         assertEquals(emptyList<Any>(), decoded.themeSongsResult?.items)
-        assertNull(decoded.themeSongsResult?.items?.firstOrNull()?.id)
+        assertNull(
+            decoded.themeSongsResult
+                ?.items
+                ?.firstOrNull()
+                ?.id,
+        )
     }
 
     @Test
@@ -102,6 +113,11 @@ class ThemeMediaTest {
             }
             """.trimIndent()
         val decoded = json.decodeFromString<ThemeMediaResponse>(body)
-        assertNull(decoded.themeSongsResult?.items?.firstOrNull()?.id)
+        assertNull(
+            decoded.themeSongsResult
+                ?.items
+                ?.firstOrNull()
+                ?.id,
+        )
     }
 }

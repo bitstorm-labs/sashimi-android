@@ -22,12 +22,14 @@ class ServerScopedPlaybackTest {
     private val requests = mutableListOf<Request>()
 
     private fun http(respond: (Request) -> Pair<Int, String>): OkHttpClient =
-        OkHttpClient.Builder()
+        OkHttpClient
+            .Builder()
             .addInterceptor { chain ->
                 val request = chain.request()
                 synchronized(requests) { requests += request }
                 val (code, body) = respond(request)
-                Response.Builder()
+                Response
+                    .Builder()
                     .request(request)
                     .protocol(Protocol.HTTP_1_1)
                     .code(code)

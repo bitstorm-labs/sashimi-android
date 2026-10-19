@@ -30,7 +30,9 @@ package dev.bitstorm.sashimi.core.herotrailer
 class HeroTrailerOwners {
     sealed interface Decision {
         /** Start the trailer for this source in the top screen. */
-        data class Start(val sourceId: String) : Decision
+        data class Start(
+            val sourceId: String,
+        ) : Decision
 
         /** Keep the running trailer; it now shows in the top screen. */
         data object HandOff : Decision
@@ -42,7 +44,10 @@ class HeroTrailerOwners {
         data object Ignore : Decision
     }
 
-    private data class Entry(val owner: String, val sourceId: String?)
+    private data class Entry(
+        val owner: String,
+        val sourceId: String?,
+    )
 
     private val stack = mutableListOf<Entry>()
     private val played = mutableSetOf<String>()

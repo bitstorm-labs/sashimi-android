@@ -34,7 +34,12 @@ class PrefsThroughputPersistence(
 ) : ThroughputPersistence {
     private val prefs: SharedPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    override fun read(key: String): List<Int> = prefs.getString(key, null).orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }
+    override fun read(key: String): List<Int> =
+        prefs
+            .getString(key, null)
+            .orEmpty()
+            .split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
 
     override fun write(
         key: String,

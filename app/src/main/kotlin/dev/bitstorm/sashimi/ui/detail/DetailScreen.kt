@@ -199,7 +199,8 @@ fun DetailScreen(
     // stack. Reporting only -- every decision (whether to play, the delay, the
     // fades, stopping) belongs to the app-level ThemeSongService, which resolves
     // a title from another server against that server.
-    dev.bitstorm.sashimi.themesong.ThemeSongVisitEffect(item, serverId = serverId?.takeIf { it != activeServerId })
+    dev.bitstorm.sashimi.themesong
+        .ThemeSongVisitEffect(item, serverId = serverId?.takeIf { it != activeServerId })
 
     // Hero trailer: report this screen; HeroTrailerController decides. A
     // YouTube channel's banner hero has no trailer layer.
@@ -348,7 +349,11 @@ private fun CompactLayout(
             // only the bottom edge fades, into the content below.
             HeroTrailerBackdrop(
                 heroOwner,
-                Modifier.fillMaxWidth().height(220.dp).heroEdgeFade(fadeLeft = false).background(SashimiCard),
+                Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .heroEdgeFade(fadeLeft = false)
+                    .background(SashimiCard),
             ) { fade ->
                 // The picture fades out over the trailer and back in after it.
                 Box(Modifier.matchParentSize().then(fade)) {
@@ -387,7 +392,11 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
         modifier = Modifier.fillMaxWidth().height(bannerHeight + avatarSize / 2),
     ) {
         Box(
-            Modifier.fillMaxWidth().height(bannerHeight).align(Alignment.TopCenter).background(SashimiCard),
+            Modifier
+                .fillMaxWidth()
+                .height(bannerHeight)
+                .align(Alignment.TopCenter)
+                .background(SashimiCard),
         ) {
             AsyncImage(
                 model = LocalImageUrls.current.banner(item, rememberImageWidth(screenWidth())),
@@ -904,7 +913,8 @@ private fun ActionButtons(
         // Single-item download (movies + episodes). Series use the bulk season menu.
         if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
             val server = LocalItemServer.current
-            dev.bitstorm.sashimi.ui.downloads.DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
+            dev.bitstorm.sashimi.ui.downloads
+                .DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
         }
 
         // Shuffle stays visible for series (a primary series action on iOS).
@@ -1081,7 +1091,12 @@ private fun OverviewSection(item: BaseItemDto) {
             maxLines = if (expanded) 50 else 3,
             overflow = TextOverflow.Ellipsis,
         )
-        TextButton(onClick = { expanded = !expanded }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+        TextButton(
+            onClick = { expanded = !expanded },
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(0.dp),
+        ) {
             Text(if (expanded) "Show Less" else "Show More", color = SashimiLink, fontSize = 13.sp)
         }
     }
@@ -1171,7 +1186,9 @@ private fun BulkDownloadMenu(
     var showCustom by remember { mutableStateOf(false) }
     var customCount by remember { mutableStateOf("") }
 
-    val notificationGate = dev.bitstorm.sashimi.ui.downloads.rememberNotificationPermissionGate()
+    val notificationGate =
+        dev.bitstorm.sashimi.ui.downloads
+            .rememberNotificationPermissionGate()
 
     fun stage(selection: List<BaseItemDto>) {
         if (selection.isEmpty()) {
@@ -1448,4 +1465,8 @@ private fun CastCard(
 
 /** The window width, for full-width pictures sized before layout. */
 @Composable
-private fun screenWidth(): Dp = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+private fun screenWidth(): Dp =
+    with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width
+            .toDp()
+    }

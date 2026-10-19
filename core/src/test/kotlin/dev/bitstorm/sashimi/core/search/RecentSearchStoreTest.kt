@@ -4,8 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private class FakeRecentSearchPersistence(var stored: List<String> = emptyList()) :
-    RecentSearchPersistence {
+private class FakeRecentSearchPersistence(
+    var stored: List<String> = emptyList(),
+) : RecentSearchPersistence {
     override fun load(): List<String> = stored
 
     override fun save(searches: List<String>) {

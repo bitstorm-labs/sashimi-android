@@ -74,7 +74,12 @@ class ServerMediaGroupingTest {
             ServerMediaGrouping.groups(
                 listOf(on("a", item("low", "Dune", rating = 6.0)), on("a", item("high", "Dune", rating = 8.0))),
             )
-        assertEquals("high", byRating.single().primary.item.id)
+        assertEquals(
+            "high",
+            byRating
+                .single()
+                .primary.item.id,
+        )
     }
 
     @Test

@@ -151,7 +151,12 @@ class SessionManagerTest {
 
             assertTrue(sm.isAuthenticated.value)
             assertEquals(1, sm.servers.value.size)
-            assertEquals("Test Server", sm.servers.value.first().name)
+            assertEquals(
+                "Test Server",
+                sm.servers.value
+                    .first()
+                    .name,
+            )
             assertNotNull(stores.second.get("accessToken.id-0"))
             assertEquals("id-0", sm.activeServerId.value)
         }

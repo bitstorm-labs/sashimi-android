@@ -30,15 +30,19 @@ object StorageHealth {
         val labels = linkedMapOf<Pair<Long, Long>, MutableList<String>>()
         val cacheKeys = listOfNotNull(storage.transcodingTempFolder, storage.cacheFolder).map(::key).toSet()
         storage.libraries.forEach { library ->
-            library.folders.map(::key).distinct().forEach { k -> labels.getOrPut(k) { mutableListOf() }.add(library.name) }
+            library.folders
+                .map(::key)
+                .distinct()
+                .forEach { k -> labels.getOrPut(k) { mutableListOf() }.add(library.name) }
         }
         cacheKeys.forEach { labels.getOrPut(it) { mutableListOf() } }
-        return labels.mapNotNull { (k, names) ->
-            val (free, used) = k
-            if (free + used <= 0) return@mapNotNull null
-            val label = if (k in cacheKeys) CACHE_LABEL else names.distinct().joinToString(", ")
-            StorageRow(label, usedBytes = used, totalBytes = used + free)
-        }.sortedBy { it.label == CACHE_LABEL }
+        return labels
+            .mapNotNull { (k, names) ->
+                val (free, used) = k
+                if (free + used <= 0) return@mapNotNull null
+                val label = if (k in cacheKeys) CACHE_LABEL else names.distinct().joinToString(", ")
+                StorageRow(label, usedBytes = used, totalBytes = used + free)
+            }.sortedBy { it.label == CACHE_LABEL }
     }
 
     private fun key(folder: FolderStorageDto) = folder.freeSpace to folder.usedSpace

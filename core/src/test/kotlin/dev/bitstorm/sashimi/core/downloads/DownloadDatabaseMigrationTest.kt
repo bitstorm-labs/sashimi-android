@@ -52,7 +52,8 @@ class DownloadDatabaseMigrationTest {
     private fun createV3(seed: (SupportSQLiteDatabase) -> Unit) {
         val helper =
             FrameworkSQLiteOpenHelperFactory().create(
-                SupportSQLiteOpenHelper.Configuration.builder(context)
+                SupportSQLiteOpenHelper.Configuration
+                    .builder(context)
                     .name(name)
                     .callback(
                         object : SupportSQLiteOpenHelper.Callback(3) {
@@ -89,7 +90,8 @@ class DownloadDatabaseMigrationTest {
     }
 
     private fun openV4(legacyServerId: String): DownloadDatabase =
-        Room.databaseBuilder(context, DownloadDatabase::class.java, name)
+        Room
+            .databaseBuilder(context, DownloadDatabase::class.java, name)
             .addMigrations(DownloadDatabase.MIGRATION_2_3, DownloadDatabase.migration3To4 { legacyServerId })
             .allowMainThreadQueries()
             .build()

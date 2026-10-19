@@ -8,9 +8,13 @@ package dev.bitstorm.sashimi.core.deeplink
 sealed interface DeepLinkTarget {
     val itemId: String
 
-    data class Play(override val itemId: String) : DeepLinkTarget
+    data class Play(
+        override val itemId: String,
+    ) : DeepLinkTarget
 
-    data class Detail(override val itemId: String) : DeepLinkTarget
+    data class Detail(
+        override val itemId: String,
+    ) : DeepLinkTarget
 }
 
 /**

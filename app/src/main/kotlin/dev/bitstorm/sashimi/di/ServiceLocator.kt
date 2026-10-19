@@ -209,7 +209,8 @@ object ServiceLocator {
             )
         downloadFileManager = DownloadFileManager(app)
         val db =
-            Room.databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")
+            Room
+                .databaseBuilder(app, DownloadDatabase::class.java, "sashimi_downloads.db")
                 .addMigrations(
                     DownloadDatabase.MIGRATION_2_3,
                     // Read from the store, not the session: the migration runs on
@@ -217,8 +218,7 @@ object ServiceLocator {
                     DownloadDatabase.migration3To4 {
                         DownloadSchema.legacyServerId(serverStore.getActiveServerId(), serverStore.loadServers().map { it.id })
                     },
-                )
-                .fallbackToDestructiveMigration()
+                ).fallbackToDestructiveMigration()
                 .build()
         downloadManager =
             DownloadManager(

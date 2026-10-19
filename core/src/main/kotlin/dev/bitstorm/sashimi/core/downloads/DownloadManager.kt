@@ -71,7 +71,8 @@ class DownloadManager(
     private val promoteMutex = Mutex()
 
     private val http =
-        OkHttpClient.Builder()
+        OkHttpClient
+            .Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.MILLISECONDS)
@@ -329,9 +330,11 @@ class DownloadManager(
         promoteMutex.withLock {
             val items = repository.all()
             val running =
-                items.filter {
-                    it.downloadStatus == DownloadStatus.PREPARING || it.downloadStatus == DownloadStatus.DOWNLOADING
-                }.map { it.key }.toSet()
+                items
+                    .filter {
+                        it.downloadStatus == DownloadStatus.PREPARING || it.downloadStatus == DownloadStatus.DOWNLOADING
+                    }.map { it.key }
+                    .toSet()
             val toStart = DownloadPolicy.nextToStart(items, running)
             for (key in toStart) {
                 if (!StorageAccounting.hasRoomToDownload(fileManager.availableDiskSpace())) {
@@ -366,18 +369,22 @@ class DownloadManager(
     ): androidx.work.ListenableWorker.Result =
         withContext(Dispatchers.IO) {
             val itemId = key.itemId
-            val row = repository.get(key) ?: return@withContext androidx.work.ListenableWorker.Result.success()
+            val row =
+                repository.get(key) ?: return@withContext androidx.work.ListenableWorker.Result
+                    .success()
             val notifyTitle = row.displayTitle
             val client = clientFor(row.serverId)
             if (client == null) {
                 fail(key, "This download's server is signed out. Reconnect it in Settings, then retry.")
-                return@withContext androidx.work.ListenableWorker.Result.failure()
+                return@withContext androidx.work.ListenableWorker.Result
+                    .failure()
             }
             val quality = row.downloadQuality
             val spec = DownloadUrlBuilder.requestFor(client, itemId, quality)
             if (spec == null) {
                 fail(key, if (client.isConfigured) "Could not build download URL" else "Not signed in")
-                return@withContext androidx.work.ListenableWorker.Result.failure()
+                return@withContext androidx.work.ListenableWorker.Result
+                    .failure()
             }
             val partial = fileManager.partialFile(key)
             // A live transcode cannot be resumed by byte range: Jellyfin answers
@@ -403,8 +410,14 @@ class DownloadManager(
             val estimatedTotal =
                 if (transcoded) {
                     val sourceVideoBitrate =
-                        runCatchingCancellable { client.getPlaybackInfo(itemId) }.getOrNull()
-                            ?.mediaSources?.firstOrNull()?.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.toLong()
+                        runCatchingCancellable { client.getPlaybackInfo(itemId) }
+                            .getOrNull()
+                            ?.mediaSources
+                            ?.firstOrNull()
+                            ?.mediaStreams
+                            ?.firstOrNull { it.type == "Video" }
+                            ?.bitRate
+                            ?.toLong()
                     DownloadProgress.estimatedTotalBytes(quality, row.runTimeTicks, sourceVideoBitrate)
                 } else {
                     null
@@ -422,13 +435,15 @@ class DownloadManager(
                 videoHttp.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         fail(key, "Server error ${response.code}")
-                        return@withContext androidx.work.ListenableWorker.Result.failure()
+                        return@withContext androidx.work.ListenableWorker.Result
+                            .failure()
                     }
                     val resumed = response.code == 206
                     val body =
                         response.body ?: run {
                             fail(key, "Empty response")
-                            return@withContext androidx.work.ListenableWorker.Result.failure()
+                            return@withContext androidx.work.ListenableWorker.Result
+                                .failure()
                         }
                     // Total = already-on-disk (if resumed) + reported remaining; -1 when unknown.
                     val reported = body.contentLength()
@@ -451,7 +466,8 @@ class DownloadManager(
                             while (true) {
                                 if (isStopped()) {
                                     // Leave the partial file for a later Range resume.
-                                    return@withContext androidx.work.ListenableWorker.Result.retry()
+                                    return@withContext androidx.work.ListenableWorker.Result
+                                        .retry()
                                 }
                                 val read = input.read(buffer)
                                 if (read < 0) break
@@ -482,13 +498,16 @@ class DownloadManager(
                     setLive(key, null)
                     finalize(key, partial, client)
                     onWorkFinished()
-                    androidx.work.ListenableWorker.Result.success()
+                    androidx.work.ListenableWorker.Result
+                        .success()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 when {
-                    isStopped() -> androidx.work.ListenableWorker.Result.retry()
+                    isStopped() ->
+                        androidx.work.ListenableWorker.Result
+                            .retry()
                     // A dropped connection or a timeout mid-download is worth
                     // another go before it becomes a red "failed" row; the row
                     // stays in flight (and keeps its slot) while WorkManager
@@ -496,12 +515,14 @@ class DownloadManager(
                     e is java.io.IOException && attempt < MAX_NETWORK_RETRIES -> {
                         setLive(key, LiveTransfer(phase = DownloadPhase.RETRYING))
                         repository.updateStatus(key, DownloadStatus.PREPARING)
-                        androidx.work.ListenableWorker.Result.retry()
+                        androidx.work.ListenableWorker.Result
+                            .retry()
                     }
                     else -> {
                         setLive(key, null)
                         fail(key, e.message ?: "Download failed")
-                        androidx.work.ListenableWorker.Result.failure()
+                        androidx.work.ListenableWorker.Result
+                            .failure()
                     }
                 }
             }
@@ -534,20 +555,22 @@ class DownloadManager(
                     videoFileName = videoName,
                     subtitlesJson = DownloadedItemEntity.encodeSubtitles(subtitles),
                     posterFileName =
-                        if (fileManager.imageFile(
-                                key,
-                                DownloadFileManager.POSTER_NAME,
-                            ).exists()
+                        if (fileManager
+                                .imageFile(
+                                    key,
+                                    DownloadFileManager.POSTER_NAME,
+                                ).exists()
                         ) {
                             DownloadFileManager.POSTER_NAME
                         } else {
                             row.posterFileName
                         },
                     backdropFileName =
-                        if (fileManager.imageFile(
-                                key,
-                                DownloadFileManager.BACKDROP_NAME,
-                            ).exists()
+                        if (fileManager
+                                .imageFile(
+                                    key,
+                                    DownloadFileManager.BACKDROP_NAME,
+                                ).exists()
                         ) {
                             DownloadFileManager.BACKDROP_NAME
                         } else {

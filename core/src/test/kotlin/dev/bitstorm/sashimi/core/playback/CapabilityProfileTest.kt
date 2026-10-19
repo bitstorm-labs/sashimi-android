@@ -57,7 +57,12 @@ class CapabilityProfileTest {
     fun `a 4K 10-bit HDR decoder admits HDR10 and HLG and the DV variants with those base layers, not bare DV`() {
         val hevc = build(video = mapOf(CodecCapabilities.MimeTypes.HEVC to uhd10BitHdr)).forCodec("hevc")
         assertEquals("10", hevc.getValue("VideoBitDepth").value)
-        val ranges = hevc.getValue("VideoRangeType").value.split("|").toSet()
+        val ranges =
+            hevc
+                .getValue("VideoRangeType")
+                .value
+                .split("|")
+                .toSet()
         // HDR10+ plays as its HDR10 base.
         assertEquals(
             setOf("SDR", "HDR10", "HDR10Plus", "HLG", "DOVIWithSDR", "DOVIWithHDR10", "DOVIWithHDR10Plus", "DOVIWithHLG"),
@@ -133,22 +138,38 @@ class CapabilityProfileTest {
     @Test
     fun `every condition on the wire uses Jellyfin's vocabulary`() {
         val json =
-            Json { encodeDefaults = true }.encodeToJsonElement(
-                DeviceProfile.serializer(),
-                build(video = mapOf(CodecCapabilities.MimeTypes.HEVC to uhd10BitHdr), maxWidth = 854),
-            ).jsonObject
+            Json { encodeDefaults = true }
+                .encodeToJsonElement(
+                    DeviceProfile.serializer(),
+                    build(video = mapOf(CodecCapabilities.MimeTypes.HEVC to uhd10BitHdr), maxWidth = 854),
+                ).jsonObject
         val conditions = json.getValue("CodecProfiles").jsonArray.flatMap { it.jsonObject.getValue("Conditions").jsonArray }
         val types = setOf("Equals", "NotEquals", "LessThanEqual", "GreaterThanEqual", "EqualsAny")
         val ranges =
             setOf(
-                "Unknown", "SDR", "HDR10", "HLG", "DOVI", "DOVIWithHDR10", "DOVIWithHLG", "DOVIWithSDR", "DOVIWithEL",
-                "DOVIWithHDR10Plus", "DOVIWithELHDR10Plus", "DOVIInvalid", "HDR10Plus",
+                "Unknown",
+                "SDR",
+                "HDR10",
+                "HLG",
+                "DOVI",
+                "DOVIWithHDR10",
+                "DOVIWithHLG",
+                "DOVIWithSDR",
+                "DOVIWithEL",
+                "DOVIWithHDR10Plus",
+                "DOVIWithELHDR10Plus",
+                "DOVIInvalid",
+                "HDR10Plus",
             )
         conditions.forEach { c ->
             val o = c.jsonObject
             assertTrue(o.toString(), o.getValue("Condition").jsonPrimitive.content in types)
             if (o.getValue("Property").jsonPrimitive.content == "VideoRangeType") {
-                o.getValue("Value").jsonPrimitive.content.split("|").forEach { assertTrue(it, it in ranges) }
+                o
+                    .getValue("Value")
+                    .jsonPrimitive.content
+                    .split("|")
+                    .forEach { assertTrue(it, it in ranges) }
             }
         }
     }

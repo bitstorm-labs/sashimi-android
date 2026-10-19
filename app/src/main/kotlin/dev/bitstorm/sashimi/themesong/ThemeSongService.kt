@@ -275,16 +275,17 @@ class ThemeSongService(
     private fun requestFocus(): Boolean {
         val manager = audioManager ?: return false
         val request =
-            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            AudioFocusRequest
+                .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(
                     // The platform AudioAttributes, not Media3's — a focus
                     // request takes android.media's type.
-                    android.media.AudioAttributes.Builder()
+                    android.media.AudioAttributes
+                        .Builder()
                         .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build(),
-                )
-                .setOnAudioFocusChangeListener(focusListener)
+                ).setOnAudioFocusChangeListener(focusListener)
                 .build()
         val granted = manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         // Only a granted request is worth remembering; recording a denied one
@@ -367,11 +368,13 @@ class ThemeSongService(
     private fun obtainPlayer(): ExoPlayer {
         player?.let { return it }
         val created =
-            ExoPlayer.Builder(appContext)
+            ExoPlayer
+                .Builder(appContext)
                 .build()
                 .apply {
                     setAudioAttributes(
-                        AudioAttributes.Builder()
+                        AudioAttributes
+                            .Builder()
                             .setUsage(C.USAGE_MEDIA)
                             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                             .build(),

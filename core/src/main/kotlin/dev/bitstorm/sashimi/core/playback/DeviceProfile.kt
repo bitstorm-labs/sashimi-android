@@ -296,9 +296,17 @@ class DeviceProfileBuilder(
 
         private val RANGE_ORDER =
             listOf(
-                VideoRanges.SDR, VideoRanges.HDR10, VideoRanges.HDR10_PLUS, VideoRanges.HLG,
-                VideoRanges.DOVI, VideoRanges.DOVI_WITH_SDR, VideoRanges.DOVI_WITH_HDR10, VideoRanges.DOVI_WITH_HDR10_PLUS,
-                VideoRanges.DOVI_WITH_HLG, VideoRanges.DOVI_WITH_EL, VideoRanges.DOVI_WITH_EL_HDR10_PLUS,
+                VideoRanges.SDR,
+                VideoRanges.HDR10,
+                VideoRanges.HDR10_PLUS,
+                VideoRanges.HLG,
+                VideoRanges.DOVI,
+                VideoRanges.DOVI_WITH_SDR,
+                VideoRanges.DOVI_WITH_HDR10,
+                VideoRanges.DOVI_WITH_HDR10_PLUS,
+                VideoRanges.DOVI_WITH_HLG,
+                VideoRanges.DOVI_WITH_EL,
+                VideoRanges.DOVI_WITH_EL_HDR10_PLUS,
             )
     }
 }

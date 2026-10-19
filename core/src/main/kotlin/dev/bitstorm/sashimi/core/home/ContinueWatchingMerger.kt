@@ -86,7 +86,11 @@ object ContinueWatchingMerger {
             .getOrNull()
     }
 
-    private data class Candidate(val item: BaseItemDto, val date: Long, val isResume: Boolean)
+    private data class Candidate(
+        val item: BaseItemDto,
+        val date: Long,
+        val isResume: Boolean,
+    )
 
     /** Folders (a partly watched Season or Series from Resume) can't be resumed. */
     private val BaseItemDto.isPlayable: Boolean

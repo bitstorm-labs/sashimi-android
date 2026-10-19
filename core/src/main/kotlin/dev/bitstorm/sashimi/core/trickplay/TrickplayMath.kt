@@ -103,6 +103,10 @@ object TrickplayMath {
     }
 
     private fun isUsable(info: TrickplayInfo): Boolean =
-        info.width > 0 && info.height > 0 && info.tileWidth > 0 && info.tileHeight > 0 &&
-            info.interval > 0 && info.thumbnailCount > 0
+        info.width > 0 &&
+            info.height > 0 &&
+            info.tileWidth > 0 &&
+            info.tileHeight > 0 &&
+            info.interval > 0 &&
+            info.thumbnailCount > 0
 }
