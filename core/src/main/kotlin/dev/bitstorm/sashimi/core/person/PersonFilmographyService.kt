@@ -25,7 +25,9 @@ interface PersonFilmographyClient {
     ): List<BaseItemDto>
 }
 
-sealed class PersonFilmographyError(message: String) : Exception(message) {
+sealed class PersonFilmographyError(
+    message: String,
+) : Exception(message) {
     /** No saved server has a token, so nothing was even attempted. */
     object NoServerSessions : PersonFilmographyError("No signed-in server is available.")
 
@@ -75,9 +77,10 @@ class PersonFilmographyService(
 
         val outcomes =
             coroutineScope {
-                requests.map { (server, token) ->
-                    async { loadOne(server, token, person, originServerId, pageSize) }
-                }.awaitAll()
+                requests
+                    .map { (server, token) ->
+                        async { loadOne(server, token, person, originServerId, pageSize) }
+                    }.awaitAll()
             }
         return aggregate(outcomes)
     }

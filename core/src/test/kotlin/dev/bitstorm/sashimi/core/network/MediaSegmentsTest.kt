@@ -40,14 +40,17 @@ class MediaSegmentsTest {
         """{ "Introduction": { "Start": 0, "End": 90 }, "Credits": { "Start": 1200, "End": 1300 } }"""
 
     /** Canned responses per path; records every path requested, in order. */
-    private class FakeServer(private val routes: Map<String, Pair<Int, String>>) : Interceptor {
+    private class FakeServer(
+        private val routes: Map<String, Pair<Int, String>>,
+    ) : Interceptor {
         val requested = mutableListOf<String>()
 
         override fun intercept(chain: Interceptor.Chain): Response {
             val request = chain.request()
             requested += request.url.encodedPath
             val (code, body) = routes[request.url.encodedPath] ?: (404 to "")
-            return Response.Builder()
+            return Response
+                .Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
                 .code(code)

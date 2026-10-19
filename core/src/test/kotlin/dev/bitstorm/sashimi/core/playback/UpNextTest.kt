@@ -133,7 +133,8 @@ class UpNextTest {
     @Test
     fun `skip shows the following episode and restarts the countdown`() {
         val s =
-            UpNext.start(ep("e2"), autoPlay = true)
+            UpNext
+                .start(ep("e2"), autoPlay = true)
                 .after(UpNextEvent.Tick(6_000), UpNextEvent.FollowingResolved("e2", ep("e3")), UpNextEvent.Skip)
                 .state
         assertEquals("e3", s.episode.id)
@@ -145,7 +146,8 @@ class UpNextTest {
     @Test
     fun `skip is repeatable`() {
         val s =
-            UpNext.start(ep("e2"), autoPlay = true)
+            UpNext
+                .start(ep("e2"), autoPlay = true)
                 .after(
                     UpNextEvent.FollowingResolved("e2", ep("e3")),
                     UpNextEvent.Skip,
@@ -158,7 +160,8 @@ class UpNextTest {
     @Test
     fun `skip without autoplay keeps no countdown`() {
         val s =
-            UpNext.start(ep("e2"), autoPlay = false)
+            UpNext
+                .start(ep("e2"), autoPlay = false)
                 .after(UpNextEvent.FollowingResolved("e2", ep("e3")), UpNextEvent.Skip)
                 .state
         assertEquals("e3", s.episode.id)
@@ -168,7 +171,8 @@ class UpNextTest {
     @Test
     fun `a stale lookup for a skipped-past episode is ignored`() {
         val s =
-            UpNext.start(ep("e2"), autoPlay = true)
+            UpNext
+                .start(ep("e2"), autoPlay = true)
                 .after(UpNextEvent.FollowingResolved("e2", ep("e3")), UpNextEvent.Skip, UpNextEvent.FollowingResolved("e2", ep("e3")))
                 .state
         assertEquals("e3", s.episode.id)
@@ -178,7 +182,8 @@ class UpNextTest {
     @Test
     fun `skip does nothing once cancelled`() {
         val s =
-            UpNext.start(ep("e2"), autoPlay = true)
+            UpNext
+                .start(ep("e2"), autoPlay = true)
                 .after(UpNextEvent.FollowingResolved("e2", ep("e3")), UpNextEvent.Cancel, UpNextEvent.Skip)
                 .state
         assertEquals("e2", s.episode.id)

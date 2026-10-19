@@ -127,7 +127,9 @@ sealed interface HeroTrailerTheme {
     data object Playing : HeroTrailerTheme
 
     /** The theme heard during this trailer ended (or began its end fade) [at] seconds into the trailer. */
-    data class Ended(val at: Double) : HeroTrailerTheme
+    data class Ended(
+        val at: Double,
+    ) : HeroTrailerTheme
 
     /** A theme is playing now. */
     fun started(): HeroTrailerTheme = if (this == None) Playing else this

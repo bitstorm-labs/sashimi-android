@@ -42,7 +42,9 @@ interface RemoteSocket {
 sealed interface SocketEvent {
     data object Opened : SocketEvent
 
-    data class Message(val text: String) : SocketEvent
+    data class Message(
+        val text: String,
+    ) : SocketEvent
 
     /** The socket is gone: closed by either side or failed (including a refused handshake). */
     data object Closed : SocketEvent

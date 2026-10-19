@@ -232,13 +232,23 @@ private fun StreamCard(
     val title = StreamCards.title(item)
     Row(
         modifier =
-            Modifier.fillMaxWidth().clip(
-                RoundedCornerShape(16.dp),
-            ).background(SashimiCard).clickable(onClick = onDetails).padding(12.dp),
+            Modifier
+                .fillMaxWidth()
+                .clip(
+                    RoundedCornerShape(16.dp),
+                ).background(SashimiCard)
+                .clickable(onClick = onDetails)
+                .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(Modifier.width(44.dp).height(66.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        Box(
+            Modifier
+                .width(44.dp)
+                .height(66.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
             if (item != null) {
                 AsyncImage(
                     model = ImageUrls.cardPoster(item, rememberImageWidth(44.dp, 66.dp, 2f / 3f)),
@@ -248,9 +258,13 @@ private fun StreamCard(
                 )
             }
             Box(
-                Modifier.align(
-                    Alignment.TopEnd,
-                ).padding(4.dp).size(8.dp).clip(CircleShape).background(stateColor(StreamCards.state(session))),
+                Modifier
+                    .align(
+                        Alignment.TopEnd,
+                    ).padding(4.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(stateColor(StreamCards.state(session))),
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -280,7 +294,9 @@ private fun StreamCard(
                             fontWeight = FontWeight.ExtraBold,
                             color = SashimiAccent,
                             modifier =
-                                Modifier.clip(RoundedCornerShape(4.dp)).background(SashimiAccent.copy(alpha = 0.18f))
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(SashimiAccent.copy(alpha = 0.18f))
                                     .padding(horizontal = 6.dp, vertical = 1.dp),
                         )
                     }
@@ -398,7 +414,11 @@ private fun LinkTile(
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier.clip(RoundedCornerShape(14.dp)).background(SashimiCard).clickable(onClick = onClick).padding(14.dp),
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(SashimiCard)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
     ) {
         Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }

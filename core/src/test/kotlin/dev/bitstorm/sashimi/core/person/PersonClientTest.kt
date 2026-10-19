@@ -23,12 +23,14 @@ class PersonClientTest {
     private val requests = mutableListOf<HttpUrl>()
 
     private fun http(respond: (HttpUrl) -> Pair<Int, String>): OkHttpClient =
-        OkHttpClient.Builder()
+        OkHttpClient
+            .Builder()
             .addInterceptor { chain ->
                 val url = chain.request().url
                 synchronized(requests) { requests += url }
                 val (code, body) = respond(url)
-                Response.Builder()
+                Response
+                    .Builder()
                     .request(chain.request())
                     .protocol(Protocol.HTTP_1_1)
                     .code(code)

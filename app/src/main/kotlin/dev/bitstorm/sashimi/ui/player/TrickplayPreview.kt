@@ -104,7 +104,8 @@ private fun rememberTrickplaySheet(
         val url = client.trickplayTileURL(track.itemId, track.info.width, sheetIndex, track.mediaSourceId) ?: return@LaunchedEffect
         val authorization = client.currentAuthorization ?: return@LaunchedEffect
         val request =
-            ImageRequest.Builder(context)
+            ImageRequest
+                .Builder(context)
                 .data(url)
                 .addHeader(JellyfinClient.AUTHORIZATION_HEADER, authorization)
                 // Crop maths is in the sheet's own pixels, so it must not be downsampled.

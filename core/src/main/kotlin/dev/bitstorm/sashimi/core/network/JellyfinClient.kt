@@ -89,7 +89,8 @@ class JellyfinClient(
         }
 
     private val api: JellyfinApi =
-        Retrofit.Builder()
+        Retrofit
+            .Builder()
             // Dummy base URL: every call passes an absolute @Url, so this is
             // never used except to satisfy Retrofit's builder validation.
             .baseUrl("http://localhost/")
@@ -101,14 +102,15 @@ class JellyfinClient(
     // browsing client's connection pool and dispatcher; only the budget differs,
     // and the browsing client's timeouts are untouched.
     private val signInApi: JellyfinApi =
-        Retrofit.Builder()
+        Retrofit
+            .Builder()
             .baseUrl("http://localhost/")
             .client(
-                httpClient.newBuilder()
+                httpClient
+                    .newBuilder()
                     .callTimeout(signInTimeoutMillis, TimeUnit.MILLISECONDS)
                     .build(),
-            )
-            .build()
+            ).build()
             .create(JellyfinApi::class.java)
 
     @Volatile private var serverUrl: HttpUrl? = null
@@ -195,7 +197,11 @@ class JellyfinClient(
     ): String {
         val base = serverUrl ?: throw JellyfinError.NotConfigured
         val builder = base.newBuilder()
-        path.trim('/').split('/').filter { it.isNotEmpty() }.forEach { builder.addPathSegment(it) }
+        path
+            .trim('/')
+            .split('/')
+            .filter { it.isNotEmpty() }
+            .forEach { builder.addPathSegment(it) }
         query.forEach { (name, value) -> builder.addQueryParameter(name, value) }
         return builder.build().toString()
     }
@@ -789,12 +795,17 @@ class JellyfinClient(
         withContext(Dispatchers.IO) {
             val url = buildUrl("/Playback/BitrateTest", listOf("Size" to BandwidthProbeMath.MAX_BYTES.toString()))
             val probeClient =
-                httpClient.newBuilder()
+                httpClient
+                    .newBuilder()
                     .readTimeout(BandwidthProbeMath.MAX_DURATION_MS, TimeUnit.MILLISECONDS)
                     .callTimeout(BandwidthProbeMath.MAX_DURATION_MS + PROBE_CONNECT_ALLOWANCE_MS, TimeUnit.MILLISECONDS)
                     .build()
             val request =
-                Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build()
+                Request
+                    .Builder()
+                    .url(url)
+                    .header(AUTHORIZATION_HEADER, authorizationHeader())
+                    .build()
             val call = probeClient.newCall(request)
             runCatching {
                 call.execute().use { response ->
@@ -846,15 +857,25 @@ class JellyfinClient(
         withContext(Dispatchers.IO) {
             val url = subtitleStreamUrl(itemId, subtitleStreamIndex, mediaSourceId) ?: return@withContext null
             val slowClient =
-                httpClient.newBuilder().readTimeout(
-                    SUBTITLE_EXTRACT_TIMEOUT_MINUTES,
-                    TimeUnit.MINUTES,
-                ).callTimeout(0, TimeUnit.MILLISECONDS).build()
+                httpClient
+                    .newBuilder()
+                    .readTimeout(
+                        SUBTITLE_EXTRACT_TIMEOUT_MINUTES,
+                        TimeUnit.MINUTES,
+                    ).callTimeout(0, TimeUnit.MILLISECONDS)
+                    .build()
             runCatching {
-                slowClient.newCall(Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build()).execute().use {
-                        r ->
-                    if (r.isSuccessful) r.body?.bytes()?.takeIf { it.isNotEmpty() } else null
-                }
+                slowClient
+                    .newCall(
+                        Request
+                            .Builder()
+                            .url(url)
+                            .header(AUTHORIZATION_HEADER, authorizationHeader())
+                            .build(),
+                    ).execute()
+                    .use { r ->
+                        if (r.isSuccessful) r.body?.bytes()?.takeIf { it.isNotEmpty() } else null
+                    }
             }.getOrNull()
         }
 
@@ -867,9 +888,17 @@ class JellyfinClient(
     suspend fun fetchText(url: String): String? =
         withContext(Dispatchers.IO) {
             runCatching {
-                httpClient.newBuilder().callTimeout(TEXT_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
-                    .newCall(Request.Builder().url(url).header(AUTHORIZATION_HEADER, authorizationHeader()).build())
-                    .execute()
+                httpClient
+                    .newBuilder()
+                    .callTimeout(TEXT_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .build()
+                    .newCall(
+                        Request
+                            .Builder()
+                            .url(url)
+                            .header(AUTHORIZATION_HEADER, authorizationHeader())
+                            .build(),
+                    ).execute()
                     .use { r -> if (r.isSuccessful) r.body?.string() else null }
             }.getOrNull()
         }
@@ -965,7 +994,8 @@ class JellyfinClient(
         val base = serverUrl ?: return null
         val token = accessToken ?: return null
         val builder =
-            base.newBuilder()
+            base
+                .newBuilder()
                 .addPathSegments("Videos/$itemId/$itemId/Subtitles/$subtitleStreamIndex/Stream.vtt")
                 .addQueryParameter("api_key", token)
         mediaSourceId?.let { builder.addQueryParameter("MediaSourceId", it) }
@@ -994,7 +1024,11 @@ class JellyfinClient(
      */
     suspend fun getThemeSongItemId(itemId: String): String? {
         val data = execute("GET", "/Items/$itemId/ThemeMedia")
-        return decode<ThemeMediaResponse>(data).themeSongsResult?.items?.firstOrNull()?.id
+        return decode<ThemeMediaResponse>(data)
+            .themeSongsResult
+            ?.items
+            ?.firstOrNull()
+            ?.id
     }
 
     /**
@@ -1167,7 +1201,8 @@ class JellyfinClient(
         tag: String? = null,
     ): String? {
         val base = serverUrl ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Items/$itemId/Images/$imageType")
             .addQueryParameter("maxWidth", "$maxWidth")
             .apply { if (!tag.isNullOrEmpty()) addQueryParameter("tag", tag) }
@@ -1185,7 +1220,8 @@ class JellyfinClient(
         maxWidth: Int = 100,
     ): String? {
         val base = serverUrl ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Users/$userId/Images/Primary")
             .addQueryParameter("maxWidth", "$maxWidth")
             .build()
@@ -1198,7 +1234,8 @@ class JellyfinClient(
         tag: String? = null,
     ): String? {
         val base = serverUrl ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Items/$personId/Images/Primary")
             .addQueryParameter("maxWidth", "$maxWidth")
             .apply { if (!tag.isNullOrEmpty()) addQueryParameter("tag", tag) }
@@ -1220,7 +1257,8 @@ class JellyfinClient(
         mediaSourceId: String?,
     ): String? {
         val base = serverUrl ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Videos/$itemId/Trickplay/$width/$sheetIndex.jpg")
             .apply { mediaSourceId?.let { addQueryParameter("MediaSourceId", it) } }
             .build()
@@ -1240,7 +1278,8 @@ class JellyfinClient(
         val base = serverUrl ?: return null
         val token = accessToken ?: return null
         val ext = container ?: "mp4"
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Videos/$itemId/stream.$ext")
             .addQueryParameter("Static", "true")
             .addQueryParameter("MediaSourceId", mediaSourceId)
@@ -1273,7 +1312,8 @@ class JellyfinClient(
         fun newDeviceId(): String = UUID.randomUUID().toString()
 
         private fun defaultHttpClient(): OkHttpClient =
-            OkHttpClient.Builder()
+            OkHttpClient
+                .Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .callTimeout(120, TimeUnit.SECONDS)

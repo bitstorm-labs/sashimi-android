@@ -8,11 +8,32 @@ object DownloadSchema {
     /** Every column of `downloaded_items`, in the order both schema 3 and 4 declare them. */
     val COLUMNS =
         listOf(
-            "itemId", "name", "seriesName", "seriesId", "seasonId", "seasonNumber", "episodeNumber",
-            "overview", "itemType", "runTimeTicks", "productionYear", "status", "quality", "progress",
-            "totalBytes", "downloadedBytes", "errorMessage", "videoFileName", "posterFileName",
-            "backdropFileName", "subtitlesJson", "localPositionTicks", "pendingProgressSync",
-            "dateAdded", "dateCompleted", "serverId",
+            "itemId",
+            "name",
+            "seriesName",
+            "seriesId",
+            "seasonId",
+            "seasonNumber",
+            "episodeNumber",
+            "overview",
+            "itemType",
+            "runTimeTicks",
+            "productionYear",
+            "status",
+            "quality",
+            "progress",
+            "totalBytes",
+            "downloadedBytes",
+            "errorMessage",
+            "videoFileName",
+            "posterFileName",
+            "backdropFileName",
+            "subtitlesJson",
+            "localPositionTicks",
+            "pendingProgressSync",
+            "dateAdded",
+            "dateCompleted",
+            "serverId",
         )
 
     /**

@@ -44,9 +44,13 @@ sealed interface RemoteCommand {
 /** One parsed socket frame. */
 sealed interface Inbound {
     /** The server's keep-alive window; reply with [RemoteProtocol.KEEP_ALIVE] every [intervalMs]. */
-    data class ForceKeepAlive(val intervalMs: Long) : Inbound
+    data class ForceKeepAlive(
+        val intervalMs: Long,
+    ) : Inbound
 
-    data class Command(val command: RemoteCommand) : Inbound
+    data class Command(
+        val command: RemoteCommand,
+    ) : Inbound
 
     /** Unknown, undeclared, malformed, or not actionable: drop it. */
     data object Ignored : Inbound

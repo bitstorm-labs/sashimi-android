@@ -27,7 +27,8 @@ object DownloadRequests {
         authorization: String,
         resumeFrom: Long = 0,
     ): Request =
-        Request.Builder()
+        Request
+            .Builder()
             .url(url)
             .header(JellyfinClient.AUTHORIZATION_HEADER, authorization)
             .apply { if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-") }
@@ -90,7 +91,8 @@ object DownloadUrlBuilder {
         subtitleIndex: Int,
     ): String? {
         val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Videos/$itemId/$itemId/Subtitles/$subtitleIndex/Stream.vtt")
             .build()
             .toString()
@@ -101,7 +103,8 @@ object DownloadUrlBuilder {
         itemId: String,
     ): String? {
         val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Items/$itemId/Download")
             .build()
             .toString()
@@ -125,7 +128,8 @@ object DownloadUrlBuilder {
         encode: DownloadQuality.TranscodeTarget,
     ): String? {
         val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Videos/$itemId/stream.mp4")
             .addQueryParameter("MediaSourceId", itemId)
             .addQueryParameter("VideoCodec", "h264")

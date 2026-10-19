@@ -9,9 +9,13 @@ import kotlinx.coroutines.flow.flow
 
 /** One poll's outcome. [Forbidden] is terminal: the account is not an admin. */
 sealed interface AdminLoad<out T> {
-    data class Ready<T>(val data: T) : AdminLoad<T>
+    data class Ready<T>(
+        val data: T,
+    ) : AdminLoad<T>
 
-    data class Failed(val message: String) : AdminLoad<Nothing>
+    data class Failed(
+        val message: String,
+    ) : AdminLoad<Nothing>
 
     data object Forbidden : AdminLoad<Nothing>
 }

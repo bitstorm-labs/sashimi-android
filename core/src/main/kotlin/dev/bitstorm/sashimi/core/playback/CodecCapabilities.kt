@@ -223,7 +223,10 @@ class AndroidCodecCapabilities(
             val display =
                 (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)
                     ?: return emptySet()
-            display.hdrCapabilities?.supportedHdrTypes?.toSet().orEmpty()
+            display.hdrCapabilities
+                ?.supportedHdrTypes
+                ?.toSet()
+                .orEmpty()
         }.getOrDefault(emptySet())
     }
 

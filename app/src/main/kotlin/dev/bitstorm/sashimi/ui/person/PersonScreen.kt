@@ -243,7 +243,13 @@ private fun FilmographyRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.width(56.dp).height(84.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.3f))) {
+        Box(
+            Modifier
+                .width(56.dp)
+                .height(84.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.3f)),
+        ) {
             images?.primary(item, rememberImageWidth(56.dp, 84.dp, ImageSizing.POSTER_ASPECT))?.let { url ->
                 AsyncImage(
                     model = url,

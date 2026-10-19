@@ -38,8 +38,14 @@ class RemoteClientWiringTest {
             method = req.method
             path = req.url.encodedPath
             body = req.body?.let { b -> Buffer().also { b.writeTo(it) }.readUtf8() }
-            return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(204).message("ok")
-                .body("".toResponseBody("application/json".toMediaType())).build()
+            return Response
+                .Builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .code(204)
+                .message("ok")
+                .body("".toResponseBody("application/json".toMediaType()))
+                .build()
         }
     }
 
@@ -135,12 +141,18 @@ class OkHttpRemoteSocketConnectorTest {
     fun `the REST client's call timeout does not cut a long-lived socket`() {
         serveSocket { }
         val events = LinkedBlockingQueue<SocketEvent>()
-        val rest = OkHttpClient.Builder().callTimeout(300, TimeUnit.MILLISECONDS).readTimeout(300, TimeUnit.MILLISECONDS).build()
+        val rest =
+            OkHttpClient
+                .Builder()
+                .callTimeout(300, TimeUnit.MILLISECONDS)
+                .readTimeout(300, TimeUnit.MILLISECONDS)
+                .build()
 
         val socket =
-            OkHttpRemoteSocketConnector.forSockets(
-                rest,
-            ).connect(RemoteTarget(server.url("/socket").toString(), "x")) { events.put(it) }
+            OkHttpRemoteSocketConnector
+                .forSockets(
+                    rest,
+                ).connect(RemoteTarget(server.url("/socket").toString(), "x")) { events.put(it) }
 
         assertEquals(SocketEvent.Opened, events.poll(5, TimeUnit.SECONDS))
         assertNull("still open well past the REST budgets", events.poll(1_500, TimeUnit.MILLISECONDS))
@@ -154,9 +166,10 @@ class OkHttpRemoteSocketConnectorTest {
         server.start()
         val events = LinkedBlockingQueue<SocketEvent>()
 
-        OkHttpRemoteSocketConnector.forSockets(
-            OkHttpClient(),
-        ).connect(RemoteTarget(server.url("/socket").toString(), "x")) { events.put(it) }
+        OkHttpRemoteSocketConnector
+            .forSockets(
+                OkHttpClient(),
+            ).connect(RemoteTarget(server.url("/socket").toString(), "x")) { events.put(it) }
 
         assertEquals(SocketEvent.Closed, events.poll(5, TimeUnit.SECONDS))
     }

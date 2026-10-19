@@ -113,7 +113,9 @@ fun HomeScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(20.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(vertical = 12.dp),
         ) {
             item { HomeTopBar(session = session, onAddServer = onAddServer) }
 
@@ -261,7 +263,9 @@ private fun ContinueWatchingRow(
         SectionHeader(title = "Continue Watching")
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(horizontal = 16.dp),
         ) {
             items(items, key = { it.id }) { item ->
                 val libraryName = libraryNames[item.id]
@@ -315,7 +319,9 @@ private fun RecentlyAddedRow(
         }
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(horizontal = 16.dp),
         ) {
             if (data == null) {
                 items(PLACEHOLDER_CARD_COUNT) { PlaceholderPosterCard(isCircular = isYouTube) }

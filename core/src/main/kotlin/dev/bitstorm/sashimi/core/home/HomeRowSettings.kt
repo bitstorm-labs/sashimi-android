@@ -43,9 +43,7 @@ data class HomeRowConfig(
     companion object {
         const val CONTINUE_WATCHING_ID = "continue_watching"
 
-        fun continueWatching(isEnabled: Boolean = true): HomeRowConfig {
-            return HomeRowConfig(kind = Kind.CONTINUE_WATCHING, isEnabled = isEnabled)
-        }
+        fun continueWatching(isEnabled: Boolean = true): HomeRowConfig = HomeRowConfig(kind = Kind.CONTINUE_WATCHING, isEnabled = isEnabled)
 
         fun library(
             id: String,

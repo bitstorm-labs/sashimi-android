@@ -135,6 +135,10 @@ object Filmography {
             ).sortedWith(
                 compareBy<ServerMediaGroup> { NameKey.of(it.primary.item.name) }
                     .thenBy { it.primary.item.displayYear ?: Int.MAX_VALUE }
-                    .thenBy { it.primary.item.type?.wireName.orEmpty() },
+                    .thenBy {
+                        it.primary.item.type
+                            ?.wireName
+                            .orEmpty()
+                    },
             )
 }

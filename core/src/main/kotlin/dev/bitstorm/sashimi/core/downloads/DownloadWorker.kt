@@ -66,7 +66,8 @@ class DownloadWorker(
         percent: Int,
     ): ForegroundInfo {
         val builder =
-            NotificationCompat.Builder(context, CHANNEL_ID)
+            NotificationCompat
+                .Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setOngoing(true)

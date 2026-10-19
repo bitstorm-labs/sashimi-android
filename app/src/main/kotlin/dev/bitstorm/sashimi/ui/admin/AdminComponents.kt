@@ -105,9 +105,12 @@ internal fun AdminSectionTitle(text: String) {
 internal fun AdminPanel(content: @Composable () -> Unit) {
     Column(
         modifier =
-            Modifier.fillMaxWidth().clip(
-                RoundedCornerShape(16.dp),
-            ).background(SashimiCard).padding(horizontal = 12.dp, vertical = 4.dp),
+            Modifier
+                .fillMaxWidth()
+                .clip(
+                    RoundedCornerShape(16.dp),
+                ).background(SashimiCard)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
     ) { content() }
 }
 

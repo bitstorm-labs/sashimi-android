@@ -175,13 +175,13 @@ class PlayerViewModel(
     private val throughputMeter = ThroughputMeter()
 
     val player: ExoPlayer =
-        ExoPlayer.Builder(app)
+        ExoPlayer
+            .Builder(app)
             .setBandwidthMeter(
                 MeteringBandwidthMeter(DefaultBandwidthMeter.getSingletonInstance(app), throughputMeter) { reading ->
                     viewModelScope.launch(Dispatchers.Main) { onThroughputReading(reading) }
                 },
-            )
-            .setLoadControl(PauseObservingLoadControl(throughputMeter::loadingPaused))
+            ).setLoadControl(PauseObservingLoadControl(throughputMeter::loadingPaused))
             .setHandleAudioBecomingNoisy(true)
             // The chrome's seek icons are Replay10/Forward10, and the same
             // increments back the PiP actions and the MediaSession's seek
@@ -191,7 +191,8 @@ class PlayerViewModel(
             .build()
             .apply {
                 setAudioAttributes(
-                    androidx.media3.common.AudioAttributes.Builder()
+                    androidx.media3.common.AudioAttributes
+                        .Builder()
                         .setUsage(C.USAGE_MEDIA)
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                         .build(),
@@ -209,7 +210,8 @@ class PlayerViewModel(
      * (one route replacing another), hence the counter.
      */
     private val mediaSession: MediaSession =
-        MediaSession.Builder(app, player)
+        MediaSession
+            .Builder(app, player)
             .setId("sashimi-player-${sessionCounter.incrementAndGet()}")
             .build()
 
@@ -456,7 +458,8 @@ class PlayerViewModel(
         for (sub in entity?.subtitles.orEmpty()) {
             val file = downloads.localSubtitleFile(key, sub.fileName) ?: continue
             subConfigs.add(
-                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(file))
+                MediaItem.SubtitleConfiguration
+                    .Builder(android.net.Uri.fromFile(file))
                     .setMimeType(MimeTypes.TEXT_VTT)
                     .setLanguage(sub.language)
                     .setId(subtitleTrackId(sub.subtitleIndex))
@@ -473,7 +476,8 @@ class PlayerViewModel(
         }
 
         val mediaItem =
-            MediaItem.Builder()
+            MediaItem
+                .Builder()
                 .setUri(android.net.Uri.fromFile(localFile))
                 .setSubtitleConfigurations(subConfigs)
                 .setMediaMetadata(mediaMetadataFor(item))
@@ -488,8 +492,7 @@ class PlayerViewModel(
             } else {
                 val pref = settings.preferredSubtitleLanguage.value
                 val match =
-                    pref.takeIf { it.isNotEmpty() }?.let {
-                            p ->
+                    pref.takeIf { it.isNotEmpty() }?.let { p ->
                         subTracks.firstOrNull { LanguageMatcher.matches(it.languageCode, p) }
                     }
                 (match ?: subTracks.first()).index
@@ -679,9 +682,10 @@ class PlayerViewModel(
                 // all for an untagged track.
                 selectedAudioIndex =
                     desiredAudioIndex
-                        ?: source.audioTracks.firstOrNull { t ->
-                            t.languageCode != null && LanguageMatcher.matches(t.languageCode, desiredAudioLanguage)
-                        }?.index,
+                        ?: source.audioTracks
+                            .firstOrNull { t ->
+                                t.languageCode != null && LanguageMatcher.matches(t.languageCode, desiredAudioLanguage)
+                            }?.index,
                 selectedSubtitleIndex = desiredSubtitleIndex,
                 selectedQuality = quality,
             )
@@ -694,12 +698,13 @@ class PlayerViewModel(
      * transcode means a burn-in the user did not ask for.
      */
     private fun initialSubtitleSelection(source: PlaybackSource): Int =
-        SubtitleDecisions.initialSelection(
-            tracks = source.subtitleTracks,
-            subtitlesEnabled = settings.subtitlesEnabled.value,
-            preferredLanguage = settings.preferredSubtitleLanguage.value,
-            matches = LanguageMatcher::matches,
-        )?.index ?: PlayerUiState.OFF_SUBTITLE
+        SubtitleDecisions
+            .initialSelection(
+                tracks = source.subtitleTracks,
+                subtitlesEnabled = settings.subtitlesEnabled.value,
+                preferredLanguage = settings.preferredSubtitleLanguage.value,
+                matches = LanguageMatcher::matches,
+            )?.index ?: PlayerUiState.OFF_SUBTITLE
 
     private fun desiredSubtitleTrack(): SubtitleTrack? =
         _state.value.subtitleTracks.firstOrNull { !it.isOff && it.index == desiredSubtitleIndex }
@@ -767,7 +772,8 @@ class PlayerViewModel(
     ): MediaItem {
         val playbackItemId = item.id
         val subConfigs =
-            SubtitleDecisions.sideLoaded(source.subtitleTracks, desiredSubtitleIndex, source.carriesEmbeddedSubtitles)
+            SubtitleDecisions
+                .sideLoaded(source.subtitleTracks, desiredSubtitleIndex, source.carriesEmbeddedSubtitles)
                 .mapNotNull { track ->
                     val uri =
                         if (track.delivery == SubtitleDelivery.EMBEDDED_TEXT) {
@@ -779,13 +785,15 @@ class PlayerViewModel(
                         } else {
                             (engine.subtitleStreamUrl(playbackItemId, track.index, source.mediaSourceId) ?: return@mapNotNull null).toUri()
                         }
-                    MediaItem.SubtitleConfiguration.Builder(uri)
+                    MediaItem.SubtitleConfiguration
+                        .Builder(uri)
                         .setMimeType(MimeTypes.TEXT_VTT)
                         .setLanguage(track.languageCode)
                         .setId(subtitleTrackId(track.index))
                         .build()
                 }
-        return MediaItem.Builder()
+        return MediaItem
+            .Builder()
             .setUri(source.streamUrl)
             .setSubtitleConfigurations(subConfigs)
             .setMediaMetadata(mediaMetadataFor(item))
@@ -795,7 +803,8 @@ class PlayerViewModel(
     /** What the MediaSession, and so every system media surface, shows. */
     private fun mediaMetadataFor(item: BaseItemDto): MediaMetadata {
         val now = NowPlaying.from(item) { images.cardPoster(it, MEDIA_SESSION_ARTWORK_WIDTH) }
-        return MediaMetadata.Builder()
+        return MediaMetadata
+            .Builder()
             .setTitle(now.title)
             .setDisplayTitle(now.title)
             .setSubtitle(now.subtitle)
@@ -809,8 +818,7 @@ class PlayerViewModel(
                     item.type == ItemType.MOVIE -> MediaMetadata.MEDIA_TYPE_MOVIE
                     else -> MediaMetadata.MEDIA_TYPE_VIDEO
                 },
-            )
-            .build()
+            ).build()
     }
 
     /**
@@ -859,7 +867,9 @@ class PlayerViewModel(
                 builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
             } else {
                 // Embedded track (direct play): fall back to language preference.
-                _state.value.subtitleTracks.firstOrNull { it.index == desiredSubtitleIndex }?.languageCode
+                _state.value.subtitleTracks
+                    .firstOrNull { it.index == desiredSubtitleIndex }
+                    ?.languageCode
                     ?.let { builder.setPreferredTextLanguage(it) }
             }
         }
@@ -1460,7 +1470,10 @@ class PlayerViewModel(
 
     /** Play: the shown episode now, countdown or not. */
     fun playUpNext() {
-        val episode = _state.value.upNext?.state?.episode ?: return
+        val episode =
+            _state.value.upNext
+                ?.state
+                ?.episode ?: return
         upNextTicker?.cancel()
         viewModelScope.launch { advanceTo(episode) }
     }
@@ -1632,7 +1645,10 @@ class PlayerViewModel(
          * side, and about the screen's short side at most on a phone.
          */
         private val upNextArtWidth: Int by lazy {
-            val metrics = android.content.res.Resources.getSystem().displayMetrics
+            val metrics =
+                android.content.res.Resources
+                    .getSystem()
+                    .displayMetrics
             val screenDp = minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1) / metrics.density
             ImageSizing.requestWidth(minOf(screenDp, UP_NEXT_CARD_MAX_DP), metrics.density)
         }
