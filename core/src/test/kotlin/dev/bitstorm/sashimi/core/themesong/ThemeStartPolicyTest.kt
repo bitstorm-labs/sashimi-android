@@ -5,7 +5,9 @@ import org.junit.Test
 
 class ThemeStartPolicyTest {
     /** Counts its calls, so "the probe was never consulted" is assertable. */
-    private class FakeProbe(private val playing: Boolean) : OtherAudioProbe {
+    private class FakeProbe(
+        private val playing: Boolean,
+    ) : OtherAudioProbe {
         var calls = 0
             private set
 

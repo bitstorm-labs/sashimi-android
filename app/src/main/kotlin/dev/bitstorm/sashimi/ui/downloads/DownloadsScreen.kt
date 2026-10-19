@@ -92,7 +92,9 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().widthIn(max = 640.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -218,7 +220,13 @@ private fun SectionHeader(title: String) {
 
 @Composable
 private fun DownloadPoster(row: DownloadedItemEntity) {
-    Box(Modifier.width(52.dp).height(78.dp).clip(RoundedCornerShape(6.dp)).background(SashimiCard)) {
+    Box(
+        Modifier
+            .width(52.dp)
+            .height(78.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(SashimiCard),
+    ) {
         AsyncImage(
             model = OfflineImages.posterModel(row.key, fallbackImageItemId = row.seriesId ?: row.itemId),
             contentDescription = row.name,
@@ -235,7 +243,11 @@ private fun RowScaffold(
     subtitle: @Composable () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SashimiCard).padding(8.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(SashimiCard)
+            .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -296,7 +308,11 @@ private fun RedownloadNotice(
     onRedownloadAll: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(SashimiCard).padding(start = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(SashimiCard)
+            .padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

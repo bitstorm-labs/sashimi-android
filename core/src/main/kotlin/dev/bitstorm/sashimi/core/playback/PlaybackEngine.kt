@@ -58,8 +58,15 @@ class PlaybackEngine(
 
         suspend fun post(width: Int?) =
             post(
-                itemId, mediaSourceId, streamingBitrate, width, resumeTicks,
-                forceDirectPlay, forceTranscode, audioStreamIndex, subtitleStreamIndex,
+                itemId,
+                mediaSourceId,
+                streamingBitrate,
+                width,
+                resumeTicks,
+                forceDirectPlay,
+                forceTranscode,
+                audioStreamIndex,
+                subtitleStreamIndex,
             )
         val first = post(maxWidth)
         // Auto's first request carries no width: Jellyfin applies a Width
@@ -74,7 +81,9 @@ class PlaybackEngine(
                 val reencodeWidth =
                     AutoBitrate.reencodeWidth(
                         streamingBitrate,
-                        first.second.mediaStreams?.firstOrNull { it.type == "Video" }?.width,
+                        first.second.mediaStreams
+                            ?.firstOrNull { it.type == "Video" }
+                            ?.width,
                         TranscodeReasons.of(first.second),
                     )
                 if (reencodeWidth != null) {
@@ -138,7 +147,11 @@ class PlaybackEngine(
                 forceTranscode = true,
                 allowVideoStreamCopy = false,
             )
-        val path = response.mediaSources?.firstOrNull()?.transcodingUrl?.takeIf { it.isNotEmpty() } ?: return null
+        val path =
+            response.mediaSources
+                ?.firstOrNull()
+                ?.transcodingUrl
+                ?.takeIf { it.isNotEmpty() } ?: return null
         val url = client.buildURL(path) ?: return null
         return HeroTrailerStream(url, response.playSessionId)
     }
@@ -337,7 +350,8 @@ class PlaybackEngine(
         val detail =
             if (streamMethod == StreamMethod.TRANSCODE) {
                 listOfNotNull(source.videoResolution, source.videoCodec?.uppercase(), bitrate)
-                    .joinToString(" ").ifEmpty { null }
+                    .joinToString(" ")
+                    .ifEmpty { null }
             } else {
                 bitrate
             }
@@ -348,7 +362,10 @@ class PlaybackEngine(
     private fun sourceBitrate(source: MediaSourceInfo): Long? =
         (
             source.bitrate?.takeIf { it > 0 }
-                ?: source.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.takeIf { it > 0 }
+                ?: source.mediaStreams
+                    ?.firstOrNull { it.type == "Video" }
+                    ?.bitRate
+                    ?.takeIf { it > 0 }
         )?.toLong()
 
     private fun bitrateDetail(bps: Long?): String? = bps?.let { "${(it / 1_000_000.0).roundToLong()} Mbps" }
@@ -371,7 +388,12 @@ class PlaybackEngine(
         streamUrl: String,
     ): Long? {
         val target = urlIntParam(streamUrl, "VideoBitrate") ?: return sourceBitrate(source)
-        val srcVideo = source.mediaStreams?.firstOrNull { it.type == "Video" }?.bitRate?.takeIf { it > 0 }?.toLong()
+        val srcVideo =
+            source.mediaStreams
+                ?.firstOrNull { it.type == "Video" }
+                ?.bitRate
+                ?.takeIf { it > 0 }
+                ?.toLong()
         val deliveredVideo = if (srcVideo != null && srcVideo < target) srcVideo else target
         val audio = urlIntParam(streamUrl, "AudioBitrate") ?: 0L
         return deliveredVideo + audio
@@ -388,7 +410,12 @@ class PlaybackEngine(
     private fun urlIntParam(
         url: String,
         key: String,
-    ): Long? = Regex("[?&]$key=(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+    ): Long? =
+        Regex("[?&]$key=(\\d+)")
+            .find(url)
+            ?.groupValues
+            ?.get(1)
+            ?.toLongOrNull()
 
     private fun humanTranscodeReason(reason: String): String =
         when (reason) {

@@ -47,7 +47,8 @@ object ThemeMediaUrlBuilder {
         apiKey: String,
     ): String? {
         val base = serverUrl.trimEnd('/').toHttpUrlOrNull() ?: return null
-        return base.newBuilder()
+        return base
+            .newBuilder()
             .addPathSegments("Audio/$themeItemId/stream.mp3")
             .addQueryParameter("api_key", apiKey)
             .build()

@@ -14,7 +14,9 @@ import java.io.File
  * Writes always go to the current layout. Reads ([localFile], [itemSize]) fall
  * back to the legacy directory, so a download whose move failed still plays.
  */
-class DownloadFileManager(context: Context) {
+class DownloadFileManager(
+    context: Context,
+) {
     private val appContext = context.applicationContext
     private val root: File = File(appContext.filesDir, "downloads")
 
@@ -81,7 +83,8 @@ class DownloadFileManager(context: Context) {
 
     /** Names of legacy `{itemId}/` directories still at the top of the root. */
     fun legacyDirectoriesOnDisk(): Set<String> =
-        root.listFiles()
+        root
+            .listFiles()
             ?.filter { it.isDirectory && it.name != DownloadLayout.SERVERS_DIR }
             ?.map { it.name }
             ?.toSet()
@@ -90,12 +93,14 @@ class DownloadFileManager(context: Context) {
     /** Every current-layout item directory, as `servers/{server}/{item}` paths. */
     fun itemPathsOnDisk(): Set<String> {
         val servers = File(root, DownloadLayout.SERVERS_DIR).listFiles()?.filter { it.isDirectory }.orEmpty()
-        return servers.flatMap { server ->
-            server.listFiles()
-                ?.filter { it.isDirectory }
-                ?.map { "${DownloadLayout.SERVERS_DIR}/${server.name}/${it.name}" }
-                .orEmpty()
-        }.toSet()
+        return servers
+            .flatMap { server ->
+                server
+                    .listFiles()
+                    ?.filter { it.isDirectory }
+                    ?.map { "${DownloadLayout.SERVERS_DIR}/${server.name}/${it.name}" }
+                    .orEmpty()
+            }.toSet()
     }
 
     /**

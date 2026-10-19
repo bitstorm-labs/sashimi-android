@@ -51,7 +51,9 @@ data class MediaUrl(
  * enum serializer throws on unrecognized wire values.
  */
 @Serializable(with = ItemTypeSerializer::class)
-enum class ItemType(val wireName: String) {
+enum class ItemType(
+    val wireName: String,
+) {
     MOVIE("Movie"),
     SERIES("Series"),
     SEASON("Season"),
@@ -323,7 +325,9 @@ data class PublicSystemInfo(
 
 // MARK: - Media Segments (skip intro/credits via the intro-skipper plugin)
 
-enum class MediaSegmentType(val displayName: String) {
+enum class MediaSegmentType(
+    val displayName: String,
+) {
     INTRO("Intro"),
     OUTRO("Credits"),
     PREVIEW("Preview"),

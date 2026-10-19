@@ -26,10 +26,32 @@ class DeviceProfileVocabularyTest {
     private val conditionTypes = setOf("Equals", "NotEquals", "LessThanEqual", "GreaterThanEqual", "EqualsAny")
     private val conditionValues =
         setOf(
-            "AudioChannels", "AudioBitrate", "AudioProfile", "Width", "Height", "Has64BitOffsets", "PacketLength",
-            "VideoBitDepth", "VideoBitrate", "VideoFramerate", "VideoLevel", "VideoProfile", "VideoTimestamp",
-            "IsAnamorphic", "RefFrames", "NumAudioStreams", "NumVideoStreams", "IsSecondaryAudio", "VideoCodecTag",
-            "IsAvc", "IsInterlaced", "AudioSampleRate", "AudioBitDepth", "VideoRangeType", "NumStreams", "VideoRotation",
+            "AudioChannels",
+            "AudioBitrate",
+            "AudioProfile",
+            "Width",
+            "Height",
+            "Has64BitOffsets",
+            "PacketLength",
+            "VideoBitDepth",
+            "VideoBitrate",
+            "VideoFramerate",
+            "VideoLevel",
+            "VideoProfile",
+            "VideoTimestamp",
+            "IsAnamorphic",
+            "RefFrames",
+            "NumAudioStreams",
+            "NumVideoStreams",
+            "IsSecondaryAudio",
+            "VideoCodecTag",
+            "IsAvc",
+            "IsInterlaced",
+            "AudioSampleRate",
+            "AudioBitDepth",
+            "VideoRangeType",
+            "NumStreams",
+            "VideoRotation",
         )
     private val dlnaProfileTypes = setOf("Audio", "Video", "Photo", "Subtitle", "Lyric")
     private val codecTypes = setOf("Video", "VideoAudio", "Audio")
@@ -54,7 +76,12 @@ class DeviceProfileVocabularyTest {
     private fun JsonObject.strings(
         array: String,
         field: String,
-    ): List<String> = getValue(array).jsonArray.map { it.jsonObject.getValue(field).jsonPrimitive.content }
+    ): List<String> =
+        getValue(array).jsonArray.map {
+            it.jsonObject
+                .getValue(field)
+                .jsonPrimitive.content
+        }
 
     private fun assertAllIn(
         what: String,
@@ -70,8 +97,24 @@ class DeviceProfileVocabularyTest {
             val conditions =
                 body(width).getValue("CodecProfiles").jsonArray.flatMap { it.jsonObject.getValue("Conditions").jsonArray }
             assertTrue("a capped tier must send a condition", conditions.isNotEmpty())
-            assertAllIn("Condition", conditions.map { it.jsonObject.getValue("Condition").jsonPrimitive.content }, conditionTypes)
-            assertAllIn("Property", conditions.map { it.jsonObject.getValue("Property").jsonPrimitive.content }, conditionValues)
+            assertAllIn(
+                "Condition",
+                conditions.map {
+                    it.jsonObject
+                        .getValue("Condition")
+                        .jsonPrimitive.content
+                },
+                conditionTypes,
+            )
+            assertAllIn(
+                "Property",
+                conditions.map {
+                    it.jsonObject
+                        .getValue("Property")
+                        .jsonPrimitive.content
+                },
+                conditionValues,
+            )
         }
     }
 

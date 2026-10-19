@@ -4,7 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-private class FakeViewModeDefaultPersistence(var stored: String? = null) : ViewModeDefaultPersistence {
+private class FakeViewModeDefaultPersistence(
+    var stored: String? = null,
+) : ViewModeDefaultPersistence {
     var saves = 0
 
     override fun load(): String? = stored

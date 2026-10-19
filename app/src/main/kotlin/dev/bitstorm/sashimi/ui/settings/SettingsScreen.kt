@@ -129,7 +129,9 @@ fun SettingsScreen(
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().widthIn(max = 640.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -202,7 +204,9 @@ fun SettingsScreen(
                 InfoRow("Available space", formatBytes(free))
                 TextButton(
                     onClick = { showDeleteAll = true },
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                    contentPadding =
+                        androidx.compose.foundation.layout
+                            .PaddingValues(vertical = 8.dp),
                 ) {
                     Text("Delete All Downloads", color = Color.Red)
                 }

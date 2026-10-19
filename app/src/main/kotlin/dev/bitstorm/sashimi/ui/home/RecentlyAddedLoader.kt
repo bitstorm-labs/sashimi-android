@@ -40,13 +40,14 @@ object RecentlyAddedLoader {
         items: List<BaseItemDto>,
     ): Map<String, Int> {
         val seriesIds =
-            items.mapNotNull { item ->
-                when (item.type) {
-                    ItemType.EPISODE, ItemType.VIDEO -> item.seriesId
-                    ItemType.SERIES -> item.id
-                    else -> null
-                }
-            }.toSet()
+            items
+                .mapNotNull { item ->
+                    when (item.type) {
+                        ItemType.EPISODE, ItemType.VIDEO -> item.seriesId
+                        ItemType.SERIES -> item.id
+                        else -> null
+                    }
+                }.toSet()
         val counts = mutableMapOf<String, Int>()
         for (seriesId in seriesIds) {
             runCatching {
