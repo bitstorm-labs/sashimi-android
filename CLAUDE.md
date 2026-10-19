@@ -4,7 +4,8 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Project Overview
 
-Sashimi for Android — a Jellyfin client in Kotlin/Compose, `minSdk 26` / `targetSdk 36`.
+Sashimi for Android — a Jellyfin client in Kotlin/Compose, `minSdk 26` / `targetSdk 36` / `compileSdk 37`
+(AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.21).
 Sibling clients: `sashimi-apple` (tvOS/iOS) and `sashimi-roku`. Behaviour is
 deliberately ported between them, so a bug found in one is worth looking for in
 the other two — several have been found in all three.
@@ -22,7 +23,8 @@ the other two — several have been found in all three.
   against the stubbed android.jar.
 
 `:core` must stay TV-ready: no phone-only assumptions, since a TV client would
-reuse it.
+reuse it. No Android TV layout ships today (no Leanback declaration, touch-first
+UI), so do not describe the app as running on TV.
 
 ## Build Commands
 
@@ -39,6 +41,7 @@ export ANDROID_HOME=~/Library/Android/sdk
 ```
 
 `JAVA_HOME` must be Android Studio's bundled JBR; the system JDK will not do.
+Docs-only changes need no build, but CI still runs on the PR.
 
 ## Things that have actually bitten us
 
@@ -183,7 +186,10 @@ close the rest by hand.
 
 - `build` — ktlint, `:core:test`, `lintRelease`, `assembleDebug`, `assembleRelease`
 - `release` — tags only (`v*`), `needs: build`. Builds the AAB + signed APK,
-  publishes a GitHub Release, deploys to the Play internal track via fastlane.
+  publishes a GitHub Release, deploys to the Play internal track via fastlane
+  (skipped if `PLAY_STORE_JSON_KEY` is unset). A release is a version-bump PR
+  (`versionCode` + `versionName` in `app/build.gradle.kts`), then a tag on the
+  merge commit.
 
 Lint and the minified release build are both in CI on purpose: `assembleDebug`
 can never catch an R8 keep-rule problem, and kotlinx.serialization, Retrofit,

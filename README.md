@@ -1,12 +1,14 @@
 # Sashimi for Android
 
 A native Kotlin / Jetpack Compose (Material 3) client for [Jellyfin](https://jellyfin.org),
-the Android sibling of the Sashimi iOS/tvOS apps. Phones and tablets first, with a
-TV-ready architecture. Full iPhone-parity feature set, including downloads and
-offline playback.
+the Android sibling of the Sashimi Apple and Roku apps. It runs on phones and
+tablets. The shared `:core` module has no UI code so a TV layout can reuse it,
+but **no Android TV layout ships yet**: the app does not declare Leanback, and
+the UI is touch-first.
 
-**Status:** Milestone 5 — parity sweep + release prep. Version `0.5.0`, the first
-full APK.
+**Status:** version `0.12.0`. Release builds go to the Play internal-testing
+track and to [GitHub Releases](https://github.com/bitstorm-labs/sashimi-android/releases)
+as a signed APK.
 
 ## Features
 
@@ -26,7 +28,7 @@ full APK.
   query, and recent-search chips (last 10, Clear).
 - **Detail:** one adaptive screen (compact = stacked, expanded = tablet
   two-column) with Play / Resume / Start Over, next-up logic for series, Shuffle,
-  local-first Trailer, optimistic watched toggle, favorite + admin menu (File Info
+  local-first Trailer, a trailer that plays behind the page, optimistic watched toggle, favorite + admin menu (File Info
   / Refresh Metadata / Delete — hidden when offline), season tabs + episode list,
   cast, ratings, media badges, and single + bulk-season downloads with a quality
   picker.
@@ -34,27 +36,56 @@ full APK.
   stream → HLS transcode) with an Android DeviceProfile, OSD stream-info chip,
   quality menu (re-negotiates preserving position), audio + subtitle track
   selection (external VTT side-loaded and app-rendered), speed 0.5–2×, skip
-  intro/credits with auto-skip, auto-play next with season rollover, resume
-  threshold, progress reporting, and Picture-in-Picture.
+  intro/credits pill with auto-skip, a full-screen Up Next screen at the end of
+  an episode with auto-play and season rollover, resume threshold, progress
+  reporting, and Picture-in-Picture. 4K Dolby Vision / HDR10 HEVC is remuxed
+  instead of re-encoded where the device allows.
+- **Adaptive Auto quality:** Auto starts from the link you are on (Ethernet,
+  Wi-Fi or metered mobile data) and steps up when throughput allows. It never
+  steps up on a metered connection.
+- **Theme songs and trailers:** a show's theme music plays while you browse its
+  page, and a title's local trailer plays behind the page. Both can be turned
+  off in Settings. Theme songs stay quiet when other audio is playing, and
+  trailers never play on mobile data.
+- **Admin server dashboard** (Jellyfin administrators only, under Settings):
+  Now playing cards for every active stream, with Stop and Send a message
+  (shown on the viewer's screen), an Activity log, and a Health screen with
+  library scan status, hardware transcoding, failed scheduled tasks and
+  storage. Sashimi itself accepts Stop and message commands from that dashboard.
 - **Downloads / offline:** WorkManager queue with a foreground-service progress
   notification, quality tiers (Original / High / Medium / Low), Original
   fail-closed on device compatibility, a downloads screen (active / completed /
   failed / retry / delete-all + storage bar), subtitle downloads (side-loaded on
   offline playback), an offline Home + offline detail/playback drawn from a Room
   store, with local position save and sync-on-reconnect.
-- **Settings:** servers, Home row order editor, quality-badge toggle, playback
-  toggles, max bitrate, resume threshold, audio/subtitle languages, downloads
-  storage + delete-all, about (version/build), and sign out with confirmation.
+- **Settings:** servers, Home row order editor, quality badges and ratings,
+  theme songs, trailers, 24-hour time, max bitrate, always play original,
+  resume threshold, audio/subtitle languages, downloads storage + delete-all,
+  about (version/build), and sign out with confirmation.
 - **Deep links:** `sashimi://item/{id}` → detail and `sashimi://play/{id}` →
   player, with cold-start stash-until-authenticated (a launch link opens after
   sign-in).
 
+## Get more out of Sashimi
+
+Sashimi works against a plain Jellyfin server. These server add-ons make it
+better. None are required.
+
+| Add-on | What you get in Sashimi for Android | Without it |
+|--------|-------------------------------------|------------|
+| [Continue Watching plugin](https://github.com/bitstorm-labs/jellyfin-plugin-continue-watching) | The server merges Resume and Next Up into one ranked row (`GET /ContinueWatching`), and Home shows it as Continue Watching. | The app builds the same row itself from Resume, Next Up and your recent plays when the server answers 404. |
+| [Channels plugin](https://github.com/bitstorm-labs/jellyfin-plugin-channels) | Not supported yet. The Android app has no channels row or guide. | Nothing changes. |
+| [Theme Songs plugin](https://github.com/bitstorm-labs/jellyfin-theme-songs) (manifest: `https://raw.githubusercontent.com/bitstorm-labs/jellyfin-theme-songs/main/manifest.json`) | Theme music plays on series pages. Toggle: Settings, Play theme songs. | Series pages are silent. |
+| [Intro Skipper](https://github.com/intro-skipper/intro-skipper) (third party) | Skip Intro and Skip Credits buttons in the player. Sashimi reads Jellyfin's native `/MediaSegments`, and falls back to the plugin's own endpoint on older servers. | No skip buttons. |
+| [Trailarr](https://github.com/nandyalu/trailarr) (separate app, not a plugin) | Downloads trailers next to your media. Sashimi plays them from the Trailer button and behind detail pages. Toggle: Settings, Play trailers on detail screens. | The Trailer button and hero trailers only appear for titles that have a local trailer. |
+
+Hardware transcoding on the server also helps Auto quality. When Auto has to
+transcode, a GPU keeps it fast, and the admin Health screen shows whether it is
+on.
+
 ## Screenshots
 
-_Phone and tablet screenshots to be added ahead of the Play internal-testing
-release._
-
-<!-- TODO: add screenshots to docs/screenshots/ and embed here. -->
+No screenshots yet.
 
 ## Module layout
 
@@ -63,14 +94,15 @@ release._
 | `:core`  | Jellyfin API client (`JellyfinClient`), models, multi-server `SessionManager`, playback negotiation, downloads engine (Room + WorkManager + OkHttp), settings, and the deep-link resolver. **Zero Compose/UI imports** — the TV-readiness discipline: a future `:tv` module reuses `:core` wholesale. |
 | `:app`   | Phone/tablet Compose UI. Layout adapts by `WindowSizeClass`: compact = bottom navigation bar, expanded = navigation rail; grids and detail reflow to the wider width. |
 
-Package base: `dev.bitstorm.sashimi`. Min SDK 26, compile/target SDK 36.
+Package base: `dev.bitstorm.sashimi`. Min SDK 26, target SDK 36, compile SDK 37.
+Built with AGP 9.4.1, Gradle 9.8.1 and Kotlin 2.4.21.
 
 ## Building
 
-The project ships a Gradle wrapper. You need a JDK 21 and the Android SDK.
+The project ships a Gradle wrapper. You need a JDK 21 and the Android SDK (platform 37).
 
 ```bash
-# Android Studio bundles a JDK 21; point JAVA_HOME at it (or any JDK 21):
+# Use Android Studio's bundled JBR (JDK 21):
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 
@@ -106,14 +138,16 @@ The keystore and its password live outside the repo (e.g. `~/keystores/`) and ar
 never committed. In CI, provide the keystore as a base64 secret
 (`SASHIMI_UPLOAD_KEYSTORE_BASE64`) plus the password/alias secrets.
 
-## CI
+## CI and releases
 
-`.github/workflows/ci.yml` runs on every PR and push to `main`: JDK 21 (temurin),
-ktlint, `:core` unit tests, and an `assembleDebug` APK artifact. On `v*` tags a
-release job additionally builds a signed AAB + APK (signing secrets
-optional-guarded).
+`.github/workflows/ci.yml` runs on every PR and push to `main`: JDK 21,
+ktlint, `:core` and `:app` unit tests, `lintRelease`, `assembleDebug` and the
+minified `assembleRelease`.
 
-## Spec
-
-The full design spec and milestone plan live in
-`~/Documents/git/plans/sashimi-android/spec.md`.
+Pushing a `v*` tag runs the release job after the build: it builds a signed AAB
+and APK, checks the APK signature, publishes a GitHub Release with the APK, and
+deploys the AAB to the Play internal-testing track with fastlane
+(`fastlane internal`). The Play step is skipped when the `PLAY_STORE_JSON_KEY`
+secret is not set. Merging to `main` never releases; the tag does. To ship,
+bump `versionCode` and `versionName` in `app/build.gradle.kts` in a PR, merge
+it, then tag the merge commit.
