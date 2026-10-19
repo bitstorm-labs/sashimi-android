@@ -20,6 +20,12 @@ updates:
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # gradle/actions v6 moved caching into a proprietary component under
+      # separate Terms of Use (blog.gradle.org/github-actions-for-gradle-v6).
+      # Stay on v5 (MIT) until the owner decides to accept those terms.
+      - dependency-name: gradle/actions/setup-gradle
+        update-types: [version-update:semver-major]
 
   # Gradle plugins and libraries from gradle/libs.versions.toml (version
   # catalog) plus the Gradle wrapper.

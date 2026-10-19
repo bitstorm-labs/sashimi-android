@@ -254,7 +254,8 @@ class HeroTrailerController(
         val created =
             ExoPlayer.Builder(appContext).build().apply {
                 setAudioAttributes(
-                    AudioAttributes.Builder()
+                    AudioAttributes
+                        .Builder()
                         .setUsage(C.USAGE_MEDIA)
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                         .build(),
@@ -268,7 +269,11 @@ class HeroTrailerController(
                 repeatMode = Player.REPEAT_MODE_OFF
                 addListener(listener)
                 setMediaItem(
-                    MediaItem.Builder().setUri(stream.url).setMimeType(MimeTypes.APPLICATION_M3U8).build(),
+                    MediaItem
+                        .Builder()
+                        .setUri(stream.url)
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .build(),
                     (clip.start * 1000).toLong(),
                 )
                 prepare()

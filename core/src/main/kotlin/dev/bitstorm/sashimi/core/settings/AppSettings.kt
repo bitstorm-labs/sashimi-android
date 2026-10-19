@@ -17,7 +17,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * Each setting is exposed as a [StateFlow] so Compose observers recompose on
  * change, and the playback pipeline (which is Compose-free) reads `.value`.
  */
-class AppSettings(context: Context) {
+class AppSettings(
+    context: Context,
+) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private val _showQualityBadges = MutableStateFlow(prefs.getBoolean(KEY_QUALITY_BADGES, true))

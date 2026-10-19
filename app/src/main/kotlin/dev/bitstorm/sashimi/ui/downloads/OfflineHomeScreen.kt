@@ -66,7 +66,9 @@ fun OfflineHomeScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item { OfflineBanner() }
@@ -80,7 +82,9 @@ fun OfflineHomeScreen(
                 Section("Continue Watching") {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        contentPadding =
+                            androidx.compose.foundation.layout
+                                .PaddingValues(horizontal = 16.dp),
                     ) {
                         items(continueWatching, key = { it.listKey }) { row ->
                             ContinueCard(row, onClick = { onPlay(row.key) })
@@ -95,7 +99,9 @@ fun OfflineHomeScreen(
                 Section("Movies") {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        contentPadding =
+                            androidx.compose.foundation.layout
+                                .PaddingValues(horizontal = 16.dp),
                     ) {
                         items(movies, key = { it.listKey }) { row ->
                             PosterCard(row.key, row.name, onClick = { onPlay(row.key) })
@@ -110,7 +116,9 @@ fun OfflineHomeScreen(
                 Section("TV Shows") {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        contentPadding =
+                            androidx.compose.foundation.layout
+                                .PaddingValues(horizontal = 16.dp),
                     ) {
                         items(series, key = { it.seriesId }) { group ->
                             PosterCard(
@@ -130,8 +138,12 @@ fun OfflineHomeScreen(
 @Composable
 private fun OfflineBanner() {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(8.dp))
-            .background(OfflineWarning.copy(alpha = 0.15f)).padding(12.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(OfflineWarning.copy(alpha = 0.15f))
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -183,7 +195,13 @@ private fun ContinueCard(
     val progress =
         row.runTimeTicks?.takeIf { it > 0 }?.let { (row.localPositionTicks.toFloat() / it).coerceIn(0f, 1f) } ?: 0f
     Column(Modifier.width(240.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.fillMaxWidth().height(135.dp).clip(RoundedCornerShape(8.dp)).background(SashimiCard)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(135.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(SashimiCard),
+        ) {
             AsyncImage(
                 model = OfflineImages.localBackdrop(row.key),
                 contentDescription = row.displayTitle,
@@ -191,7 +209,11 @@ private fun ContinueCard(
                 modifier = Modifier.fillMaxSize(),
             )
             Box(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth(progress).height(3.dp).background(SashimiAccent),
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(progress)
+                    .height(3.dp)
+                    .background(SashimiAccent),
             )
         }
         Text(row.displayTitle, color = SashimiTextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -207,7 +229,13 @@ private fun PosterCard(
     onClick: () -> Unit,
 ) {
     Column(Modifier.width(110.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.width(110.dp).height(165.dp).clip(RoundedCornerShape(8.dp)).background(SashimiCard)) {
+        Box(
+            Modifier
+                .width(110.dp)
+                .height(165.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(SashimiCard),
+        ) {
             AsyncImage(
                 model = OfflineImages.localPoster(imageKey),
                 contentDescription = title,
@@ -221,11 +249,14 @@ private fun PosterCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     modifier =
-                        Modifier.align(
-                            Alignment.TopEnd,
-                        ).padding(
-                            4.dp,
-                        ).clip(RoundedCornerShape(4.dp)).background(SashimiAccent).padding(horizontal = 6.dp, vertical = 2.dp),
+                        Modifier
+                            .align(
+                                Alignment.TopEnd,
+                            ).padding(
+                                4.dp,
+                            ).clip(RoundedCornerShape(4.dp))
+                            .background(SashimiAccent)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }

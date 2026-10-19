@@ -234,7 +234,8 @@ class DetailViewModel(
             val num = seasonId.removePrefix("offline-season-").toIntOrNull()
             val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
             val eps =
-                OfflineReconstruction.episodesForSeries(downloads.downloads.value, seriesId, item.seriesName ?: item.name)
+                OfflineReconstruction
+                    .episodesForSeries(downloads.downloads.value, seriesId, item.seriesName ?: item.name)
                     .filter { it.seasonNumber == num }
                     .map { OfflineReconstruction.asBaseItemDto(it) }
             _state.update { it.copy(episodes = eps) }

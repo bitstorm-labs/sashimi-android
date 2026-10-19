@@ -175,7 +175,14 @@ class AdminDashboardSourceTest {
             stub.routes["GET /System/Info"] = 200 to """{"ServerName":"JellyPal","Version":"12.2.0"}"""
             stub.routes["GET /ScheduledTasks"] = 200 to "[]"
             stub.routes["GET /System/ActivityLog/Entries"] = 200 to """{"Items":[]}"""
-            val snap = (AdminDashboardSource(client()).health().take(1).toList().single() as AdminLoad.Ready).data
+            val snap =
+                (
+                    AdminDashboardSource(client())
+                        .health()
+                        .take(1)
+                        .toList()
+                        .single() as AdminLoad.Ready
+                ).data
             assertEquals(emptyList<StorageRow>(), snap.storage)
             assertNull(snap.encoding)
         }

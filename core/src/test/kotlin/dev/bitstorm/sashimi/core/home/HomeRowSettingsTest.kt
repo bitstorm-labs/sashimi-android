@@ -7,7 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** In-memory [HomeRowStore]; `saved == null` models a first launch. */
-private class FakeHomeRowStore(var saved: List<HomeRowConfig>? = null) : HomeRowStore {
+private class FakeHomeRowStore(
+    var saved: List<HomeRowConfig>? = null,
+) : HomeRowStore {
     override fun load(): List<HomeRowConfig>? = saved
 
     override fun save(rows: List<HomeRowConfig>) {
@@ -82,15 +84,27 @@ class HomeRowSettingsTest {
         // Re-running with the same library must not re-enable it.
         settings.updateLibraries(listOf(library("L1", "Movies")))
 
-        assertFalse(settings.rows.value.first { it.id == "L1" }.isEnabled)
+        assertFalse(
+            settings.rows.value
+                .first { it.id == "L1" }
+                .isEnabled,
+        )
     }
 
     @Test
     fun `toggleRow flips visibility`() {
         val settings = HomeRowSettings(FakeHomeRowStore(saved = null))
-        assertTrue(settings.rows.value.first().isEnabled)
+        assertTrue(
+            settings.rows.value
+                .first()
+                .isEnabled,
+        )
         settings.toggleRow(HomeRowConfig.CONTINUE_WATCHING_ID)
-        assertFalse(settings.rows.value.first().isEnabled)
+        assertFalse(
+            settings.rows.value
+                .first()
+                .isEnabled,
+        )
     }
 
     @Test
@@ -99,7 +113,12 @@ class HomeRowSettingsTest {
         settings.updateLibraries(listOf(library("L1", "Movies"), library("L2", "Shows")))
 
         settings.moveRow(fromIndex = 2, toIndex = 0)
-        assertEquals("L2", settings.rows.value.first().id)
+        assertEquals(
+            "L2",
+            settings.rows.value
+                .first()
+                .id,
+        )
 
         val before = settings.rows.value
         settings.moveRow(fromIndex = 9, toIndex = 0)

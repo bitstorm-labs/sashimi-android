@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * Compose-free (:core discipline). Emits whether the device currently has a
  * validated internet-capable network; the UI switches to offline mode off this.
  */
-class NetworkMonitor(context: Context) {
+class NetworkMonitor(
+    context: Context,
+) {
     private val connectivityManager =
         context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 

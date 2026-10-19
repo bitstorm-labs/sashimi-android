@@ -15,7 +15,10 @@ sealed interface ThemeVisitAction {
      * immediately before, or null when nothing was — the player uses it to pick
      * the show-change fade over a plain start.
      */
-    data class Start(val seriesId: String, val replacing: String?) : ThemeVisitAction
+    data class Start(
+        val seriesId: String,
+        val replacing: String?,
+    ) : ThemeVisitAction
 
     /** The show whose theme is playing has no detail screens left. */
     data object Stop : ThemeVisitAction

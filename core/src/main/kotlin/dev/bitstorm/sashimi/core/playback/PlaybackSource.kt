@@ -175,7 +175,12 @@ object TranscodeReasons {
         source.transcodeReasons?.takeIf { it.isNotEmpty() }?.let { return it }
         val url = source.transcodingUrl ?: return null
         val raw = Regex("[?&]TranscodeReasons=([^&]*)").find(url)?.groupValues?.get(1) ?: return null
-        return java.net.URLDecoder.decode(raw, "UTF-8").split(',').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { null }
+        return java.net.URLDecoder
+            .decode(raw, "UTF-8")
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { null }
     }
 }
 

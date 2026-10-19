@@ -283,7 +283,12 @@ class RemoteControlConnectionTest {
             advanceTimeBy(1_000)
             runCurrent()
 
-            assertEquals("MediaBrowser Token=\"t2\"", connector.sockets.last().target.authorization)
+            assertEquals(
+                "MediaBrowser Token=\"t2\"",
+                connector.sockets
+                    .last()
+                    .target.authorization,
+            )
         }
 
     @Test

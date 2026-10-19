@@ -24,7 +24,8 @@ class OkHttpRemoteSocketConnector(
         onEvent: (SocketEvent) -> Unit,
     ): RemoteSocket {
         val request =
-            Request.Builder()
+            Request
+                .Builder()
                 .url(target.socketUrl)
                 .header(AUTHORIZATION_HEADER, target.authorization)
                 .build()
@@ -84,7 +85,8 @@ class OkHttpRemoteSocketConnector(
         /** A copy of [base] (sharing its pool and dispatcher) fit for long-lived sockets. */
         fun forSockets(base: OkHttpClient): OkHttpRemoteSocketConnector =
             OkHttpRemoteSocketConnector(
-                base.newBuilder()
+                base
+                    .newBuilder()
                     .pingInterval(PING_SECONDS, TimeUnit.SECONDS)
                     .build(),
             )

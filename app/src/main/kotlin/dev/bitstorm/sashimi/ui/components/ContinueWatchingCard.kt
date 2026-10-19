@@ -85,8 +85,7 @@ fun ContinueWatchingCard(
                             Brush.verticalGradient(
                                 listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
                             ),
-                        )
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        ).padding(horizontal = 10.dp, vertical = 10.dp),
             ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -287,7 +287,8 @@ private fun AppShell(
                 AdminHealthScreen(onBack = { navController.popBackStack() })
             }
             composable<HomeRowOrderRoute> {
-                dev.bitstorm.sashimi.ui.settings.HomeRowOrderScreen(settings = ServiceLocator.homeRowSettings)
+                dev.bitstorm.sashimi.ui.settings
+                    .HomeRowOrderScreen(settings = ServiceLocator.homeRowSettings)
             }
             composable<LibraryBrowseRoute> { entry ->
                 val route = entry.toRoute<LibraryBrowseRoute>()

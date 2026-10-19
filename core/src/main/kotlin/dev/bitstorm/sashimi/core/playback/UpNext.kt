@@ -22,7 +22,9 @@ sealed interface FollowingEpisode {
     /** There is none (the shown episode is the last), or the lookup failed. */
     data object None : FollowingEpisode
 
-    data class Found(val episode: BaseItemDto) : FollowingEpisode
+    data class Found(
+        val episode: BaseItemDto,
+    ) : FollowingEpisode
 }
 
 /**
@@ -72,7 +74,9 @@ data class UpNextState(
 
 sealed interface UpNextEvent {
     /** [elapsedMs] of wall-clock time has passed since the last tick. */
-    data class Tick(val elapsedMs: Long) : UpNextEvent
+    data class Tick(
+        val elapsedMs: Long,
+    ) : UpNextEvent
 
     /** The app went to the background. */
     data object Pause : UpNextEvent
@@ -86,7 +90,10 @@ sealed interface UpNextEvent {
     data object Skip : UpNextEvent
 
     /** The lookup of the episode after [forEpisodeId] finished; [next] null for none or a failure. */
-    data class FollowingResolved(val forEpisodeId: String, val next: BaseItemDto?) : UpNextEvent
+    data class FollowingResolved(
+        val forEpisodeId: String,
+        val next: BaseItemDto?,
+    ) : UpNextEvent
 
     /** The player went into picture-in-picture while the screen was up. */
     data object EnteredPip : UpNextEvent

@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ktlint)
@@ -8,7 +7,7 @@ plugins {
 
 android {
     namespace = "dev.bitstorm.sashimi"
-    compileSdk = 36
+    compileSdk = 37
 
     lint {
         // Version bumps are owned by Dependabot (.github/dependabot.yml), so lint's
@@ -70,10 +69,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         // VERSION_NAME goes to the server as the client version (#163).
@@ -120,4 +115,10 @@ dependencies {
 // edit re-runs the tests instead of reusing an up-to-date result.
 tasks.withType<Test>().configureEach {
     inputs.file("src/main/AndroidManifest.xml")
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }

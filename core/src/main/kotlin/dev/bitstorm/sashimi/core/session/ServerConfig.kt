@@ -22,7 +22,9 @@ enum class LogoutReason {
 }
 
 /** Errors surfaced by the SessionManager. Ported from Swift `SessionError`. */
-sealed class SessionError(message: String) : Exception(message) {
+sealed class SessionError(
+    message: String,
+) : Exception(message) {
     /** The token store rejected the access-token write. Login aborts so the
      * failure is visible now rather than a silent sign-out on next launch. */
     object CredentialStorageFailed :

@@ -42,7 +42,8 @@ object DeviceMediaCompatibility {
         val rawContainer = source.container
         if (rawContainer.isNullOrEmpty()) return false
         val containers =
-            rawContainer.lowercase()
+            rawContainer
+                .lowercase()
                 .split(",")
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }

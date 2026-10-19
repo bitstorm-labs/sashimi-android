@@ -52,7 +52,11 @@ object StreamCards {
 
     fun title(item: BaseItemDto?): CardTitle {
         item ?: return CardTitle("", "", "")
-        val year = item.productionYear?.takeIf { it > 0 }?.toString().orEmpty()
+        val year =
+            item.productionYear
+                ?.takeIf { it > 0 }
+                ?.toString()
+                .orEmpty()
         return when (item.type) {
             ItemType.EPISODE -> CardTitle(item.name, item.seriesName.orEmpty(), episodeTag(item))
             ItemType.MOVIE -> CardTitle(item.name, if (year.isEmpty()) "Movie" else "Movie · $year", "")
@@ -207,7 +211,12 @@ object StreamCards {
     fun footerReason(session: SessionInfoDto): String {
         val info = session.transcodingInfo ?: return "Plays as-is"
         if (PlayModes.of(info) == PlayMode.DIRECT_PLAY) return "Remux"
-        val words = info.transcodeReasons.orEmpty().map(TranscodeReasonWords::of).filter { it.isNotEmpty() }.distinct()
+        val words =
+            info.transcodeReasons
+                .orEmpty()
+                .map(TranscodeReasonWords::of)
+                .filter { it.isNotEmpty() }
+                .distinct()
         return if (words.isEmpty()) "Converting" else words.joinToString(" · ")
     }
 

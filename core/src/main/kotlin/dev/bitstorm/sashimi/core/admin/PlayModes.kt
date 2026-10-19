@@ -9,7 +9,9 @@ import java.util.Locale
  * cross-platform contract (plans/sashimi-android/2026-10-18-admin-dashboard-plan.md):
  * Apple and Roku show the same badge for the same session.
  */
-enum class PlayMode(val label: String) {
+enum class PlayMode(
+    val label: String,
+) {
     DIRECT_PLAY("Direct play"),
     CONVERTING_AUDIO("Converting audio"),
     CONVERTING_VIDEO("Converting video"),
@@ -70,7 +72,11 @@ object PlayModes {
 
     /** The audio stream playing: the reported index, else the default, else the first. */
     internal fun audioStream(session: SessionInfoDto): MediaStream? {
-        val audio = session.nowPlayingItem?.mediaStreams.orEmpty().filter { it.type == "Audio" }
+        val audio =
+            session.nowPlayingItem
+                ?.mediaStreams
+                .orEmpty()
+                .filter { it.type == "Audio" }
         val index = session.playState?.audioStreamIndex
         return audio.firstOrNull { index != null && it.index == index }
             ?: audio.firstOrNull { it.isDefault == true }

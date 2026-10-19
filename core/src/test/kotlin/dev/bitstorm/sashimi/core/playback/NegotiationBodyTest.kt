@@ -32,14 +32,16 @@ class NegotiationBodyTest {
         respond: (Request) -> String,
     ): PlaybackEngine {
         val http =
-            OkHttpClient.Builder()
+            OkHttpClient
+                .Builder()
                 .addInterceptor { chain ->
                     val request = chain.request()
                     synchronized(paths) {
                         paths += request.url.encodedPath
                         request.body?.let { b -> bodies += Buffer().also(b::writeTo).readUtf8() }
                     }
-                    Response.Builder()
+                    Response
+                        .Builder()
                         .request(request)
                         .protocol(Protocol.HTTP_1_1)
                         .code(200)
@@ -57,10 +59,20 @@ class NegotiationBodyTest {
     }
 
     private fun widthCaps(body: String): List<String> =
-        Json.parseToJsonElement(body).jsonObject.getValue("DeviceProfile").jsonObject.getValue("CodecProfiles").jsonArray
+        Json
+            .parseToJsonElement(body)
+            .jsonObject
+            .getValue("DeviceProfile")
+            .jsonObject
+            .getValue("CodecProfiles")
+            .jsonArray
             .filter { it.jsonObject["Codec"] == null }
             .flatMap { it.jsonObject.getValue("Conditions").jsonArray }
-            .map { it.jsonObject.getValue("Value").jsonPrimitive.content }
+            .map {
+                it.jsonObject
+                    .getValue("Value")
+                    .jsonPrimitive.content
+            }
 
     @Test
     fun `every negotiation names its media source and sends SubtitleStreamIndex -1`() =
@@ -88,7 +100,11 @@ class NegotiationBodyTest {
             posts.forEach {
                 assertEquals(
                     4_000_000,
-                    Json.parseToJsonElement(it).jsonObject.getValue("MaxStreamingBitrate").jsonPrimitive.int,
+                    Json
+                        .parseToJsonElement(it)
+                        .jsonObject
+                        .getValue("MaxStreamingBitrate")
+                        .jsonPrimitive.int,
                 )
             }
             assertTrue(widthCaps(posts[0]).isEmpty())
@@ -100,7 +116,11 @@ class NegotiationBodyTest {
 
     private fun postedBitrates() =
         bodies.filter { it.contains("DeviceProfile") }.map {
-            Json.parseToJsonElement(it).jsonObject.getValue("MaxStreamingBitrate").jsonPrimitive.int
+            Json
+                .parseToJsonElement(it)
+                .jsonObject
+                .getValue("MaxStreamingBitrate")
+                .jsonPrimitive.int
         }
 
     @Test

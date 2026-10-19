@@ -315,9 +315,12 @@ fun PlayerScreen(
                 positionMs = { vm.absolutePositionMs },
                 onClick = vm::skipCurrentSegment,
                 modifier =
-                    Modifier.align(
-                        Alignment.BottomEnd,
-                    ).safeDrawingPadding().padding(24.dp).offset { IntOffset(0, -lift.roundToPx()) },
+                    Modifier
+                        .align(
+                            Alignment.BottomEnd,
+                        ).safeDrawingPadding()
+                        .padding(24.dp)
+                        .offset { IntOffset(0, -lift.roundToPx()) },
             )
         }
 
@@ -729,7 +732,8 @@ private fun SettingsGroup(
             Icon(icon, contentDescription = null)
             Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        androidx.compose.foundation.layout
+            .FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
     }
 }
 
@@ -775,7 +779,13 @@ private fun Context.findActivity(): Activity {
  */
 @Composable
 private fun PlayerServerUnavailable(onExit: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding().padding(24.dp)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .safeDrawingPadding()
+            .padding(24.dp),
+    ) {
         IconButton(onClick = onExit, modifier = Modifier.align(Alignment.TopStart)) {
             Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
         }

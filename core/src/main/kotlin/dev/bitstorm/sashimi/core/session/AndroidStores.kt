@@ -14,7 +14,9 @@ import kotlinx.serialization.json.Json
  * SharedPreferences-backed [ServerStore]. The server list is non-secret
  * metadata (URLs, usernames, ids); only tokens go in the encrypted store.
  */
-class PrefsServerStore(context: Context) : ServerStore {
+class PrefsServerStore(
+    context: Context,
+) : ServerStore {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
@@ -31,9 +33,11 @@ class PrefsServerStore(context: Context) : ServerStore {
     override fun getActiveServerId(): String? = prefs.getString(KEY_ACTIVE, null)
 
     override fun setActiveServerId(id: String?) {
-        prefs.edit().apply {
-            if (id == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, id)
-        }.apply()
+        prefs
+            .edit()
+            .apply {
+                if (id == null) remove(KEY_ACTIVE) else putString(KEY_ACTIVE, id)
+            }.apply()
     }
 
     companion object {
@@ -48,7 +52,9 @@ class PrefsServerStore(context: Context) : ServerStore {
  * Swift Keychain. [save] returns the commit result so a failed write aborts
  * login visibly (see SessionManager.login).
  */
-class EncryptedTokenStore(context: Context) : TokenStore {
+class EncryptedTokenStore(
+    context: Context,
+) : TokenStore {
     private val appContext = context.applicationContext
 
     /**
@@ -82,7 +88,8 @@ class EncryptedTokenStore(context: Context) : TokenStore {
 
     private fun open(): SharedPreferences {
         val masterKey =
-            MasterKey.Builder(appContext)
+            MasterKey
+                .Builder(appContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
         return EncryptedSharedPreferences.create(
@@ -114,7 +121,9 @@ class EncryptedTokenStore(context: Context) : TokenStore {
 }
 
 /** SharedPreferences-backed [HomeRowStore] — the Home row order/visibility. */
-class PrefsHomeRowStore(context: Context) : HomeRowStore {
+class PrefsHomeRowStore(
+    context: Context,
+) : HomeRowStore {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
@@ -135,7 +144,9 @@ class PrefsHomeRowStore(context: Context) : HomeRowStore {
 }
 
 /** SharedPreferences-backed [RecentSearchPersistence] — the last-10 queries. */
-class PrefsRecentSearchStore(context: Context) : RecentSearchPersistence {
+class PrefsRecentSearchStore(
+    context: Context,
+) : RecentSearchPersistence {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }

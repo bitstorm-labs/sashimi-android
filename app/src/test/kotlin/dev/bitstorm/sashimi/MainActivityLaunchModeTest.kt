@@ -16,7 +16,12 @@ class MainActivityLaunchModeTest {
     @Test
     fun `MainActivity is singleTask so deep links reach onNewIntent`() {
         val manifest = listOf("src/main/AndroidManifest.xml", "app/src/main/AndroidManifest.xml").map(::File).first { it.exists() }
-        val doc = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(manifest)
+        val doc =
+            DocumentBuilderFactory
+                .newInstance()
+                .apply { isNamespaceAware = true }
+                .newDocumentBuilder()
+                .parse(manifest)
         val activities = doc.getElementsByTagName("activity")
         val main =
             (0 until activities.length)

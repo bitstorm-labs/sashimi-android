@@ -34,7 +34,9 @@ enum class ThemeStartDecision {
  * us. Consulting the probe there would have a show-change gate itself off on the
  * tail of the theme it just faded out.
  */
-class ThemeStartPolicy(private val otherAudio: OtherAudioProbe) {
+class ThemeStartPolicy(
+    private val otherAudio: OtherAudioProbe,
+) {
     fun decide(
         settingEnabled: Boolean,
         alreadyOwnsAudio: Boolean,
