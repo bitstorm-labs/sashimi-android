@@ -69,15 +69,16 @@ as a signed APK.
 ## Get more out of Sashimi
 
 Sashimi works against a plain Jellyfin server. These server add-ons make it
-better. None are required.
+better. None are required. The first three are made by Bitstorm Labs. The last two
+are separate projects by other people; see [Acknowledgments](#acknowledgments).
 
 | Add-on | What you get in Sashimi for Android | Without it |
 |--------|-------------------------------------|------------|
 | [Continue Watching plugin](https://github.com/bitstorm-labs/jellyfin-plugin-continue-watching) | The server merges Resume and Next Up into one ranked row (`GET /ContinueWatching`), and Home shows it as Continue Watching. | The app builds the same row itself from Resume, Next Up and your recent plays when the server answers 404. |
 | [Channels plugin](https://github.com/bitstorm-labs/jellyfin-plugin-channels) | Not supported yet. The Android app has no channels row or guide. | Nothing changes. |
 | [Theme Songs plugin](https://github.com/bitstorm-labs/jellyfin-theme-songs) (manifest: `https://raw.githubusercontent.com/bitstorm-labs/jellyfin-theme-songs/main/manifest.json`) | Theme music plays on series pages. Toggle: Settings, Play theme songs. | Series pages are silent. |
-| [Intro Skipper](https://github.com/intro-skipper/intro-skipper) (third party) | Skip Intro and Skip Credits buttons in the player. Sashimi reads Jellyfin's native `/MediaSegments`, and falls back to the plugin's own endpoint on older servers. | No skip buttons. |
-| [Trailarr](https://github.com/nandyalu/trailarr) (separate app, not a plugin) | Downloads trailers next to your media. Sashimi plays them from the Trailer button and behind detail pages. Toggle: Settings, Play trailers on detail screens. | The Trailer button and hero trailers only appear for titles that have a local trailer. |
+| [Intro Skipper](https://github.com/intro-skipper/intro-skipper), by the Intro Skipper team (not Bitstorm Labs) | Skip Intro and Skip Credits buttons in the player. Sashimi reads Jellyfin's native `/MediaSegments`, and falls back to the plugin's own endpoint on older servers. | No skip buttons. |
+| [Trailarr](https://github.com/nandyalu/trailarr) by nandyalu (separate app, not a plugin, not Bitstorm Labs) | Downloads trailers next to your media. Sashimi plays them from the Trailer button and behind detail pages. Toggle: Settings, Play trailers on detail screens. | The Trailer button and hero trailers only appear for titles that have a local trailer. |
 
 Hardware transcoding on the server also helps Auto quality. When Auto has to
 transcode, a GPU keeps it fast, and the admin Health screen shows whether it is
@@ -151,3 +152,39 @@ deploys the AAB to the Play internal-testing track with fastlane
 secret is not set. Merging to `main` never releases; the tag does. To ship,
 bump `versionCode` and `versionName` in `app/build.gradle.kts` in a PR, merge
 it, then tag the merge commit.
+
+## Acknowledgments
+
+Sashimi is built on, and works with, other people's projects. Each one is a
+separate project under its own license. Sashimi is not affiliated with or
+endorsed by any of them.
+
+**The server**
+
+- [Jellyfin](https://jellyfin.org/) (the Jellyfin project, GPL-2.0). The free
+  software media system Sashimi is a client for.
+
+**Server add-ons Sashimi works with** (not made by Bitstorm Labs)
+
+- [Intro Skipper](https://github.com/intro-skipper/intro-skipper) (by the Intro
+  Skipper team, GPL-3.0). Detects intros and credits. Sashimi reads the
+  segments it writes to Jellyfin and shows the Skip buttons.
+- [Trailarr](https://github.com/nandyalu/trailarr) (by nandyalu, GPL-3.0).
+  Downloads trailers next to your media. Sashimi plays them behind the detail page.
+
+**Libraries**
+
+- [Media3 and ExoPlayer](https://github.com/androidx/media) (Google, Apache-2.0).
+  Playback.
+- [Jetpack Compose, Room and WorkManager](https://developer.android.com/jetpack)
+  (Google, Apache-2.0). UI, local storage and background downloads.
+- [Kotlin](https://github.com/JetBrains/kotlin) and
+  [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization)
+  (JetBrains, Apache-2.0).
+- [Retrofit](https://github.com/lysine-dev/retrofit) and
+  [OkHttp](https://github.com/lysine-dev/okhttp) (Square, Apache-2.0). Talking
+  to the Jellyfin API.
+- [Coil](https://github.com/coil-kt/coil) (coil-kt, Apache-2.0). Image loading.
+
+The TMDb logo next to ratings belongs to its owner. The ratings themselves come
+from your Jellyfin server.
