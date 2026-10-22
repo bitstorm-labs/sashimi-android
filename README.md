@@ -188,3 +188,7 @@ endorsed by any of them.
 
 The TMDb logo next to ratings belongs to its owner. The ratings themselves come
 from your Jellyfin server.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
