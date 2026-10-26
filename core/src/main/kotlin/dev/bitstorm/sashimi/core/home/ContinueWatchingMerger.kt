@@ -29,6 +29,7 @@ object ContinueWatchingMerger {
         resume: List<BaseItemDto>,
         nextUp: List<BaseItemDto>,
         seriesLastPlayed: Map<String, Long> = emptyMap(),
+        limit: Int = LIMIT,
     ): List<BaseItemDto> {
         val playableResume = resume.filter { it.isPlayable }
         val playableNextUp = nextUp.filter { it.isPlayable }
@@ -63,7 +64,7 @@ object ContinueWatchingMerger {
             if (seriesId != null && !seenSeries.add(seriesId)) continue
             seenIds.add(item.id)
             merged.add(item)
-            if (merged.size >= LIMIT) break
+            if (merged.size >= limit) break
         }
         return merged
     }

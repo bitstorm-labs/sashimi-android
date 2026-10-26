@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.home.ContinueWatchingHides
 import dev.bitstorm.sashimi.core.home.ContinueWatchingSource
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
@@ -12,10 +13,14 @@ import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +41,17 @@ data class HomeUiState(
     val libraries: List<dev.bitstorm.sashimi.core.model.JellyfinLibrary> = emptyList(),
 )
 
+/** What the Home snackbar says after a Remove from Continue Watching. */
+sealed interface RemovalNotice {
+    data class Removed(
+        val receipt: ContinueWatchingHides.Receipt,
+    ) : RemovalNotice
+
+    data object Failed : RemovalNotice
+
+    data object UndoFailed : RemovalNotice
+}
+
 /** Result of a Recently Added row load: deduped items + per-series unplayed counts. */
 data class RecentlyAddedData(
     val items: List<BaseItemDto> = emptyList(),
@@ -50,9 +66,22 @@ data class RecentlyAddedData(
 class HomeViewModel(
     private val client: JellyfinClient,
     val homeRowSettings: HomeRowSettings,
+    private val hides: ContinueWatchingHides,
+    /** Outlives this ViewModel: a removal the user committed to must finish. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
+
+    /** Snackbars for Remove from Continue Watching, one per removal. */
+    private val _removals = MutableSharedFlow<RemovalNotice>(extraBufferCapacity = 4)
+    val removals: SharedFlow<RemovalNotice> = _removals.asSharedFlow()
+
+    /**
+     * Cards removed but not yet confirmed by a reload. A load that started
+     * before the removal finished would otherwise paint the card back.
+     */
+    private val pendingRemovals = MutableStateFlow<Set<String>>(emptySet())
 
     /**
      * Recently Added results cached per libraryId. Rows read from here, so a row
@@ -105,7 +134,7 @@ class HomeViewModel(
             // not blank the others -- but the RESULTS are kept so a total
             // failure can be told apart from a genuinely empty account.
             val librariesDeferred = viewModelScope.async { runCatching { client.getUserViews() } }
-            val continueWatchingDeferred = viewModelScope.async { ContinueWatchingSource.load(client) }
+            val continueWatchingDeferred = viewModelScope.async { ContinueWatchingSource.load(client, hides) }
             val librariesResult = librariesDeferred.await()
 
             // Libraries are the load-bearing call: a user with an account always
@@ -119,7 +148,8 @@ class HomeViewModel(
             }
 
             val libs = librariesResult.getOrDefault(emptyList())
-            val cw = continueWatchingDeferred.await()
+            val removedNow = pendingRemovals.value
+            val cw = continueWatchingDeferred.await().filterNot { it.id in removedNow }
             val mediaLibraries = libs.filter { isMediaLibrary(it.collectionType) }
             homeRowSettings.updateLibraries(mediaLibraries)
             _state.update {
@@ -189,6 +219,36 @@ class HomeViewModel(
             }
     }
 
+    /**
+     * Remove from Continue Watching: the card goes at once, the server (or the
+     * local hide store) is updated, then the row reloads. A failure puts the
+     * card back on that reload and says so.
+     */
+    fun removeFromContinueWatching(item: BaseItemDto) {
+        pendingRemovals.update { it + item.id }
+        _state.update { s -> s.copy(continueWatching = s.continueWatching.filterNot { it.id == item.id }) }
+        appScope.launch {
+            val result = hides.remove(client, item)
+            if (result is ContinueWatchingHides.Result.Failed) pendingRemovals.update { it - item.id }
+            _removals.tryEmit(
+                when (result) {
+                    is ContinueWatchingHides.Result.Removed -> RemovalNotice.Removed(result.receipt)
+                    is ContinueWatchingHides.Result.Failed -> RemovalNotice.Failed
+                },
+            )
+            load()
+            pendingRemovals.update { it - item.id }
+        }
+    }
+
+    fun undoRemoval(receipt: ContinueWatchingHides.Receipt) {
+        appScope.launch {
+            val restored = runCatchingCancellable { hides.undo(client, receipt) }
+            if (restored.isFailure) _removals.tryEmit(RemovalNotice.UndoFailed)
+            load()
+        }
+    }
+
     private suspend fun loadContinueWatchingLibraryNames(items: List<BaseItemDto>) {
         val seriesIds =
             items.mapNotNull { if (it.type == ItemType.EPISODE) it.seriesId else it.id }.toSet()
@@ -217,6 +277,11 @@ class HomeViewModel(
     class Factory : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(ServiceLocator.client, ServiceLocator.homeRowSettings) as T
+            HomeViewModel(
+                ServiceLocator.client,
+                ServiceLocator.homeRowSettings,
+                ServiceLocator.continueWatchingHides,
+                ServiceLocator.appScope,
+            ) as T
     }
 }

@@ -719,6 +719,46 @@ class JellyfinClient(
         execute("DELETE", "/Users/$uid/FavoriteItems/$itemId")
     }
 
+    /**
+     * Sets only the resume position, leaving played/favorite alone. Jellyfin
+     * 10.9+ takes `/UserItems/{id}/UserData`; an older server 404s there and
+     * takes the per-user path instead.
+     */
+    suspend fun setPlaybackPosition(
+        itemId: String,
+        positionTicks: Long,
+    ) {
+        val uid = requireUserId()
+        val body = """{"PlaybackPositionTicks":$positionTicks}"""
+        try {
+            execute("POST", "/UserItems/$itemId/UserData", query = listOf("userId" to uid), jsonBody = body)
+        } catch (e: JellyfinError.HttpError) {
+            if (e.statusCode != 404) throw e
+            execute("POST", "/Users/$uid/Items/$itemId/UserData", jsonBody = body)
+        }
+    }
+
+    /**
+     * Asks the Continue Watching plugin to hide [episodeId]'s series from Next
+     * Up. False when the server has no such endpoint (no plugin, or one older
+     * than the hide feature): the caller then hides it locally.
+     */
+    suspend fun hideFromContinueWatching(episodeId: String): Boolean {
+        val uid = requireUserId()
+        return try {
+            execute("POST", "/ContinueWatching/Hidden/$episodeId", query = listOf("userId" to uid))
+            true
+        } catch (e: JellyfinError.HttpError) {
+            if (e.statusCode == 404) false else throw e
+        }
+    }
+
+    /** Undoes [hideFromContinueWatching]. Idempotent on the server. */
+    suspend fun unhideFromContinueWatching(episodeId: String) {
+        val uid = requireUserId()
+        execute("DELETE", "/ContinueWatching/Hidden/$episodeId", query = listOf("userId" to uid))
+    }
+
     // MARK: - Detail: media info / trailers / ancestors / admin
 
     /**

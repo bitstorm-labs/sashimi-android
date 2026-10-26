@@ -9,10 +9,22 @@ import kotlinx.coroutines.coroutineScope
  * Where Home's Continue Watching row comes from. The server's Continue Watching
  * plugin (bitstorm-labs/jellyfin-plugin-continue-watching) ranks it, so every
  * client shows the same order; without the plugin the row is merged here from
- * Resume and Next Up by [ContinueWatchingMerger].
+ * Resume and Next Up by [ContinueWatchingMerger]. Series the user removed are
+ * filtered out by [hides] either way.
  */
 object ContinueWatchingSource {
-    suspend fun load(client: JellyfinClient): List<BaseItemDto> =
+    suspend fun load(
+        client: JellyfinClient,
+        hides: ContinueWatchingHides? = null,
+    ): List<BaseItemDto> {
+        val row = loadUnfiltered(client, hides?.hidden(client)?.size ?: 0)
+        return hides?.filter(client, row)?.take(ContinueWatchingMerger.LIMIT) ?: row
+    }
+
+    private suspend fun loadUnfiltered(
+        client: JellyfinClient,
+        hiddenCount: Int,
+    ): List<BaseItemDto> =
         coroutineScope {
             runCatching { client.getContinueWatching() }.getOrNull()?.let { return@coroutineScope it }
 
@@ -25,6 +37,8 @@ object ContinueWatchingSource {
                 resume.await(),
                 nextUp.await(),
                 ContinueWatchingMerger.seriesLastPlayed(recent.await()),
+                // Room for the hidden series, so the row still fills after filtering.
+                limit = ContinueWatchingMerger.LIMIT + hiddenCount,
             )
         }
 }

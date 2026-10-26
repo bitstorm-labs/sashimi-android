@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dev.bitstorm.sashimi.core.home.HiddenSeries
+import dev.bitstorm.sashimi.core.home.HiddenSeriesStore
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowStore
 import dev.bitstorm.sashimi.core.search.RecentSearchPersistence
@@ -163,5 +165,35 @@ class PrefsRecentSearchStore(
     companion object {
         private const val PREFS_NAME = "sashimi_recent_searches"
         private const val KEY_SEARCHES = "recentSearches"
+    }
+}
+
+/** SharedPreferences-backed [HiddenSeriesStore]: one JSON list per server + user. */
+class PrefsHiddenSeriesStore(
+    context: Context,
+) : HiddenSeriesStore {
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
+
+    override fun load(scope: String): List<HiddenSeries> {
+        val raw = prefs.getString(scope, null) ?: return emptyList()
+        // A corrupt list only costs the hides: the series show again.
+        return runCatching { json.decodeFromString<List<HiddenSeries>>(raw) }.getOrDefault(emptyList())
+    }
+
+    override fun save(
+        scope: String,
+        entries: List<HiddenSeries>,
+    ) {
+        prefs
+            .edit()
+            .apply {
+                if (entries.isEmpty()) remove(scope) else putString(scope, json.encodeToString(entries))
+            }.apply()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "sashimi_cw_hidden"
     }
 }
