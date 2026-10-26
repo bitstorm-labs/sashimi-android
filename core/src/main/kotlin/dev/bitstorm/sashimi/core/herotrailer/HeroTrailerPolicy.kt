@@ -26,6 +26,16 @@ object HeroTrailerPolicy {
         }
 
     /**
+     * Whether a detail screen's hero has a trailer layer. Every one does
+     * (the season page plays its series' trailer, #201) except a YouTube
+     * channel's banner hero. Null [item] is a screen still loading.
+     */
+    fun hasTrailerLayer(
+        item: BaseItemDto?,
+        isYouTube: Boolean,
+    ): Boolean = item == null || !(isYouTube && item.type == ItemType.SERIES)
+
+    /**
      * The "Play trailers on detail screens" setting as it applies right now.
      * Until the user picks a value it is off at compact width (a phone, or a
      * folded foldable) and on wherever the hero is large, the same split as

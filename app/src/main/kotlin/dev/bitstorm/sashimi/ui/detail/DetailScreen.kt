@@ -101,10 +101,12 @@ import dev.bitstorm.sashimi.core.detail.DetailMenuItem
 import dev.bitstorm.sashimi.core.detail.DetailRowButton
 import dev.bitstorm.sashimi.core.detail.SeasonPage
 import dev.bitstorm.sashimi.core.detail.SeasonPageButton
+import dev.bitstorm.sashimi.core.detail.SeasonPlayTarget
 import dev.bitstorm.sashimi.core.detail.SeasonTabTap
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
 import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesOption
+import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerPolicy
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemType
@@ -217,10 +219,7 @@ fun DetailScreen(
             item,
             serverId = serverId,
             isCompact = isCompact,
-            hasTrailerLayer =
-                item == null ||
-                    !(isYouTube(libraryName, item.path) && item.type == ItemType.SERIES) &&
-                    item.type != ItemType.SEASON,
+            hasTrailerLayer = HeroTrailerPolicy.hasTrailerLayer(item, isYouTube(libraryName, item?.path)),
         )
 
     val openPerson: (PersonInfo) -> Unit = { person ->
@@ -255,7 +254,7 @@ fun DetailScreen(
             Box(Modifier.fillMaxSize()) {
                 // Wide: the picture ignores the Scaffold's padding so it runs flush to
                 // the top and right edges, under the transparent top bar.
-                if (!isCompact && item != null && item.type != ItemType.SEASON) ExpandedBackdrop(item, libraryName, heroOwner)
+                if (!isCompact && item != null) ExpandedBackdrop(item, libraryName, heroOwner)
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     when {
                         item == null && state.isLoading ->
@@ -265,7 +264,7 @@ fun DetailScreen(
                                 Text("Could not load item.", color = SashimiTextSecondary)
                             }
                         item.type == ItemType.SEASON ->
-                            SeasonContent(state, item, isCompact, vm, onOpenDetail, libraryName, onPlayMain)
+                            SeasonContent(state, item, isCompact, vm, onOpenDetail, libraryName, onPlayMain, heroOwner)
                         isCompact ->
                             CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
                         else ->
@@ -350,45 +349,59 @@ private fun CompactLayout(
             // backdropSection) instead of the regular 220dp backdrop.
             YouTubeChannelBanner(item)
         } else {
-            // When the item has no real landscape backdrop, detailBackdrop falls
-            // back to the PORTRAIT poster — cropping it into this 220dp frame
-            // shows an ugly middle slice. Blur + darken that fallback so it reads
-            // as an intentional ambient backdrop instead of a sliced poster.
-            val posterFallback =
-                item.type != ItemType.EPISODE &&
-                    item.backdropImageTags?.isNotEmpty() != true &&
-                    !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
-            // Full width on a phone (the half-width hero is a wide-layout idea), so
-            // only the bottom edge fades, into the content below.
-            HeroTrailerBackdrop(
-                heroOwner,
-                Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .heroEdgeFade(fadeLeft = false)
-                    .background(SashimiCard),
-            ) { fade ->
-                // The picture fades out over the trailer and back in after it.
-                Box(Modifier.matchParentSize().then(fade)) {
-                    AsyncImage(
-                        // Full screen width x 220dp, a 16:9 picture cropped into it.
-                        model =
-                            LocalImageUrls.current.detailBackdrop(
-                                item,
-                                false,
-                                rememberImageWidth(screenWidth(), 220.dp, ImageSizing.LANDSCAPE_ASPECT),
-                            ),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
-                    )
-                    if (posterFallback) {
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
-                    }
-                }
-            }
+            CompactHero(item, heroOwner)
         }
         DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = true, modifier = Modifier.padding(16.dp))
+    }
+}
+
+/**
+ * The phone hero: full width x 220dp, the picture (and the trailer under it)
+ * fading only at the bottom into the content below. Shared by the movie /
+ * series / episode page and the season page (#201).
+ */
+@Composable
+private fun CompactHero(
+    item: BaseItemDto,
+    heroOwner: String,
+) {
+    // When the item has no real landscape backdrop, detailBackdrop falls
+    // back to the PORTRAIT poster — cropping it into this 220dp frame
+    // shows an ugly middle slice. Blur + darken that fallback so it reads
+    // as an intentional ambient backdrop instead of a sliced poster.
+    val posterFallback =
+        item.type != ItemType.EPISODE &&
+            item.type != ItemType.SEASON &&
+            item.backdropImageTags?.isNotEmpty() != true &&
+            !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
+    // Full width on a phone (the half-width hero is a wide-layout idea), so
+    // only the bottom edge fades, into the content below.
+    HeroTrailerBackdrop(
+        heroOwner,
+        Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .heroEdgeFade(fadeLeft = false)
+            .background(SashimiCard),
+    ) { fade ->
+        // The picture fades out over the trailer and back in after it.
+        Box(Modifier.matchParentSize().then(fade)) {
+            AsyncImage(
+                // Full screen width x 220dp, a 16:9 picture cropped into it.
+                model =
+                    LocalImageUrls.current.detailBackdrop(
+                        item,
+                        false,
+                        rememberImageWidth(screenWidth(), 220.dp, ImageSizing.LANDSCAPE_ASPECT),
+                    ),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
+            )
+            if (posterFallback) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+            }
+        }
     }
 }
 
@@ -1339,6 +1352,7 @@ private fun SeasonTab(
  * X watched", the info row, then Play / Mark Season Watched / Download Season
  * / Series and the season's episodes. [SeasonPage] decides the rules.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonContent(
     state: DetailUiState,
@@ -1348,15 +1362,18 @@ private fun SeasonContent(
     onOpenDetail: (String, String?) -> Unit,
     libraryName: String?,
     onPlay: (Boolean) -> Unit,
+    heroOwner: String,
 ) {
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val episodes = state.episodes
     val target = SeasonPage.playTarget(episodes)
     val actions: @Composable () -> Unit = {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        // Wraps rather than scrolls, so Series is never pushed off-screen.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             SeasonPage.buttons(online).forEach { button ->
                 when (button) {
@@ -1382,12 +1399,34 @@ private fun SeasonContent(
             }
         }
     }
+    // The series hero sits behind the header like on the series page (#201):
+    // above it on a phone; on the right, under the transparent top bar, when
+    // wide (drawn by DetailScreen), with the content column on its left.
     Column(
         modifier =
             Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(if (isCompact) 16.dp else 24.dp),
+                .fillMaxHeight()
+                .fillMaxWidth(if (isCompact) 1f else 0.6f)
+                .verticalScroll(rememberScrollState()),
+    ) {
+        if (isCompact) CompactHero(season, heroOwner)
+        SeasonBody(state, season, isCompact, episodes, target, actions, onOpenDetail, libraryName)
+    }
+}
+
+@Composable
+private fun SeasonBody(
+    state: DetailUiState,
+    season: BaseItemDto,
+    isCompact: Boolean,
+    episodes: List<BaseItemDto>,
+    target: SeasonPlayTarget?,
+    actions: @Composable () -> Unit,
+    onOpenDetail: (String, String?) -> Unit,
+    libraryName: String?,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(if (isCompact) 16.dp else 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         val posterWidth = if (isCompact) 110.dp else 160.dp
