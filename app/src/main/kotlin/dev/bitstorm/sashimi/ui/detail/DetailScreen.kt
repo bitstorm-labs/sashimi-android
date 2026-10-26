@@ -107,6 +107,7 @@ import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
 import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesOption
 import dev.bitstorm.sashimi.core.herotrailer.HeroTrailerPolicy
+import dev.bitstorm.sashimi.core.model.BackdropFade
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemType
@@ -497,21 +498,15 @@ private fun Modifier.heroEdgeFade(fadeLeft: Boolean): Modifier =
             drawContent()
             if (fadeLeft) {
                 drawRect(
-                    Brush.horizontalGradient(0f to Color.Transparent, HERO_LEFT_FADE to Color.Black),
+                    Brush.horizontalGradient(0f to Color.Transparent, BackdropFade.LEFT_FADE_END to Color.Black),
                     blendMode = BlendMode.DstIn,
                 )
             }
             drawRect(
-                Brush.verticalGradient(HERO_BOTTOM_FADE_START to Color.Black, 1f to Color.Transparent),
+                Brush.verticalGradient(BackdropFade.BOTTOM_FADE_START to Color.Black, 1f to Color.Transparent),
                 blendMode = BlendMode.DstIn,
             )
         }
-
-/** Fraction of the hero's width, from its left edge, that fades in. */
-private const val HERO_LEFT_FADE = 0.35f
-
-/** Fraction of the hero's height where the fade-out at its bottom begins. */
-private const val HERO_BOTTOM_FADE_START = 0.6f
 
 @Composable
 private fun ExpandedLayout(
