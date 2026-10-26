@@ -30,6 +30,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -51,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.bitstorm.sashimi.R
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
+import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.ui.components.ContextMenuBox
 import dev.bitstorm.sashimi.ui.components.ContinueWatchingCard
@@ -99,6 +104,30 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
 
+    val snackbar = remember { SnackbarHostState() }
+    androidx.compose.runtime.LaunchedEffect(vm) {
+        vm.removals.collect { notice ->
+            // A newer removal replaces the previous snackbar rather than queueing behind it.
+            snackbar.currentSnackbarData?.dismiss()
+            launch {
+                when (notice) {
+                    is RemovalNotice.Removed -> {
+                        val result =
+                            snackbar.showSnackbar(
+                                message = "Removed from Continue Watching",
+                                actionLabel = "Undo",
+                                // Long: an Undo that vanishes in 4 s is easy to miss.
+                                duration = SnackbarDuration.Long,
+                            )
+                        if (result == SnackbarResult.ActionPerformed) vm.undoRemoval(notice.receipt)
+                    }
+                    RemovalNotice.Failed -> snackbar.showSnackbar("Couldn't remove it from Continue Watching. Try again.")
+                    RemovalNotice.UndoFailed -> snackbar.showSnackbar("Couldn't put it back. Try again.")
+                }
+            }
+        }
+    }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
@@ -135,6 +164,7 @@ fun HomeScreen(
                                     libraryNames = state.continueWatchingLibraryNames,
                                     onOpenDetail = onOpenDetail,
                                     onRefresh = { vm.loadContent() },
+                                    onRemove = vm::removeFromContinueWatching,
                                 )
                             }
                         HomeRowConfig.Kind.LIBRARY ->
@@ -179,6 +209,7 @@ fun HomeScreen(
                 }
             }
         }
+        SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -254,10 +285,11 @@ private fun HomeTopBar(
 
 @Composable
 private fun ContinueWatchingRow(
-    items: List<dev.bitstorm.sashimi.core.model.BaseItemDto>,
+    items: List<BaseItemDto>,
     libraryNames: Map<String, String>,
     onOpenDetail: (String, String?) -> Unit,
     onRefresh: () -> Unit,
+    onRemove: (BaseItemDto) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Continue Watching")
@@ -269,10 +301,13 @@ private fun ContinueWatchingRow(
         ) {
             items(items, key = { it.id }) { item ->
                 val libraryName = libraryNames[item.id]
+                // animateItem: the neighbours slide over a removed card instead of jumping.
                 ContextMenuBox(
                     item = item,
                     onClick = { onOpenDetail(item.id, libraryName) },
+                    modifier = Modifier.animateItem(),
                     onAction = onRefresh,
+                    onRemoveFromContinueWatching = { onRemove(item) },
                 ) {
                     ContinueWatchingCard(item = item, width = 260.dp, libraryName = libraryName)
                 }
