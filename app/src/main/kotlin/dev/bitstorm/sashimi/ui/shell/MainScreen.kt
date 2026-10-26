@@ -1,10 +1,20 @@
 package dev.bitstorm.sashimi.ui.shell
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -42,6 +53,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import dev.bitstorm.sashimi.core.deeplink.DeepLinkResolver
 import dev.bitstorm.sashimi.core.deeplink.DeepLinkTarget
+import dev.bitstorm.sashimi.core.home.SideMenuItem
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.herotrailer.DetailAmbience
@@ -380,14 +392,52 @@ private fun AppShell(
         host(Modifier.fillMaxSize())
     } else if (expanded) {
         Row(modifier = Modifier.fillMaxSize()) {
+            // The side menu (#187): Home, each library in Home row order, then
+            // Search, Downloads, Settings. No separate Libraries entry here; the
+            // phone bottom bar below keeps it.
+            val sideMenu: SideMenuViewModel = viewModel()
+            val items by sideMenu.items.collectAsStateWithLifecycle()
+            val openLibraryId =
+                currentEntry
+                    ?.takeIf {
+                        it.destination.hasRoute(
+                            LibraryBrowseRoute::class,
+                        )
+                    }?.toRoute<LibraryBrowseRoute>()
+                    ?.libraryId
             NavigationRail {
-                destinations.forEach { dest ->
-                    NavigationRailItem(
-                        selected = currentDestination.isOnTab(dest),
-                        onClick = { navigateToTab(dest) },
-                        icon = { DestinationIcon(dest) },
-                        label = { NavLabel(dest.label) },
-                    )
+                Column(
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items.forEach { item ->
+                        val dest = item.destination
+                        NavigationRailItem(
+                            selected =
+                                when (item) {
+                                    is SideMenuItem.Library -> item.id == openLibraryId
+                                    else -> dest != null && currentDestination.isOnTab(dest)
+                                },
+                            onClick = {
+                                when (item) {
+                                    is SideMenuItem.Library ->
+                                        navController.navigate(LibraryBrowseRoute(item.id, item.name, item.collectionType)) {
+                                            // A side-menu library is a root, like a tab.
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                                        }
+                                    else -> dest?.let(navigateToTab)
+                                }
+                            },
+                            icon = {
+                                if (dest != null) {
+                                    DestinationIcon(dest)
+                                } else if (item is SideMenuItem.Library) {
+                                    Icon(libraryIcon(item), contentDescription = item.name)
+                                }
+                            },
+                            label = { NavLabel(if (item is SideMenuItem.Library) item.name else dest?.label.orEmpty()) },
+                        )
+                    }
                 }
             }
             host(Modifier.fillMaxSize())
@@ -442,6 +492,28 @@ private fun DestinationIcon(dest: Destination) {
         Icon(dest.icon, contentDescription = dest.label)
     }
 }
+
+/** The fixed destination a side-menu item opens; null for a library. */
+private val SideMenuItem.destination: Destination?
+    get() =
+        when (this) {
+            SideMenuItem.Home -> Destination.HOME
+            SideMenuItem.Search -> Destination.SEARCH
+            SideMenuItem.Downloads -> Destination.DOWNLOADS
+            SideMenuItem.Settings -> Destination.SETTINGS
+            is SideMenuItem.Library -> null
+        }
+
+/** A library's side-menu icon. YouTube libraries report "tvshows", so they match by name (Apple parity). */
+private fun libraryIcon(item: SideMenuItem.Library): ImageVector =
+    when {
+        item.name.contains("youtube", ignoreCase = true) -> Icons.Filled.SmartDisplay
+        item.collectionType == "movies" -> Icons.Filled.Movie
+        item.collectionType == "tvshows" -> Icons.Filled.Tv
+        item.collectionType == "music" -> Icons.Filled.MusicNote
+        item.collectionType == "homevideos" -> Icons.Filled.PhotoLibrary
+        else -> Icons.Filled.VideoLibrary
+    }
 
 /** True when the current destination belongs to [dest]'s tab (incl. pushed children). */
 private fun androidx.navigation.NavDestination?.isOnTab(dest: Destination): Boolean =

@@ -22,7 +22,20 @@ data class HomeRowConfig(
     val libraryId: String? = null,
     val libraryName: String? = null,
     val isEnabled: Boolean = true,
+    /**
+     * Listed in the side menu (the nav rail on wide layouts, #187). Only a
+     * library row is a side-menu destination; independent of [isEnabled].
+     * Defaults to shown, so saved rows from before the setting existed and
+     * libraries added later are in the menu.
+     */
+    val showInSideMenu: Boolean = true,
 ) {
+    /** Whether this row has a side-menu toggle at all ("—" otherwise). */
+    val isSideMenuDestination: Boolean get() = kind == Kind.LIBRARY
+
+    /** Hidden from both Home and the side menu: only Search can reach it. */
+    val isOnlyReachableFromSearch: Boolean get() = isSideMenuDestination && !isEnabled && !showInSideMenu
+
     enum class Kind { CONTINUE_WATCHING, LIBRARY }
 
     /** Stable identity used for reordering + dedupe (matches the Swift `id`). */
@@ -125,6 +138,15 @@ class HomeRowSettings(
     fun toggleRow(id: String) {
         val list =
             _rows.value.map { if (it.id == id) it.copy(isEnabled = !it.isEnabled) else it }
+        commit(list)
+    }
+
+    /** Toggle a library row's side-menu visibility. Rows that are not destinations are left alone. */
+    fun toggleSideMenu(id: String) {
+        val list =
+            _rows.value.map {
+                if (it.id == id && it.isSideMenuDestination) it.copy(showInSideMenu = !it.showInSideMenu) else it
+            }
         commit(list)
     }
 
