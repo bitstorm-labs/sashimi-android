@@ -21,6 +21,9 @@ data class OfflineSeriesGroup(
  * Pure so the synthetic-season logic is unit-testable.
  */
 object OfflineReconstruction {
+    /** Synthetic season ids ("offline-season-2") for a series rebuilt from downloads. */
+    const val SEASON_ID_PREFIX = "offline-season-"
+
     /** Only completed downloads are browsable offline. */
     fun completed(items: List<DownloadedItemEntity>): List<DownloadedItemEntity> = items.filter { it.isComplete }
 
@@ -74,7 +77,7 @@ object OfflineReconstruction {
             .sorted()
             .map { num ->
                 BaseItemDto(
-                    id = "offline-season-$num",
+                    id = "$SEASON_ID_PREFIX$num",
                     name = "Season $num",
                     type = ItemType.SEASON,
                     seriesId = seriesId,

@@ -24,6 +24,16 @@ object ItemImages {
 
     fun primary(item: BaseItemDto): ImageRef = ImageRef(item.id, PRIMARY, item.imageTags?.get(PRIMARY))
 
+    /** A season page's poster: the season's own Primary, else its series' poster. */
+    fun seasonPoster(season: BaseItemDto): ImageRef {
+        val seriesId = season.seriesId
+        return if (season.imageTags?.get(PRIMARY) == null && seriesId != null) {
+            ImageRef(seriesId, PRIMARY, season.seriesPrimaryImageTag)
+        } else {
+            primary(season)
+        }
+    }
+
     fun banner(item: BaseItemDto): ImageRef = ImageRef(item.id, BANNER, item.imageTags?.get(BANNER))
 
     fun logo(item: BaseItemDto): ImageRef = ImageRef(item.id, LOGO, item.imageTags?.get(LOGO))

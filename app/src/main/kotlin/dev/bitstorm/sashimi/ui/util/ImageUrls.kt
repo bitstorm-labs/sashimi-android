@@ -48,6 +48,11 @@ open class ImageUrlBuilder(
         widthPx: Int,
     ): String? = url(ItemImages.primary(item), widthPx)
 
+    fun seasonPoster(
+        season: BaseItemDto,
+        widthPx: Int,
+    ): String? = url(ItemImages.seasonPoster(season), widthPx)
+
     fun banner(
         item: BaseItemDto,
         widthPx: Int,
