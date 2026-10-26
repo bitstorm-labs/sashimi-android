@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -366,15 +367,10 @@ private fun CompactHero(
     item: BaseItemDto,
     heroOwner: String,
 ) {
-    // When the item has no real landscape backdrop, detailBackdrop falls
-    // back to the PORTRAIT poster — cropping it into this 220dp frame
-    // shows an ugly middle slice. Blur + darken that fallback so it reads
-    // as an intentional ambient backdrop instead of a sliced poster.
-    val posterFallback =
-        item.type != ItemType.EPISODE &&
-            item.type != ItemType.SEASON &&
-            item.backdropImageTags?.isNotEmpty() != true &&
-            !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
+    // Cropping a portrait poster into this 220dp frame shows an ugly middle
+    // slice. Blur + darken that fallback so it reads as an intentional ambient
+    // backdrop instead of a sliced poster.
+    val posterFallback = isPosterFallback(item)
     // Full width on a phone (the half-width hero is a wide-layout idea), so
     // only the bottom edge fades, into the content below.
     HeroTrailerBackdrop(
@@ -463,6 +459,30 @@ private fun BoxScope.ExpandedBackdrop(
 ) {
     val ytSeries = isYouTube(libraryName, item.path) && item.type == ItemType.SERIES
     val heroFraction = if (ytSeries) 0.65f else 0.55f
+    if (!ytSeries && isPosterFallback(item)) {
+        // A portrait poster fitted to the hero width would run far down the
+        // page, under the text column now that the left fade is light (#203).
+        // Crop it to a backdrop-shaped frame, blurred and darkened, as on a phone.
+        HeroTrailerBackdrop(
+            heroOwner,
+            Modifier
+                .fillMaxWidth(heroFraction)
+                .aspectRatio(ImageSizing.LANDSCAPE_ASPECT)
+                .align(Alignment.TopEnd)
+                .heroEdgeFade(fadeLeft = true),
+        ) { fade ->
+            Box(Modifier.matchParentSize().then(fade)) {
+                AsyncImage(
+                    model = LocalImageUrls.current.detailBackdrop(item, false, rememberImageWidth(screenWidth() * heroFraction)),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().blur(28.dp),
+                )
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+            }
+        }
+        return
+    }
     // Sized by the image; the trailer layer underneath matches it.
     HeroTrailerBackdrop(
         heroOwner,
@@ -481,6 +501,16 @@ private fun BoxScope.ExpandedBackdrop(
         )
     }
 }
+
+/**
+ * True when the item has no landscape backdrop, so `ItemImages.detailBackdrop`
+ * falls back to its portrait poster.
+ */
+private fun isPosterFallback(item: BaseItemDto): Boolean =
+    item.type != ItemType.EPISODE &&
+        item.type != ItemType.SEASON &&
+        item.backdropImageTags?.isNotEmpty() != true &&
+        !(item.parentBackdropImageTags?.isNotEmpty() == true && item.seriesId != null)
 
 /**
  * Fades the hero (picture and trailer together) to transparent: the left edge
