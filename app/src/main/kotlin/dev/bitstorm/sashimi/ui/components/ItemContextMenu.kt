@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
@@ -28,6 +29,8 @@ import kotlinx.coroutines.launch
  * The menu offers watched + favorite toggles, firing the client calls fire-and-
  * forget like the Swift `ItemContextMenu`; [onAction] lets the host refresh so
  * the change becomes visible (Swift relied on the next natural reload).
+ * [onRemoveFromContinueWatching] adds "Remove from Continue Watching" (only
+ * Continue Watching cards pass it).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -36,6 +39,7 @@ fun ContextMenuBox(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onAction: () -> Unit = {},
+    onRemoveFromContinueWatching: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -60,6 +64,16 @@ fun ContextMenuBox(
     ) {
         content()
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onRemoveFromContinueWatching != null) {
+                DropdownMenuItem(
+                    text = { Text("Remove from Continue Watching") },
+                    leadingIcon = { Icon(Icons.Filled.RemoveCircleOutline, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onRemoveFromContinueWatching()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (isPlayed) "Mark as Unwatched" else "Mark as Watched") },
                 leadingIcon = {

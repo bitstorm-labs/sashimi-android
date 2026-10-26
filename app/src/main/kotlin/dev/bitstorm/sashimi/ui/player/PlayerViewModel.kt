@@ -67,6 +67,7 @@ import dev.bitstorm.sashimi.core.remote.RemoteControlPresence
 import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.trickplay.TrickplayMath
 import dev.bitstorm.sashimi.core.trickplay.TrickplayTrack
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.downloads.OfflineImages
 import dev.bitstorm.sashimi.ui.util.ImageUrlBuilder
@@ -517,6 +518,8 @@ class PlayerViewModel(
                 null
             }
         runCatching { reporter?.reportStart(startTicks) }
+        // Watching a series here brings it back if it was removed from Continue Watching.
+        if (reporter != null) runCatchingCancellable { ServiceLocator.continueWatchingHides.onPlaybackStarted(client, item) }
 
         _state.update {
             it.copy(
@@ -654,6 +657,8 @@ class PlayerViewModel(
                 resumePositionTicks = startTicks,
             )
         runCatching { reporter?.reportStart(startTicks) }
+        // Watching a series here brings it back if it was removed from Continue Watching.
+        if (reporter != null) runCatchingCancellable { ServiceLocator.continueWatchingHides.onPlaybackStarted(client, item) }
 
         loadSegments(item)
         startProgressLoop()

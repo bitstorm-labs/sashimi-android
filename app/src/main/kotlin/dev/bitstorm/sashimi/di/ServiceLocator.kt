@@ -12,6 +12,7 @@ import dev.bitstorm.sashimi.core.downloads.DownloadRepository
 import dev.bitstorm.sashimi.core.downloads.DownloadSchema
 import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
 import dev.bitstorm.sashimi.core.downloads.PrefsTierEncodeLedger
+import dev.bitstorm.sashimi.core.home.ContinueWatchingHides
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.playback.AndroidCodecCapabilities
@@ -26,6 +27,7 @@ import dev.bitstorm.sashimi.core.remote.RemoteMessageBoard
 import dev.bitstorm.sashimi.core.remote.RemoteSessionKey
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
+import dev.bitstorm.sashimi.core.session.PrefsHiddenSeriesStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
 import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
@@ -92,6 +94,10 @@ object ServiceLocator {
         private set
 
     lateinit var homeRowSettings: HomeRowSettings
+        private set
+
+    /** Series removed from Continue Watching, per server + user. */
+    lateinit var continueWatchingHides: ContinueWatchingHides
         private set
 
     lateinit var recentSearchStore: RecentSearchStore
@@ -182,6 +188,7 @@ object ServiceLocator {
             }
         }
         homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
+        continueWatchingHides = ContinueWatchingHides(PrefsHiddenSeriesStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
         networkMonitor = NetworkMonitor(app)
