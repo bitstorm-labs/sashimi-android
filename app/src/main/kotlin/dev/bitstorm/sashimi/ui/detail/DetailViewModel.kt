@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.detail.DetailActions
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadSource
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
@@ -376,7 +377,7 @@ class DetailViewModel(
      * The item id to hand the player when Play/Resume is tapped: for a series the
      * resolved next-up episode, otherwise this item.
      */
-    fun playTargetId(): String? = if (_state.value.isSeries) _state.value.nextEpisode?.id else _state.value.item?.id
+    fun playTargetId(): String? = DetailActions.playTargetId(_state.value.item, _state.value.nextEpisode)
 
     /** First local trailer item id for the Trailer button, or null. */
     suspend fun firstLocalTrailerId(): String? = runCatching { client.getLocalTrailers(itemId).firstOrNull()?.id }.getOrNull()

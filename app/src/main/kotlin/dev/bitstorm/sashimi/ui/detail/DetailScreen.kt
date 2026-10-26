@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -92,6 +93,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import dev.bitstorm.sashimi.R
+import dev.bitstorm.sashimi.core.detail.DetailActions
+import dev.bitstorm.sashimi.core.detail.DetailMenuItem
+import dev.bitstorm.sashimi.core.detail.DetailRowButton
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
 import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesOption
@@ -884,59 +888,57 @@ private fun ActionButtons(
 ) {
     val scope = rememberCoroutineScope()
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val server = LocalItemServer.current
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Play/Resume — prominent, fixed size so its label never wraps or shrinks.
-        Button(onClick = { onPlay(false) }) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(playButtonLabel(state, item), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
-        }
-
-        // Watched state is a server call — only offer the toggle when online (M4
-        // loose end: it silently failed offline).
-        if (online) {
-            FilledTonalIconButton(onClick = vm::toggleWatched) {
-                Icon(
-                    if (state.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                    contentDescription = "Watched",
-                    tint = if (state.isWatched) SashimiAccent else SashimiTextSecondary,
-                    modifier = Modifier.size(20.dp),
-                )
+        DetailActions.mainRow(item, online).forEach { button ->
+            when (button) {
+                // Play/Resume: prominent, fixed size so its label never wraps or shrinks.
+                DetailRowButton.PLAY ->
+                    Button(onClick = { onPlay(false) }) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text(playButtonLabel(state, item), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+                    }
+                // A plain toggle for this item only.
+                DetailRowButton.WATCHED ->
+                    FilledTonalIconButton(onClick = vm::toggleWatched) {
+                        Icon(
+                            if (state.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                            contentDescription = "Watched",
+                            tint = if (state.isWatched) SashimiAccent else SashimiTextSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                // Movies: a single-item download. Episodes: the episode download
+                // menu (#181) online, the single-item button offline.
+                DetailRowButton.DOWNLOAD ->
+                    if (item.type == ItemType.EPISODE && online) {
+                        dev.bitstorm.sashimi.ui.downloads
+                            .EpisodeDownloadMenu(episode = item, serverId = server.downloadServerId, client = server.client)
+                    } else {
+                        dev.bitstorm.sashimi.ui.downloads
+                            .DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
+                    }
+                DetailRowButton.SHUFFLE ->
+                    FilledTonalIconButton(onClick = {
+                        scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
+                    }) {
+                        Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(20.dp))
+                    }
+                DetailRowButton.MORE ->
+                    DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer, online)
             }
         }
-
-        // Movies: a single-item download. Episodes: the episode download menu
-        // (#181) online, the single-item button offline. Series use the bulk
-        // season menu.
-        val server = LocalItemServer.current
-        if (item.type == ItemType.EPISODE && online) {
-            dev.bitstorm.sashimi.ui.downloads
-                .EpisodeDownloadMenu(episode = item, serverId = server.downloadServerId, client = server.client)
-        } else if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
-            dev.bitstorm.sashimi.ui.downloads
-                .DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
-        }
-
-        // Shuffle stays visible for series (a primary series action on iOS).
-        if (state.isSeries) {
-            FilledTonalIconButton(onClick = {
-                scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
-            }) {
-                Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(20.dp))
-            }
-        }
-
-        DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer, online)
     }
 }
 
 /**
  * The single labeled "⋮" overflow menu for the action row (iOS overflowMenu +
- * adminMenuItems). Contextual actions (labeled) first, then a divider and the
- * admin block. Hosts its own File Info / Delete dialogs.
+ * adminMenuItems). Contents come from [DetailActions.moreMenu]; the item
+ * management block sits after a divider. Hosts its own File Info / Delete dialogs.
  */
 @Composable
 private fun DetailActionOverflow(
@@ -955,83 +957,44 @@ private fun DetailActionOverflow(
 
     val hasStartOver =
         state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
-    val seriesId = item.seriesId
-    val canGoToSeries = online && item.type == ItemType.EPISODE && seriesId != null
-    val hasTrailer = (item.localTrailerCount ?: 0) > 0
-
-    // Nothing to show (rare: offline movie with no progress/trailer) → no button.
-    if (!hasStartOver && !canGoToSeries && !hasTrailer && !online) return
+    val entries = DetailActions.moreMenu(item, online, hasStartOver)
+    if (entries.isEmpty()) return
 
     FilledTonalIconButton(onClick = { open = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More", modifier = Modifier.size(20.dp))
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        if (hasStartOver) {
-            DropdownMenuItem(
-                text = { Text("Start Over") },
-                leadingIcon = { Icon(Icons.Filled.Replay, contentDescription = null) },
-                onClick = {
-                    open = false
-                    onPlay(true)
-                },
-            )
-        }
-        if (canGoToSeries && seriesId != null) {
-            DropdownMenuItem(
-                text = { Text("Go to Series") },
-                leadingIcon = { Icon(Icons.Filled.Tv, contentDescription = null) },
-                onClick = {
-                    open = false
-                    onOpenDetail(seriesId, libraryName)
-                },
-            )
-        }
-        if (hasTrailer) {
-            DropdownMenuItem(
-                text = { Text("Play Trailer") },
-                leadingIcon = { Icon(Icons.Filled.Movie, contentDescription = null) },
-                onClick = {
-                    open = false
-                    onTrailer()
-                },
-            )
-        }
-        // Admin block — all server calls, so online-only.
-        if (online) {
-            if (hasStartOver || canGoToSeries || hasTrailer) HorizontalDivider()
+        entries.forEachIndexed { index, entry ->
+            if (entry.isItemManagement && index > 0 && !entries[index - 1].isItemManagement) HorizontalDivider()
             val isFavorite = item.userData?.isFavorite == true
+            val (label, icon) =
+                when (entry) {
+                    DetailMenuItem.GO_TO_SERIES -> "Go to Series" to Icons.Filled.Tv
+                    DetailMenuItem.GO_TO_SEASON -> DetailActions.goToSeasonLabel(item) to Icons.Filled.VideoLibrary
+                    DetailMenuItem.START_OVER -> "Start Over" to Icons.Filled.Replay
+                    DetailMenuItem.PLAY_TRAILER -> "Play Trailer" to Icons.Filled.Movie
+                    DetailMenuItem.FAVORITE ->
+                        (if (isFavorite) "Remove from Favorites" else "Add to Favorites") to
+                            (if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder)
+                    DetailMenuItem.FILE_INFO -> "File Info" to Icons.Filled.Info
+                    DetailMenuItem.REFRESH_METADATA -> "Refresh Metadata" to Icons.Filled.Refresh
+                    DetailMenuItem.DELETE -> "Delete" to Icons.Filled.Delete
+                }
             DropdownMenuItem(
-                text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-                leadingIcon = {
-                    Icon(if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null)
-                },
+                text = { Text(label) },
+                leadingIcon = { Icon(icon, contentDescription = null) },
                 onClick = {
                     open = false
-                    vm.toggleFavorite()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("File Info") },
-                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                onClick = {
-                    open = false
-                    showFileInfo = true
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Refresh Metadata") },
-                leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
-                onClick = {
-                    open = false
-                    vm.refreshMetadata()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Delete") },
-                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                onClick = {
-                    open = false
-                    showDeleteConfirm = true
+                    when (entry) {
+                        DetailMenuItem.GO_TO_SERIES -> item.seriesId?.let { onOpenDetail(it, libraryName) }
+                        DetailMenuItem.GO_TO_SEASON -> item.seasonId?.let { onOpenDetail(it, libraryName) }
+                        DetailMenuItem.START_OVER -> onPlay(true)
+                        DetailMenuItem.PLAY_TRAILER -> onTrailer()
+                        DetailMenuItem.FAVORITE -> vm.toggleFavorite()
+                        DetailMenuItem.FILE_INFO -> showFileInfo = true
+                        DetailMenuItem.REFRESH_METADATA -> vm.refreshMetadata()
+                        DetailMenuItem.DELETE -> showDeleteConfirm = true
+                    }
                 },
             )
         }
