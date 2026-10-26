@@ -35,6 +35,14 @@ class ItemImagesTest {
     private val client = JellyfinClient(deviceId = "test").also { it.configure("http://jf.local:8096", "tok", "user") }
 
     @Test
+    fun `season poster falls back to the series poster`() {
+        val season = BaseItemDto(id = "s2", type = ItemType.SEASON, seriesId = "show1", seriesPrimaryImageTag = "showTag")
+        assertEquals(ImageRef("show1", "Primary", "showTag"), ItemImages.seasonPoster(season))
+        val own = season.copy(imageTags = mapOf("Primary" to "seasonTag"))
+        assertEquals(ImageRef("s2", "Primary", "seasonTag"), ItemImages.seasonPoster(own))
+    }
+
+    @Test
     fun `episode tags decode from the server JSON`() {
         assertEquals("showPrimaryTag", episode.seriesPrimaryImageTag)
         assertEquals("showLogoTag", episode.parentLogoImageTag)

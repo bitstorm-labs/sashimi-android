@@ -38,14 +38,17 @@ data class DetailUiState(
     val mediaInfo: MediaSourceInfo? = null,
     val seriesCommunityRating: Double? = null,
     val seriesCriticRating: Int? = null,
-    // The parent series' Status, for the status pill on season/episode screens.
+    // The parent series' Status, for the status badge on season/episode screens.
     val seriesStatus: String? = null,
+    // The parent series' rating, for a season page's info row (seasons rarely carry one).
+    val seriesOfficialRating: String? = null,
     val deleted: Boolean = false,
     val error: String? = null,
 ) {
     val isSeries get() = item?.type == ItemType.SERIES
     val isEpisode get() = item?.type == ItemType.EPISODE
     val isMovie get() = item?.type == ItemType.MOVIE
+    val isSeason get() = item?.type == ItemType.SEASON
 
     /** The episode this page treats as "current" (highlighted in the list). */
     val currentEpisodeId: String?
@@ -113,11 +116,11 @@ class DetailViewModel(
         when (item.type) {
             ItemType.SERIES -> loadSeriesContent(item)
             ItemType.EPISODE -> loadEpisodeContent(item)
-            ItemType.SEASON -> loadSeasonSeriesStatus(item)
+            ItemType.SEASON -> loadSeasonContent(item)
             else -> {}
         }
-        // Media badges for everything but series.
-        if (item.type != ItemType.SERIES) {
+        // Media badges for playable items (a series or season has no media source).
+        if (item.type != ItemType.SERIES && item.type != ItemType.SEASON) {
             val info = runCatching { client.getPlaybackInfo(item.id) }.getOrNull()?.mediaSources?.firstOrNull()
             _state.update { it.copy(mediaInfo = info) }
         }
@@ -148,14 +151,20 @@ class DetailViewModel(
         loadEpisodesForSeason(item.id, seasonId, generation)
     }
 
-    /** A season screen only needs its series' Status (for the status pill). */
-    private suspend fun loadSeasonSeriesStatus(item: BaseItemDto) {
+    /**
+     * The season page (#195): the season's episodes, plus its series' Status
+     * and rating for the info row. The season is the "selected season", so
+     * marking it and downloading it reuse the series page's paths.
+     */
+    private suspend fun loadSeasonContent(item: BaseItemDto) {
         val generation = loadGeneration
         val seriesId = item.seriesId ?: return
-        // A failure here only means no pill; nothing else on the screen depends on it.
+        _state.update { it.copy(selectedSeasonId = item.id) }
+        loadEpisodesForSeason(seriesId, item.id, generation)
+        // A failure here only means no badge or rating; nothing else depends on it.
         val series = runCatchingCancellable { client.getItem(seriesId) }.getOrNull()
         if (generation != loadGeneration) return
-        _state.update { it.copy(seriesStatus = series?.status) }
+        _state.update { it.copy(seriesStatus = series?.status, seriesOfficialRating = series?.officialRating) }
     }
 
     private suspend fun loadEpisodeContent(item: BaseItemDto) {
@@ -225,7 +234,7 @@ class DetailViewModel(
         _state.update {
             it.copy(
                 seasons = seasons,
-                selectedSeasonId = seasonNumber?.let { n -> "offline-season-$n" },
+                selectedSeasonId = seasonNumber?.let { n -> "${OfflineReconstruction.SEASON_ID_PREFIX}$n" },
                 episodes = seasonEpisodes,
                 nextEpisode = next,
             )
@@ -235,8 +244,8 @@ class DetailViewModel(
     fun selectSeason(seasonId: String) {
         val item = _state.value.item ?: return
         _state.update { it.copy(selectedSeasonId = seasonId) }
-        if (seasonId.startsWith("offline-season-")) {
-            val num = seasonId.removePrefix("offline-season-").toIntOrNull()
+        if (seasonId.startsWith(OfflineReconstruction.SEASON_ID_PREFIX)) {
+            val num = seasonId.removePrefix(OfflineReconstruction.SEASON_ID_PREFIX).toIntOrNull()
             val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return
             val eps =
                 OfflineReconstruction
@@ -342,7 +351,8 @@ class DetailViewModel(
         val generation = loadGeneration
         val fresh = runCatchingCancellable { client.getItem(itemId) }.getOrNull()
         val seasons = runCatchingCancellable { client.getSeasons(seriesId) }.getOrNull()
-        val next = findNextEpisode(seriesId, seasons ?: _state.value.seasons)
+        // A season page plays from its own episode list, not the series' Next Up.
+        val next = if (_state.value.isSeason) null else findNextEpisode(seriesId, seasons ?: _state.value.seasons)
         if (generation != loadGeneration) return
         _state.update {
             it.copy(
@@ -375,9 +385,10 @@ class DetailViewModel(
 
     /**
      * The item id to hand the player when Play/Resume is tapped: for a series the
-     * resolved next-up episode, otherwise this item.
+     * resolved next-up episode, for a season its next unwatched one, otherwise
+     * this item.
      */
-    fun playTargetId(): String? = DetailActions.playTargetId(_state.value.item, _state.value.nextEpisode)
+    fun playTargetId(): String? = _state.value.let { DetailActions.playTargetId(it.item, it.nextEpisode, it.episodes) }
 
     /** First local trailer item id for the Trailer button, or null. */
     suspend fun firstLocalTrailerId(): String? = runCatching { client.getLocalTrailers(itemId).firstOrNull()?.id }.getOrNull()

@@ -1,9 +1,11 @@
 package dev.bitstorm.sashimi.ui.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -44,11 +47,11 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -96,6 +99,9 @@ import dev.bitstorm.sashimi.R
 import dev.bitstorm.sashimi.core.detail.DetailActions
 import dev.bitstorm.sashimi.core.detail.DetailMenuItem
 import dev.bitstorm.sashimi.core.detail.DetailRowButton
+import dev.bitstorm.sashimi.core.detail.SeasonPage
+import dev.bitstorm.sashimi.core.detail.SeasonPageButton
+import dev.bitstorm.sashimi.core.detail.SeasonTabTap
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
 import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesOption
@@ -211,7 +217,10 @@ fun DetailScreen(
             item,
             serverId = serverId,
             isCompact = isCompact,
-            hasTrailerLayer = item == null || !(isYouTube(libraryName, item.path) && item.type == ItemType.SERIES),
+            hasTrailerLayer =
+                item == null ||
+                    !(isYouTube(libraryName, item.path) && item.type == ItemType.SERIES) &&
+                    item.type != ItemType.SEASON,
         )
 
     val openPerson: (PersonInfo) -> Unit = { person ->
@@ -246,7 +255,7 @@ fun DetailScreen(
             Box(Modifier.fillMaxSize()) {
                 // Wide: the picture ignores the Scaffold's padding so it runs flush to
                 // the top and right edges, under the transparent top bar.
-                if (!isCompact && item != null) ExpandedBackdrop(item, libraryName, heroOwner)
+                if (!isCompact && item != null && item.type != ItemType.SEASON) ExpandedBackdrop(item, libraryName, heroOwner)
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     when {
                         item == null && state.isLoading ->
@@ -255,6 +264,8 @@ fun DetailScreen(
                             Box(Modifier.fillMaxSize(), Alignment.Center) {
                                 Text("Could not load item.", color = SashimiTextSecondary)
                             }
+                        item.type == ItemType.SEASON ->
+                            SeasonContent(state, item, isCompact, vm, onOpenDetail, libraryName, onPlayMain)
                         isCompact ->
                             CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
                         else ->
@@ -750,7 +761,7 @@ private fun RatingsAndMedia(
                 if (ac != null && ch != null) AudioBadge(codec = ac, channels = ch)
             }
         }
-        SeriesStatusBadge.from(item, state.seriesStatus)?.let { SeriesStatusPill(it) }
+        SeriesStatusBadge.from(item, state.seriesStatus)?.let { StatusBadge(it) }
     }
 }
 
@@ -759,12 +770,12 @@ private val StatusEnded = Color(0xFFB8B6C4)
 private val StatusUpcoming = Color(0xFF5CADE6)
 
 /**
- * Show-status pill at the end of the info row (series, season, episode): the word
- * in the status colour on that colour at 14% alpha. Same text size/weight and
- * padding as MediaBadge.
+ * Show-status badge at the end of the info row (series, season, episode): the word
+ * in the status colour on that colour at 14% alpha. A rounded rectangle with the
+ * same shape, text size/weight and padding as the neighbouring MediaBadge (#195).
  */
 @Composable
-private fun SeriesStatusPill(badge: SeriesStatusBadge) {
+private fun StatusBadge(badge: SeriesStatusBadge) {
     val color =
         when (badge.kind) {
             SeriesStatusBadge.Kind.CONTINUING -> StatusContinuing
@@ -778,9 +789,9 @@ private fun SeriesStatusPill(badge: SeriesStatusBadge) {
         fontWeight = FontWeight.Bold,
         modifier =
             Modifier
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(4.dp))
                 .background(color.copy(alpha = 0.14f))
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
 
@@ -872,9 +883,10 @@ private fun GenresCert(item: BaseItemDto) {
 /**
  * iOS PhoneDetailView action-row parity: a visible row of Play/Resume (prominent,
  * cannot shrink) + Watched + Download (+ Shuffle for series), with every remaining
- * action folded into a single labeled overflow menu — Start Over, Go to Series,
- * Play Trailer, then the admin block (Favorite / File Info / Refresh / Delete).
- * Phones don't have the width for a pile of unlabeled icon buttons.
+ * action folded into a single labeled overflow menu: Go to Series / Go to Season
+ * first, then Start Over, Play Trailer and the item block (Favorite / File Info /
+ * Refresh / Delete). [DetailActions] decides which. Phones don't have the width
+ * for a pile of unlabeled icon buttons.
  */
 @Composable
 private fun ActionButtons(
@@ -1082,15 +1094,16 @@ private fun SeasonsSection(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 state.seasons.forEach { season ->
-                    val selected = season.id == state.selectedSeasonId
-                    AssistChip(
-                        onClick = { vm.selectSeason(season.id) },
-                        label = { Text(season.name) },
-                        colors =
-                            androidx.compose.material3.AssistChipDefaults.assistChipColors(
-                                containerColor = if (selected) SashimiAccent else SashimiCard,
-                                labelColor = if (selected) Color.Black else Color.White,
-                            ),
+                    SeasonTab(
+                        season = season,
+                        selected = season.id == state.selectedSeasonId,
+                        onClick = {
+                            when (SeasonPage.onTabTap(season.id, state.selectedSeasonId)) {
+                                SeasonTabTap.OPEN -> onOpenDetail(season.id, libraryName)
+                                SeasonTabTap.SELECT -> vm.selectSeason(season.id)
+                            }
+                        },
+                        onLongClick = { if (SeasonPage.canOpen(season.id)) onOpenDetail(season.id, libraryName) },
                     )
                 }
             }
@@ -1109,9 +1122,6 @@ private fun SeasonsSection(
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
                     BulkDownloadMenu(episodes = state.episodes, seriesId = state.item?.id, vm = vm)
-                    state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
-                        SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
-                    }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1142,6 +1152,11 @@ private fun BulkDownloadMenu(
     /** The show, for "Keep next episodes downloaded". */
     seriesId: String?,
     vm: DetailViewModel,
+    /**
+     * The season page's labeled "Download Season" button (#195): only the
+     * season entries, no series-wide ones.
+     */
+    seasonOnly: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val server = LocalItemServer.current
@@ -1187,6 +1202,12 @@ private fun BulkDownloadMenu(
         Box(Modifier.size(48.dp), Alignment.Center) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         }
+    } else if (seasonOnly) {
+        FilledTonalButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(BulkDownloadAction.SEASON.label, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp))
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
     } else {
         IconButton(onClick = { menuOpen = true }) {
             Icon(Icons.Filled.Download, contentDescription = "Download episodes", tint = SashimiAccent)
@@ -1220,6 +1241,7 @@ private fun BulkDownloadMenu(
             menuOpen = false
             showCustom = true
         })
+        if (seasonOnly) return@DropdownMenu
         HorizontalDivider()
         DropdownMenuItem(
             text = { Text(BulkDownloadAction.SERIES_UNWATCHED.label) },
@@ -1277,6 +1299,162 @@ private fun BulkDownloadMenu(
 
     dev.bitstorm.sashimi.ui.downloads
         .BulkDownloadDialogs(flow, server.downloadServerId, server.client)
+}
+
+/**
+ * A season tab on a series or episode page. Selecting the already-selected
+ * tab again (tap, or select on a D-pad) opens the season page, and so does a
+ * long press on any tab (#195).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SeasonTab(
+    season: BaseItemDto,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .heightIn(min = 32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (selected) SashimiAccent else SashimiCard)
+                .combinedClickable(role = Role.Tab, onLongClickLabel = "Open season", onLongClick = onLongClick, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(season.name, color = if (selected) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/**
+ * The season page (#195): poster, series name, "Season N · X episodes · Y of
+ * X watched", the info row, then Play / Mark Season Watched / Download Season
+ * / Series and the season's episodes. [SeasonPage] decides the rules.
+ */
+@Composable
+private fun SeasonContent(
+    state: DetailUiState,
+    season: BaseItemDto,
+    isCompact: Boolean,
+    vm: DetailViewModel,
+    onOpenDetail: (String, String?) -> Unit,
+    libraryName: String?,
+    onPlay: (Boolean) -> Unit,
+) {
+    val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val episodes = state.episodes
+    val target = SeasonPage.playTarget(episodes)
+    val actions: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SeasonPage.buttons(online).forEach { button ->
+                when (button) {
+                    SeasonPageButton.PLAY ->
+                        Button(onClick = { onPlay(target?.fromBeginning == true) }, enabled = target != null) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(target?.label ?: "Play", maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+                        }
+                    SeasonPageButton.MARK_SEASON ->
+                        SeasonWatchedButton(season = season, episodes = episodes, onConfirm = vm::setSeasonPlayed)
+                    SeasonPageButton.DOWNLOAD_SEASON ->
+                        if (episodes.isNotEmpty()) {
+                            BulkDownloadMenu(episodes = episodes, seriesId = season.seriesId, vm = vm, seasonOnly = true)
+                        }
+                    SeasonPageButton.SERIES ->
+                        season.seriesId?.let { seriesId ->
+                            FilledTonalButton(onClick = { onOpenDetail(seriesId, libraryName) }) {
+                                Icon(Icons.Filled.Tv, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text("Series", maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp))
+                            }
+                        }
+                }
+            }
+        }
+    }
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(if (isCompact) 16.dp else 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        val posterWidth = if (isCompact) 110.dp else 160.dp
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AsyncImage(
+                model = LocalImageUrls.current.seasonPoster(season, rememberImageWidth(posterWidth)),
+                contentDescription = season.name,
+                contentScale = ContentScale.Crop,
+                modifier =
+                    Modifier
+                        .width(posterWidth)
+                        .height(posterWidth * 1.5f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SashimiCard),
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    season.seriesName ?: season.name,
+                    color = SashimiTextPrimary,
+                    fontSize = if (isCompact) 22.sp else 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (episodes.isEmpty()) season.name else SeasonPage.subtitle(season, episodes),
+                    color = SashimiTextSecondary,
+                    fontSize = 14.sp,
+                )
+                SeasonInfoRow(state, season)
+                if (!isCompact) actions()
+            }
+        }
+        if (isCompact) actions()
+        Text("Episodes", color = SashimiTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        if (state.isLoadingEpisodes && episodes.isEmpty()) {
+            Box(Modifier.fillMaxWidth().height(120.dp), Alignment.Center) { CircularProgressIndicator() }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                episodes.forEach { episode ->
+                    EpisodeRow(
+                        episode = episode,
+                        isCurrent = episode.id == target?.episode?.id,
+                        onClick = { onOpenDetail(episode.id, libraryName) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** "2026 · TV-MA · [Continuing]" for the season page. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeasonInfoRow(
+    state: DetailUiState,
+    season: BaseItemDto,
+) {
+    val parts =
+        listOfNotNull(
+            (season.productionYear ?: season.premiereDate?.take(4)?.toIntOrNull())?.toString(),
+            season.officialRating ?: state.seriesOfficialRating,
+        )
+    val badge = SeriesStatusBadge.from(season, state.seriesStatus)
+    if (parts.isEmpty() && badge == null) return
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (parts.isNotEmpty()) Text(parts.joinToString(" · "), color = SashimiTextSecondary, fontSize = 13.sp)
+        badge?.let { StatusBadge(it) }
+    }
 }
 
 @Composable

@@ -51,8 +51,10 @@ object DetailActions {
         hasStartOver: Boolean,
     ): List<DetailMenuItem> =
         buildList {
-            if (hasStartOver) add(DetailMenuItem.START_OVER)
+            // Navigation first (#195): the Series button left the main row for here.
             if (online && item.type == ItemType.EPISODE && item.seriesId != null) add(DetailMenuItem.GO_TO_SERIES)
+            if (online && item.type == ItemType.EPISODE && item.seasonId != null) add(DetailMenuItem.GO_TO_SEASON)
+            if (hasStartOver) add(DetailMenuItem.START_OVER)
             if ((item.localTrailerCount ?: 0) > 0) add(DetailMenuItem.PLAY_TRAILER)
             if (online) {
                 add(DetailMenuItem.FAVORITE)
@@ -64,12 +66,19 @@ object DetailActions {
 
     /**
      * The item id Play hands the player: a series plays its resolved next-up
-     * [nextEpisode], anything else plays itself.
+     * [nextEpisode], a season its [SeasonPage.playTarget] among
+     * [seasonEpisodes], anything else plays itself.
      */
     fun playTargetId(
         item: BaseItemDto?,
         nextEpisode: BaseItemDto?,
-    ): String? = if (item?.type == ItemType.SERIES) nextEpisode?.id else item?.id
+        seasonEpisodes: List<BaseItemDto>,
+    ): String? =
+        when (item?.type) {
+            ItemType.SERIES -> nextEpisode?.id
+            ItemType.SEASON -> SeasonPage.playTarget(seasonEpisodes)?.episode?.id
+            else -> item?.id
+        }
 
     /** "Go to Season 2" for an episode; Season 0 is "Go to Specials". */
     fun goToSeasonLabel(episode: BaseItemDto): String =
