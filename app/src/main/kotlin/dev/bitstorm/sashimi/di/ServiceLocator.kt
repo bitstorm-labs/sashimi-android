@@ -10,6 +10,8 @@ import dev.bitstorm.sashimi.core.downloads.DownloadFileManager
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.DownloadRepository
 import dev.bitstorm.sashimi.core.downloads.DownloadSchema
+import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesStore
+import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesSync
 import dev.bitstorm.sashimi.core.downloads.NetworkMonitor
 import dev.bitstorm.sashimi.core.downloads.PrefsTierEncodeLedger
 import dev.bitstorm.sashimi.core.home.ContinueWatchingHides
@@ -29,6 +31,7 @@ import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHiddenSeriesStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
+import dev.bitstorm.sashimi.core.session.PrefsKeepNextEpisodesStore
 import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.ServerScopedClients
@@ -44,7 +47,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -116,6 +122,14 @@ object ServiceLocator {
         private set
 
     lateinit var downloadFileManager: DownloadFileManager
+        private set
+
+    /** Per-show "Keep next episodes downloaded" settings. */
+    lateinit var keepNextEpisodes: KeepNextEpisodesStore
+        private set
+
+    /** Applies [keepNextEpisodes]: deletes watched episodes, queues the next ones. */
+    lateinit var keepNextSync: KeepNextEpisodesSync
         private set
 
     /**
@@ -238,6 +252,39 @@ object ServiceLocator {
                 scope = appScope,
                 tierEncodes = PrefsTierEncodeLedger(app),
             )
+        startKeepNextEpisodes(app)
+    }
+
+    /**
+     * Keep next episodes downloaded. Triggers, as on Apple: app foreground
+     * (MainActivity), the network coming back, a download completing, and a
+     * player closing (PlayerViewModel). The sync itself is debounced.
+     */
+    private fun startKeepNextEpisodes(app: Context) {
+        keepNextEpisodes = KeepNextEpisodesStore(PrefsKeepNextEpisodesStore(app))
+        keepNextSync =
+            KeepNextEpisodesSync(
+                store = keepNextEpisodes,
+                clientFor = { serverId -> serverClients.clientFor(serverId) },
+                downloads = { downloadManager.downloads.value },
+                enqueue = { items, quality, serverId -> downloadManager.enqueueDownloads(items, quality, serverId) },
+                delete = downloadManager::delete,
+                isOnline = { networkMonitor.isOnline.value && session.isAuthenticated.value },
+                scope = appScope,
+            )
+        appScope.launch {
+            networkMonitor.isOnline
+                .drop(1)
+                .filter { it }
+                .collect { keepNextSync.scheduleSync() }
+        }
+        appScope.launch {
+            downloadManager.downloads
+                .map { rows -> rows.count { it.isComplete } }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { keepNextSync.scheduleSync() }
+        }
     }
 
     /**
