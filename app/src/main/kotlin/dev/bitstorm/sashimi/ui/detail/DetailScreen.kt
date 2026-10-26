@@ -423,6 +423,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
                 .fillMaxWidth()
                 .height(bannerHeight)
                 .align(Alignment.TopCenter)
+                .heroEdgeFade(fadeLeft = false)
                 .background(SashimiCard),
         ) {
             AsyncImage(
@@ -430,11 +431,6 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                Modifier.fillMaxWidth().height(60.dp).align(Alignment.BottomCenter).background(
-                    Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground)),
-                ),
             )
         }
         // Avatar centered on the banner's bottom edge (top offset = banner - r).
@@ -487,8 +483,8 @@ private fun BoxScope.ExpandedBackdrop(
 }
 
 /**
- * Fades the hero (picture and trailer together) to transparent: the left 35% from
- * transparent to opaque when [fadeLeft], and the bottom 40% from opaque to
+ * Fades the hero (picture and trailer together) to transparent: the left edge
+ * from transparent to opaque when [fadeLeft], and the bottom edge from opaque to
  * transparent. Top and right never fade. An alpha mask rather than a gradient of
  * the page colour, so it holds over whatever is behind the hero.
  */
