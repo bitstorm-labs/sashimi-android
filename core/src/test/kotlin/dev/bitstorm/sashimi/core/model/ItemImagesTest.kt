@@ -35,6 +35,22 @@ class ItemImagesTest {
     private val client = JellyfinClient(deviceId = "test").also { it.configure("http://jf.local:8096", "tok", "user") }
 
     @Test
+    fun `a season's detail picture is always the series backdrop`() {
+        // The season page shows the series hero (#201), even when the season has art of its own.
+        val season =
+            BaseItemDto(
+                id = "s2",
+                type = ItemType.SEASON,
+                seriesId = "show1",
+                backdropImageTags = listOf("seasonBackdrop"),
+                parentBackdropImageTags = listOf("showBackdrop"),
+            )
+        assertEquals(ImageRef("show1", "Backdrop", "showBackdrop"), ItemImages.detailBackdrop(season, false))
+        val noTags = season.copy(backdropImageTags = null, parentBackdropImageTags = null)
+        assertEquals(ImageRef("show1", "Backdrop", null), ItemImages.detailBackdrop(noTags, false))
+    }
+
+    @Test
     fun `season poster falls back to the series poster`() {
         val season = BaseItemDto(id = "s2", type = ItemType.SEASON, seriesId = "show1", seriesPrimaryImageTag = "showTag")
         assertEquals(ImageRef("show1", "Primary", "showTag"), ItemImages.seasonPoster(season))
