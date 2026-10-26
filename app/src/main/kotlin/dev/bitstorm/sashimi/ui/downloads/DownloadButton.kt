@@ -101,7 +101,7 @@ fun DownloadButton(
 }
 
 @Composable
-private fun DownloadButtonIcon(row: DownloadedItemEntity?) {
+internal fun DownloadButtonIcon(row: DownloadedItemEntity?) {
     when (row?.downloadStatus) {
         // Not-downloaded: neutral tint (inherits the tonal button's content
         // color). Purple/accent is reserved for the COMPLETED state so the

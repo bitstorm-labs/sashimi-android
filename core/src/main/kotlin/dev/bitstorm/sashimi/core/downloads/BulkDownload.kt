@@ -66,6 +66,88 @@ object BulkDownloadPlanner {
 }
 
 /**
+ * The download menu on a single episode (#181): which episodes each entry
+ * queues. Every list is in the series' airing order (the order
+ * `/Shows/{id}/Episodes` returns, seasons ascending) and drops anything
+ * already downloaded, queued or downloading from the server, as
+ * [BulkDownloadPlanner.select] does.
+ */
+object EpisodeDownloadPlanner {
+    /** The counts offered for "This and the next…". */
+    val NEXT_COUNTS = listOf(1, 3, 5, 10)
+
+    /**
+     * "This and the next N": [episode] plus the [count] regular episodes that
+     * follow it in [seriesEpisodes], crossing into later seasons. Specials
+     * (season 0) are never among the next N. The window is positional: an
+     * episode in it that is already downloaded or queued is skipped, not
+     * replaced by one further on. Watched episodes in the window are included.
+     */
+    fun thisAndNext(
+        episode: BaseItemDto,
+        seriesEpisodes: List<BaseItemDto>,
+        count: Int,
+        downloads: List<DownloadedItemEntity>,
+        serverId: String?,
+    ): List<BaseItemDto> {
+        val ordered = seriesEpisodes.distinctBy { it.id }
+        val start = ordered.indexOfFirst { it.id == episode.id }
+        val following =
+            if (start < 0) {
+                emptyList()
+            } else {
+                ordered
+                    .drop(start + 1)
+                    .filterNot(BulkDownloadPlanner::isSpecial)
+                    .take(count.coerceAtLeast(0))
+            }
+        return BulkDownloadPlanner.select(BulkDownloadAction.SERIES, listOf(episode) + following, downloads, serverId)
+    }
+
+    /** "Unwatched in Season X": [episode]'s season, as the series page's season action. */
+    fun unwatchedInSeason(
+        episode: BaseItemDto,
+        seriesEpisodes: List<BaseItemDto>,
+        downloads: List<DownloadedItemEntity>,
+        serverId: String?,
+    ): List<BaseItemDto> {
+        val season = seriesEpisodes.filter { sameSeason(it, episode) }
+        return BulkDownloadPlanner.select(BulkDownloadAction.SEASON_UNWATCHED, season, downloads, serverId)
+    }
+
+    /** "Unwatched in series": the series page's "Download Unwatched". */
+    fun unwatchedInSeries(
+        seriesEpisodes: List<BaseItemDto>,
+        downloads: List<DownloadedItemEntity>,
+        serverId: String?,
+    ): List<BaseItemDto> = BulkDownloadPlanner.select(BulkDownloadAction.SERIES_UNWATCHED, seriesEpisodes, downloads, serverId)
+
+    /** "Season 2", or "Specials" for season 0; null when the episode has no season number. */
+    fun seasonLabel(episode: BaseItemDto): String? =
+        when (val n = episode.parentIndexNumber) {
+            null -> null
+            0 -> "Specials"
+            else -> "Season $n"
+        }
+
+    /** "S2 E3 · Shooter Ready", the menu's header. */
+    fun menuTitle(episode: BaseItemDto): String {
+        val s = episode.parentIndexNumber
+        val e = episode.indexNumber
+        return if (s != null && e != null) "S$s E$e \u00B7 ${episode.name}" else episode.name
+    }
+
+    private fun sameSeason(
+        a: BaseItemDto,
+        b: BaseItemDto,
+    ): Boolean {
+        val aId = a.seasonId
+        val bId = b.seasonId
+        return if (aId != null && bId != null) aId == bId else a.parentIndexNumber == b.parentIndexNumber
+    }
+}
+
+/**
  * What the global download indicator shows (#69, parity with
  * sashimi-apple#115): how many downloads are queued or running, and their
  * overall progress.

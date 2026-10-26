@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesPersistence
+import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesSetting
 import dev.bitstorm.sashimi.core.home.HiddenSeries
 import dev.bitstorm.sashimi.core.home.HiddenSeriesStore
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
@@ -195,5 +197,29 @@ class PrefsHiddenSeriesStore(
 
     companion object {
         private const val PREFS_NAME = "sashimi_cw_hidden"
+    }
+}
+
+/** SharedPreferences-backed [KeepNextEpisodesPersistence]: one JSON list. */
+class PrefsKeepNextEpisodesStore(
+    context: Context,
+) : KeepNextEpisodesPersistence {
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
+
+    override fun load(): List<KeepNextEpisodesSetting> {
+        val raw = prefs.getString(KEY, null) ?: return emptyList()
+        // A corrupt blob only turns the setting off; downloads stay.
+        return runCatching { json.decodeFromString<List<KeepNextEpisodesSetting>>(raw) }.getOrDefault(emptyList())
+    }
+
+    override fun save(settings: List<KeepNextEpisodesSetting>) {
+        prefs.edit().putString(KEY, json.encodeToString(settings)).apply()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "sashimi_keep_next"
+        private const val KEY = "settings"
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -93,7 +94,7 @@ import coil.compose.AsyncImagePainter
 import dev.bitstorm.sashimi.R
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
 import dev.bitstorm.sashimi.core.downloads.BulkDownloadPlanner
-import dev.bitstorm.sashimi.core.downloads.DownloadQuality
+import dev.bitstorm.sashimi.core.downloads.KeepNextEpisodesOption
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ImageSizing
 import dev.bitstorm.sashimi.core.model.ItemType
@@ -910,9 +911,14 @@ private fun ActionButtons(
             }
         }
 
-        // Single-item download (movies + episodes). Series use the bulk season menu.
-        if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
-            val server = LocalItemServer.current
+        // Movies: a single-item download. Episodes: the episode download menu
+        // (#181) online, the single-item button offline. Series use the bulk
+        // season menu.
+        val server = LocalItemServer.current
+        if (item.type == ItemType.EPISODE && online) {
+            dev.bitstorm.sashimi.ui.downloads
+                .EpisodeDownloadMenu(episode = item, serverId = server.downloadServerId, client = server.client)
+        } else if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) {
             dev.bitstorm.sashimi.ui.downloads
                 .DownloadButton(item = item, serverId = server.downloadServerId, client = server.client)
         }
@@ -1142,7 +1148,7 @@ private fun SeasonsSection(
                 )
                 val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
                 if (state.isSeries && online) {
-                    BulkDownloadMenu(episodes = state.episodes, vm = vm)
+                    BulkDownloadMenu(episodes = state.episodes, seriesId = state.item?.id, vm = vm)
                     state.seasons.firstOrNull { it.id == state.selectedSeasonId }?.let { season ->
                         SeasonWatchedMenu(season = season, episodes = state.episodes, onConfirm = vm::setSeasonPlayed)
                     }
@@ -1163,45 +1169,36 @@ private fun SeasonsSection(
 
 /**
  * Bulk download menu on a series page (#68, parity with sashimi-apple#112):
- * the selected season (all, or unwatched, or the first N unwatched) and the
- * whole series (unwatched regular episodes, or every episode). Each asks for
- * quality once (Original is gated on the first episode as a proxy), confirms
- * above [BulkDownloadPlanner.CONFIRM_THRESHOLD] episodes, then queues through
- * the DownloadManager. Which episodes, and what gets skipped, is decided by
- * [BulkDownloadPlanner].
+ * the selected season (all, or unwatched, or the first N unwatched), the
+ * whole series (unwatched regular episodes, or every episode) and "Keep next
+ * episodes downloaded". Which episodes, and what gets skipped, is decided by
+ * [BulkDownloadPlanner]; the quality / confirm / queue tail is
+ * [dev.bitstorm.sashimi.ui.downloads.BulkDownloadFlow], shared with the
+ * episode download menu.
  */
 @Composable
 private fun BulkDownloadMenu(
     episodes: List<BaseItemDto>,
+    /** The show, for "Keep next episodes downloaded". */
+    seriesId: String?,
     vm: DetailViewModel,
 ) {
     val scope = rememberCoroutineScope()
     val server = LocalItemServer.current
     val manager = ServiceLocator.downloadManager
+    val flow =
+        dev.bitstorm.sashimi.ui.downloads
+            .rememberBulkDownloadFlow(server.downloadServerId)
     var menuOpen by remember { mutableStateOf(false) }
+    var keepNextOpen by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var pendingEpisodes by remember { mutableStateOf<List<BaseItemDto>?>(null) }
-    var confirmQuality by remember { mutableStateOf<DownloadQuality?>(null) }
     var showCustom by remember { mutableStateOf(false) }
     var customCount by remember { mutableStateOf("") }
-
-    val notificationGate =
-        dev.bitstorm.sashimi.ui.downloads
-            .rememberNotificationPermissionGate()
-
-    fun stage(selection: List<BaseItemDto>) {
-        if (selection.isEmpty()) {
-            notice = "Every episode is already downloaded or queued."
-        } else {
-            pendingEpisodes = selection
-        }
-    }
 
     fun choose(action: BulkDownloadAction) {
         menuOpen = false
         if (!action.wholeSeries) {
-            stage(BulkDownloadPlanner.select(action, episodes, manager.downloads.value, server.downloadServerId))
+            flow.stage(BulkDownloadPlanner.select(action, episodes, manager.downloads.value, server.downloadServerId))
             return
         }
         scope.launch {
@@ -1209,20 +1206,11 @@ private fun BulkDownloadMenu(
             val all = vm.allSeriesEpisodes()
             loading = false
             if (all == null) {
-                notice = "Couldn't load the episodes. Check your connection and try again."
+                flow.failed("Couldn't load the episodes. Check your connection and try again.")
             } else {
-                stage(BulkDownloadPlanner.select(action, all, manager.downloads.value, server.downloadServerId))
+                flow.stage(BulkDownloadPlanner.select(action, all, manager.downloads.value, server.downloadServerId))
             }
         }
-    }
-
-    fun enqueue(
-        selection: List<BaseItemDto>,
-        quality: DownloadQuality,
-    ) {
-        pendingEpisodes = null
-        confirmQuality = null
-        notificationGate { manager.enqueueDownloads(selection, quality, server.downloadServerId) }
     }
 
     if (loading) {
@@ -1234,7 +1222,25 @@ private fun BulkDownloadMenu(
             Icon(Icons.Filled.Download, contentDescription = "Download episodes", tint = SashimiAccent)
         }
     }
-    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = {
+            menuOpen = false
+            keepNextOpen = false
+        },
+    ) {
+        if (keepNextOpen && seriesId != null && episodes.isNotEmpty()) {
+            DropdownMenuItem(
+                text = { Text("Keep Next Episodes Downloaded", fontWeight = FontWeight.SemiBold) },
+                onClick = { keepNextOpen = false },
+            )
+            HorizontalDivider()
+            dev.bitstorm.sashimi.ui.downloads.KeepNextEpisodesMenuItems(flow, seriesId, episodes.first()) {
+                menuOpen = false
+                keepNextOpen = false
+            }
+            return@DropdownMenu
+        }
         DropdownMenuItem(text = { Text(BulkDownloadAction.SEASON.label) }, onClick = { choose(BulkDownloadAction.SEASON) })
         DropdownMenuItem(
             text = { Text(BulkDownloadAction.SEASON_UNWATCHED.label) },
@@ -1250,6 +1256,16 @@ private fun BulkDownloadMenu(
             onClick = { choose(BulkDownloadAction.SERIES_UNWATCHED) },
         )
         DropdownMenuItem(text = { Text(BulkDownloadAction.SERIES.label) }, onClick = { choose(BulkDownloadAction.SERIES) })
+        if (seriesId != null && episodes.isNotEmpty()) {
+            val keeping =
+                dev.bitstorm.sashimi.ui.downloads
+                    .keepNextCount(flow, seriesId)
+            DropdownMenuItem(
+                text = { Text(KeepNextEpisodesOption.menuTitle(keeping)) },
+                leadingIcon = { Icon(Icons.Filled.Autorenew, contentDescription = null) },
+                onClick = { keepNextOpen = true },
+            )
+        }
     }
 
     if (showCustom) {
@@ -1280,7 +1296,7 @@ private fun BulkDownloadMenu(
                                 manager.downloads.value,
                                 server.downloadServerId,
                             )
-                        stage(unwatched.take(n))
+                        flow.stage(unwatched.take(n))
                     }
                 }) { Text("OK") }
             },
@@ -1288,49 +1304,8 @@ private fun BulkDownloadMenu(
         )
     }
 
-    notice?.let { message ->
-        AlertDialog(
-            onDismissRequest = { notice = null },
-            title = { Text("Nothing to Download") },
-            text = { Text(message) },
-            confirmButton = { TextButton(onClick = { notice = null }) { Text("OK") } },
-        )
-    }
-
-    val selection = pendingEpisodes
-    val quality = confirmQuality
-    if (selection != null && quality == null) {
-        dev.bitstorm.sashimi.ui.downloads.QualityDialog(
-            item = selection.first(),
-            client = server.client,
-            seasonProxyItemId = selection.first().id,
-            onDismiss = { pendingEpisodes = null },
-            onPick = { picked ->
-                if (BulkDownloadPlanner.needsConfirmation(selection.size)) {
-                    confirmQuality = picked
-                } else {
-                    enqueue(selection, picked)
-                }
-            },
-        )
-    }
-    if (selection != null && quality != null) {
-        AlertDialog(
-            onDismissRequest = {
-                pendingEpisodes = null
-                confirmQuality = null
-            },
-            title = { Text(BulkDownloadPlanner.confirmationTitle(selection.size)) },
-            text = { Text("${quality.displayName}. Episodes already downloaded or queued are skipped.") },
-            confirmButton = { TextButton(onClick = { enqueue(selection, quality) }) { Text("Download") } },
-            dismissButton = {
-                TextButton(onClick = {
-                    pendingEpisodes = null
-                    confirmQuality = null
-                }) { Text("Cancel") }
-            },
-        )
-    }
+    dev.bitstorm.sashimi.ui.downloads
+        .BulkDownloadDialogs(flow, server.downloadServerId, server.client)
 }
 
 @Composable

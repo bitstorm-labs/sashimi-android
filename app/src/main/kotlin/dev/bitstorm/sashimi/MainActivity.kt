@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity() {
         // on a transition, so a device already online at process start never
         // triggers a sync on its own.
         ServiceLocator.downloadManager.syncNow()
+        // Keep next episodes downloaded: catch up on what was watched elsewhere.
+        ServiceLocator.keepNextSync.scheduleSync()
     }
 
     /**

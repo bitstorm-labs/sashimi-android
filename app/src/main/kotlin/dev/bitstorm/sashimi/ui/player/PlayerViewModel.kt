@@ -353,6 +353,8 @@ class PlayerViewModel(
         }
 
     init {
+        // Keep-next syncs wait while any player is open (trailers included).
+        ServiceLocator.keepNextSync.playerOpened(this)
         player.addListener(playerListener)
         viewModelScope.launch { loadInitial() }
         startTickLoop()
@@ -1569,6 +1571,8 @@ class PlayerViewModel(
     override fun onCleared() {
         super.onCleared()
         remotePresence.setPlaying(this, false)
+        // A closed player may have finished an episode a kept show can now drop.
+        ServiceLocator.keepNextSync.playerClosed(this)
         watchdogJob?.cancel()
         // After the end (the Up Next screen, or a credit skip that ended the
         // item early) the item is finished. Reporting the credits position here
