@@ -21,27 +21,26 @@ class DetailActionsTest {
     private val series = BaseItemDto(id = "show", type = ItemType.SERIES)
 
     @Test
-    fun `episode More menu leads with Go to Series then Go to Season`() {
+    fun `episode More menu is navigation then item management`() {
         assertEquals(
             listOf(
                 DetailMenuItem.GO_TO_SERIES,
                 DetailMenuItem.GO_TO_SEASON,
-                DetailMenuItem.START_OVER,
                 DetailMenuItem.FAVORITE,
                 DetailMenuItem.FILE_INFO,
                 DetailMenuItem.REFRESH_METADATA,
                 DetailMenuItem.DELETE,
             ),
-            DetailActions.moreMenu(episode, online = true, hasStartOver = true),
+            DetailActions.moreMenu(episode, online = true),
         )
     }
 
     @Test
     fun `Go to Season needs the episode's season id and a connection`() {
-        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(episode.copy(seasonId = null), true, false))
-        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(episode, online = false, hasStartOver = false))
-        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(movie, online = true, hasStartOver = false))
-        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(series, online = true, hasStartOver = false))
+        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(episode.copy(seasonId = null), true))
+        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(episode, online = false))
+        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(movie, online = true))
+        assertFalse(DetailMenuItem.GO_TO_SEASON in DetailActions.moreMenu(series, online = true))
     }
 
     @Test
@@ -53,28 +52,70 @@ class DetailActionsTest {
     @Test
     fun `navigation never sits in the main row`() {
         for (item in listOf(episode, movie, series)) {
-            val row = DetailActions.mainRow(item, online = true)
+            val row = DetailActions.mainRow(item, online = true, hasStartOver = true)
             assertEquals(DetailRowButton.PLAY, row.first())
             assertEquals(DetailRowButton.MORE, row.last())
         }
         // The row has no Series / Season / channel buttons at all: only these.
         assertEquals(
             listOf(DetailRowButton.PLAY, DetailRowButton.WATCHED, DetailRowButton.DOWNLOAD, DetailRowButton.MORE),
-            DetailActions.mainRow(episode, online = true),
+            DetailActions.mainRow(episode, online = true, hasStartOver = false),
         )
     }
 
     @Test
-    fun `movie More menu keeps trailer and item management`() {
+    fun `Shuffle and Trailer sit in the main row in Apple order`() {
+        // Apple DetailRowAction.mainRow: Play, Start Over, Shuffle, Trailer, Watched, Download, More.
+        // Compared by name so this also runs (and fails) against the pre-#198 enum.
+        fun row(item: BaseItemDto) = DetailActions.mainRow(item, online = true).map { it.name }
+        assertEquals(listOf("PLAY", "SHUFFLE", "TRAILER", "WATCHED", "MORE"), row(series.copy(localTrailerCount = 2)))
+        assertEquals(listOf("PLAY", "TRAILER", "WATCHED", "DOWNLOAD", "MORE"), row(movie))
+        // Episodes never show Trailer (Apple parity).
+        assertEquals(listOf("PLAY", "WATCHED", "DOWNLOAD", "MORE"), row(episode.copy(localTrailerCount = 1)))
+    }
+
+    @Test
+    fun `Start Over follows Play when there is progress`() {
         assertEquals(
             listOf(
-                DetailMenuItem.PLAY_TRAILER,
+                DetailRowButton.PLAY,
+                DetailRowButton.START_OVER,
+                DetailRowButton.SHUFFLE,
+                DetailRowButton.TRAILER,
+                DetailRowButton.WATCHED,
+                DetailRowButton.MORE,
+            ),
+            DetailActions.mainRow(series.copy(localTrailerCount = 2), online = true, hasStartOver = true),
+        )
+        // Offline: Start Over and Trailer still play; Watched and Shuffle need the server.
+        assertEquals(
+            listOf(
+                DetailRowButton.PLAY,
+                DetailRowButton.START_OVER,
+                DetailRowButton.TRAILER,
+                DetailRowButton.DOWNLOAD,
+                DetailRowButton.MORE,
+            ),
+            DetailActions.mainRow(movie, online = false, hasStartOver = true),
+        )
+    }
+
+    @Test
+    fun `Start Over, Trailer and Shuffle are not in More`() {
+        val more = DetailActions.moreMenu(movie, online = true) + DetailActions.moreMenu(episode, online = true)
+        assertFalse(more.any { it.name == "START_OVER" || it.name == "PLAY_TRAILER" || it.name == "SHUFFLE" })
+    }
+
+    @Test
+    fun `movie More menu is item management only`() {
+        assertEquals(
+            listOf(
                 DetailMenuItem.FAVORITE,
                 DetailMenuItem.FILE_INFO,
                 DetailMenuItem.REFRESH_METADATA,
                 DetailMenuItem.DELETE,
             ),
-            DetailActions.moreMenu(movie, online = true, hasStartOver = false),
+            DetailActions.moreMenu(movie, online = true),
         )
     }
 
