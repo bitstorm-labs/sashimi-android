@@ -165,7 +165,7 @@ fun SettingsScreen(
             }
 
             item { SectionHeader("HOME SCREEN") }
-            item { NavRow("Customize Row Order", onClick = onOpenRowOrder) }
+            item { NavRow("Home & Side Menu", onClick = onOpenRowOrder) }
 
             item { SectionHeader("PLAYBACK") }
             item { PlaybackSettingsSection(settings) }
