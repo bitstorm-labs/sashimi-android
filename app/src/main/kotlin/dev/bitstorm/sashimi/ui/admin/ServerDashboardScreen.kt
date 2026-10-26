@@ -116,7 +116,7 @@ fun ServerDashboardScreen(
     var messageFor by remember { mutableStateOf<SessionInfoDto?>(null) }
 
     Scaffold(
-        topBar = { BackTopBar(title = "Server", onBack = onBack) },
+        topBar = { BackTopBar(title = "Dashboard", onBack = onBack) },
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { inner ->

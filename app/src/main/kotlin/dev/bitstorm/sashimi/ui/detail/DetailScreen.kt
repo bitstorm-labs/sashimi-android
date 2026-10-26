@@ -182,15 +182,12 @@ fun DetailScreen(
             vm.consumeError()
         }
     }
-    // Refresh progress/watched state when returning from the player (skip the
-    // first RESUME, which coincides with the initial load in init).
-    val firstResume = remember { mutableStateOf(true) }
+    // Refresh progress/watched state when returning from the player or an
+    // episode (the ViewModel skips the first RESUME, which coincides with the
+    // initial load in init; the flag lives there because this composition is
+    // disposed while another screen is on top, #186).
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-        if (firstResume.value) {
-            firstResume.value = false
-        } else {
-            vm.reload()
-        }
+        vm.onScreenResumed()
         onPauseOrDispose {}
     }
 
@@ -1195,20 +1192,30 @@ private fun BulkDownloadMenu(
     var showCustom by remember { mutableStateOf(false) }
     var customCount by remember { mutableStateOf("") }
 
-    fun choose(action: BulkDownloadAction) {
-        menuOpen = false
-        if (!action.wholeSeries) {
-            flow.stage(BulkDownloadPlanner.select(action, episodes, manager.downloads.value, server.downloadServerId))
-            return
-        }
+    /** Season and series actions both choose from a fresh server list (#186). */
+    fun stageFresh(select: (List<BaseItemDto>) -> List<BaseItemDto>) {
         scope.launch {
             loading = true
-            val all = vm.allSeriesEpisodes()
+            val fresh = vm.bulkCandidates(BulkDownloadAction.SEASON)
             loading = false
-            if (all == null) {
+            if (fresh == null) {
                 flow.failed("Couldn't load the episodes. Check your connection and try again.")
             } else {
-                flow.stage(BulkDownloadPlanner.select(action, all, manager.downloads.value, server.downloadServerId))
+                flow.stage(select(fresh))
+            }
+        }
+    }
+
+    fun choose(action: BulkDownloadAction) {
+        menuOpen = false
+        scope.launch {
+            loading = true
+            val fresh = vm.bulkCandidates(action)
+            loading = false
+            if (fresh == null) {
+                flow.failed("Couldn't load the episodes. Check your connection and try again.")
+            } else {
+                flow.stage(BulkDownloadPlanner.select(action, fresh, manager.downloads.value, server.downloadServerId))
             }
         }
     }
@@ -1289,14 +1296,15 @@ private fun BulkDownloadMenu(
                     showCustom = false
                     customCount = ""
                     if (n > 0) {
-                        val unwatched =
-                            BulkDownloadPlanner.select(
-                                BulkDownloadAction.SEASON_UNWATCHED,
-                                episodes,
-                                manager.downloads.value,
-                                server.downloadServerId,
-                            )
-                        flow.stage(unwatched.take(n))
+                        stageFresh { fresh ->
+                            BulkDownloadPlanner
+                                .select(
+                                    BulkDownloadAction.SEASON_UNWATCHED,
+                                    fresh,
+                                    manager.downloads.value,
+                                    server.downloadServerId,
+                                ).take(n)
+                        }
                     }
                 }) { Text("OK") }
             },

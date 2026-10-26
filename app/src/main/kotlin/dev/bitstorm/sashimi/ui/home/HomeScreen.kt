@@ -89,15 +89,11 @@ fun HomeScreen(
         if (state.continueWatching.isEmpty()) vm.loadContent()
     }
 
-    // Refresh Continue Watching when returning to Home (e.g. after playback exit),
-    // skipping the first resume which coincides with the initial load above.
-    val firstResume = remember { mutableStateOf(true) }
+    // Refresh Continue Watching when returning to Home (e.g. after playback
+    // exit). The ViewModel skips the first resume, which coincides with the
+    // initial load above (#186: a remembered flag reset on every return).
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-        if (firstResume.value) {
-            firstResume.value = false
-        } else {
-            vm.loadContent()
-        }
+        vm.onScreenResumed()
         onPauseOrDispose {}
     }
 

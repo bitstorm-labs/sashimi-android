@@ -3,14 +3,18 @@ package dev.bitstorm.sashimi.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.downloads.BulkDownloadAction
+import dev.bitstorm.sashimi.core.downloads.BulkDownloadSource
 import dev.bitstorm.sashimi.core.downloads.DownloadManager
 import dev.bitstorm.sashimi.core.downloads.OfflineReconstruction
 import dev.bitstorm.sashimi.core.downloads.downloadItemType
+import dev.bitstorm.sashimi.core.home.EpisodeListState
 import dev.bitstorm.sashimi.core.home.NextUpSelector
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.MediaSourceInfo
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.util.ResumeRefreshGate
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.Job
@@ -133,14 +137,14 @@ class DetailViewModel(
 
         val season =
             next?.seasonId?.let { sid -> seasons.firstOrNull { it.id == sid } } ?: NextUpSelector.specialsLast(seasons).firstOrNull()
-        if (season != null) {
-            // Only pick a default season if the user has not already chosen one.
-            // Writing it unconditionally is what yanked a fully-watched 6-season
-            // show back to season 1 seconds after the user opened season 4.
-            if (_state.value.selectedSeasonId != null) return
-            _state.update { it.copy(selectedSeasonId = season.id) }
-            loadEpisodesForSeason(item.id, season.id, generation)
-        }
+        // Only pick a default season if the user has not already chosen one.
+        // Writing it unconditionally is what yanked a fully-watched 6-season
+        // show back to season 1 seconds after the user opened season 4. But a
+        // reload (returning from an episode) must still refetch the season on
+        // screen, or its watched checkmarks stay as they were (#186).
+        val seasonId = EpisodeListState.seasonToLoad(_state.value.selectedSeasonId, season?.id) ?: return
+        _state.update { it.copy(selectedSeasonId = seasonId) }
+        loadEpisodesForSeason(item.id, seasonId, generation)
     }
 
     /** A season screen only needs its series' Status (for the status pill). */
@@ -283,13 +287,24 @@ class DetailViewModel(
     fun toggleWatched() {
         val item = _state.value.item ?: return
         val newState = !_state.value.isWatched
-        _state.update { it.copy(isWatched = newState, hasProgress = if (newState) false else it.hasProgress) }
+        _state.update {
+            it.copy(
+                isWatched = newState,
+                hasProgress = if (newState) false else it.hasProgress,
+                // The episode's own row in "More Episodes" below (#186).
+                episodes = EpisodeListState.withPlayed(it.episodes, item.id, newState),
+            )
+        }
         viewModelScope.launch {
             val ok =
                 runCatching {
                     if (newState) client.markPlayed(item.id) else client.markUnplayed(item.id)
                 }.isSuccess
-            if (!ok) _state.update { it.copy(isWatched = !newState) }
+            if (!ok) {
+                _state.update {
+                    it.copy(isWatched = !newState, episodes = EpisodeListState.withPlayed(it.episodes, item.id, !newState))
+                }
+            }
         }
     }
 
@@ -369,15 +384,24 @@ class DetailViewModel(
     /** Re-fetch after returning from the player so progress/watched state refreshes. */
     fun reload() = load()
 
+    private val resumeGate = ResumeRefreshGate()
+
+    /** Every RESUME of the screen but the first refreshes it. */
+    fun onScreenResumed() {
+        if (resumeGate.onResume()) reload()
+    }
+
     /**
-     * Every episode of this series across all seasons, for the series-wide
-     * bulk downloads. Null when the server call fails, so the caller can say so
-     * instead of reporting that there is nothing to download.
+     * What a bulk download chooses from, fetched now (#186): the selected
+     * season for a season action, every season for a series action. Null when
+     * the server call fails.
      */
-    suspend fun allSeriesEpisodes(): List<BaseItemDto>? {
+    suspend fun bulkCandidates(action: BulkDownloadAction): List<BaseItemDto>? {
         val item = _state.value.item ?: return null
         val seriesId = if (item.type == ItemType.SERIES) item.id else item.seriesId ?: return null
-        return runCatchingCancellable { client.getEpisodes(seriesId) }.getOrNull()
+        return runCatchingCancellable {
+            BulkDownloadSource.episodes(client, action, seriesId, _state.value.selectedSeasonId)
+        }.getOrNull()
     }
 
     /** Shuffle: a random episode of this series (navigates to its detail). */
