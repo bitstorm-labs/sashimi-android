@@ -7,6 +7,7 @@ import dev.bitstorm.sashimi.core.home.ContinueWatchingHides
 import dev.bitstorm.sashimi.core.home.ContinueWatchingSource
 import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
+import dev.bitstorm.sashimi.core.home.SideMenu
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.JellyfinLibrary
@@ -158,7 +159,7 @@ class HomeViewModel(
             val libs = librariesResult.getOrDefault(emptyList())
             val removedNow = pendingRemovals.value
             val cw = continueWatchingDeferred.await().filterNot { it.id in removedNow }
-            val mediaLibraries = libs.filter { isMediaLibrary(it.collectionType) }
+            val mediaLibraries = libs.filter { SideMenu.isMediaLibrary(it.collectionType) }
             homeRowSettings.updateLibraries(mediaLibraries)
             _state.update {
                 it.copy(isLoading = false, error = null, continueWatching = cw, libraries = mediaLibraries)
@@ -275,11 +276,6 @@ class HomeViewModel(
             }
         }
         _state.update { it.copy(continueWatchingLibraryNames = names) }
-    }
-
-    private fun isMediaLibrary(collectionType: String?): Boolean {
-        val type = collectionType?.lowercase() ?: return true
-        return type in setOf("movies", "tvshows", "music", "mixed", "homevideos")
     }
 
     class Factory : ViewModelProvider.Factory {

@@ -1,17 +1,20 @@
 package dev.bitstorm.sashimi.ui.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,11 +37,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
+import dev.bitstorm.sashimi.core.home.SideMenu
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
@@ -48,10 +56,12 @@ import kotlin.math.roundToInt
 private val RowHeight = 56.dp
 
 /**
- * Home row order editor: long-press-drag to reorder, tap the check to enable /
- * disable a row. Port of the iOS `HomeRowOrderView` (drag reorder + toggle). Built
- * on a plain scrollable [Column] with fixed-height rows so the drag arithmetic is
- * simple and reliable for the handful of rows involved.
+ * Home & Side Menu (#187): long-press-drag to reorder (the order drives both
+ * Home and the side menu), and two independent toggles per row: shown on Home,
+ * and shown in the side menu. Only libraries are side-menu destinations; other
+ * rows show "—". A library hidden from both says it is only reachable from
+ * Search. Built on a plain scrollable [Column] with fixed-height rows so the
+ * drag arithmetic is simple and reliable for the handful of rows involved.
  */
 @Composable
 fun HomeRowOrderScreen(
@@ -69,13 +79,24 @@ fun HomeRowOrderScreen(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Home Rows", style = MaterialTheme.typography.headlineMedium)
+        Text("Home & Side Menu", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Drag to reorder, tap the circle to show or hide a row.",
+            "Drag to reorder both. Tap a circle to show or hide a row on Home or in the side menu.",
             style = MaterialTheme.typography.bodySmall,
             color = SashimiTextTertiary,
             modifier = Modifier.padding(bottom = 4.dp),
         )
+        // Same padding and spacing as the rows below, so the headers sit over their toggles.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("", modifier = Modifier.weight(1f))
+            ColumnHeader("Home")
+            ColumnHeader("Side menu")
+            Spacer(Modifier.width(DragHandleWidth))
+        }
 
         rows.forEach { row ->
             val isDragging = draggingId == row.id
@@ -92,19 +113,39 @@ fun HomeRowOrderScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(
-                    if (row.isEnabled) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
-                    contentDescription = if (row.isEnabled) "Hide row" else "Show row",
-                    tint = if (row.isEnabled) SashimiAccent else SashimiTextTertiary,
-                    modifier = Modifier.size(24.dp).clickable { settings.toggleRow(row.id) },
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        // A library row is about the library in both places now ("Movies").
+                        if (row.isSideMenuDestination) row.libraryName ?: row.displayName else row.displayName,
+                        color = SashimiTextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (row.isOnlyReachableFromSearch) {
+                        Text(
+                            SideMenu.ONLY_FROM_SEARCH_NOTE,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SashimiTextTertiary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                ToggleCell(
+                    on = row.isEnabled,
+                    description = "${row.displayName} on Home",
+                    onToggle = { settings.toggleRow(row.id) },
                 )
-                Text(
-                    row.displayName,
-                    color = SashimiTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                if (row.isSideMenuDestination) {
+                    ToggleCell(
+                        on = row.showInSideMenu,
+                        description = "${row.displayName} in the side menu",
+                        onToggle = { settings.toggleSideMenu(row.id) },
+                    )
+                } else {
+                    Box(Modifier.width(ToggleColumnWidth), Alignment.Center) {
+                        Text("\u2014", color = SashimiTextTertiary)
+                    }
+                }
                 Icon(
                     Icons.Filled.DragHandle,
                     contentDescription = "Reorder",
@@ -141,5 +182,48 @@ fun HomeRowOrderScreen(
                 )
             }
         }
+        Text(
+            SideMenu.ALWAYS_SHOWN_NOTE,
+            style = MaterialTheme.typography.bodySmall,
+            color = SashimiTextTertiary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+private val ToggleColumnWidth = 72.dp
+private val DragHandleWidth = 24.dp
+
+@Composable
+private fun ColumnHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = SashimiTextTertiary,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.width(ToggleColumnWidth),
+    )
+}
+
+@Composable
+private fun ToggleCell(
+    on: Boolean,
+    description: String,
+    onToggle: () -> Unit,
+) {
+    Box(
+        Modifier
+            .width(ToggleColumnWidth)
+            .height(RowHeight)
+            .toggleable(value = on, role = Role.Checkbox, onValueChange = { onToggle() })
+            .semantics { contentDescription = description },
+        Alignment.Center,
+    ) {
+        Icon(
+            if (on) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            tint = if (on) SashimiAccent else SashimiTextTertiary,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }

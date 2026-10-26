@@ -125,3 +125,21 @@ class HomeRowSettingsTest {
         assertEquals(before, settings.rows.value)
     }
 }
+
+class HomeRowSideMenuToggleTest {
+    @Test
+    fun `toggling the side menu flips only that library row and persists`() {
+        val store = FakeHomeRowStore()
+        val settings = HomeRowSettings(store)
+        settings.updateLibraries(listOf(library("a", "A"), library("b", "B")))
+
+        settings.toggleSideMenu("a")
+        settings.toggleSideMenu(HomeRowConfig.CONTINUE_WATCHING_ID)
+
+        val rows = store.saved!!.associateBy { it.id }
+        assertFalse(rows.getValue("a").showInSideMenu)
+        assertTrue(rows.getValue("a").isEnabled)
+        assertTrue(rows.getValue("b").showInSideMenu)
+        assertTrue(rows.getValue(HomeRowConfig.CONTINUE_WATCHING_ID).showInSideMenu)
+    }
+}
