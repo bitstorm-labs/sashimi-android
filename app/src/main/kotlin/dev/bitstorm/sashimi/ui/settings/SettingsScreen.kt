@@ -161,7 +161,7 @@ fun SettingsScreen(
 
             if (isAdmin) {
                 item { SectionHeader("ADMIN") }
-                item { NavRow("Server dashboard", onClick = onOpenServerDashboard) }
+                item { NavRow("Dashboard", onClick = onOpenServerDashboard) }
             }
 
             item { SectionHeader("HOME SCREEN") }

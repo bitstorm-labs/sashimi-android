@@ -11,6 +11,7 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.core.network.JellyfinClient
+import dev.bitstorm.sashimi.core.util.ResumeRefreshGate
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
@@ -123,6 +124,13 @@ class HomeViewModel(
     fun loadContent() {
         _state.update { it.copy(isLoading = it.continueWatching.isEmpty()) }
         viewModelScope.launch { load() }
+    }
+
+    private val resumeGate = ResumeRefreshGate()
+
+    /** Every RESUME of Home but the first reloads it. */
+    fun onScreenResumed() {
+        if (resumeGate.onResume()) loadContent()
     }
 
     /** Suspending reload for pull-to-refresh (the caller drives the spinner). */
