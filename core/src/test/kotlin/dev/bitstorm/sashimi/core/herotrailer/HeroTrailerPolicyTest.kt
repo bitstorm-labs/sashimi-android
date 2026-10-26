@@ -17,6 +17,16 @@ class HeroTrailerPolicyTest {
     ) = BaseItemDto(id = id, type = type, seriesId = seriesId, localTrailerCount = localTrailerCount)
 
     @Test
+    fun `every detail hero has a trailer layer but a YouTube channel's banner`() {
+        // The season page plays its series' trailer like the series page (#201).
+        assertTrue(HeroTrailerPolicy.hasTrailerLayer(item(ItemType.SEASON, seriesId = "show"), isYouTube = false))
+        assertTrue(HeroTrailerPolicy.hasTrailerLayer(item(ItemType.SERIES), isYouTube = false))
+        assertTrue(HeroTrailerPolicy.hasTrailerLayer(item(ItemType.EPISODE, seriesId = "show"), isYouTube = true))
+        assertFalse(HeroTrailerPolicy.hasTrailerLayer(item(ItemType.SERIES), isYouTube = true))
+        assertTrue(HeroTrailerPolicy.hasTrailerLayer(null, isYouTube = false))
+    }
+
+    @Test
     fun `movies and series use their own trailer`() {
         assertEquals("m1", HeroTrailerPolicy.trailerSourceId(item(ItemType.MOVIE, "m1", localTrailerCount = 1)))
         assertEquals("s1", HeroTrailerPolicy.trailerSourceId(item(ItemType.SERIES, "s1", localTrailerCount = 2)))

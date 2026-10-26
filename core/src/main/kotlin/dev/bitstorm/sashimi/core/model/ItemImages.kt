@@ -79,14 +79,16 @@ object ItemImages {
 
     /**
      * Detail picture. Episodes use their own still; YouTube series the banner;
-     * otherwise the item's backdrop, then the parent series' backdrop, then the
-     * item's Primary.
+     * seasons always their series' backdrop (the season page shows the series
+     * hero, #201); otherwise the item's backdrop, then the parent series'
+     * backdrop, then the item's Primary.
      */
     fun detailBackdrop(
         item: BaseItemDto,
         isYouTubeSeries: Boolean,
     ): ImageRef {
         if (item.type == ItemType.EPISODE) return primary(item)
+        if (item.type == ItemType.SEASON) seriesBackdrop(item)?.let { return it }
         if (isYouTubeSeries) return banner(item)
         if (item.backdropImageTags?.isNotEmpty() == true) return backdrop(item)
         if (item.parentBackdropImageTags?.isNotEmpty() == true) seriesBackdrop(item)?.let { return it }
