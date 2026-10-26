@@ -881,13 +881,13 @@ private fun GenresCert(item: BaseItemDto) {
 }
 
 /**
- * iOS PhoneDetailView action-row parity: a visible row of Play/Resume (prominent,
- * cannot shrink) + Watched + Download (+ Shuffle for series), with every remaining
- * action folded into a single labeled overflow menu: Go to Series / Go to Season
- * first, then Start Over, Play Trailer and the item block (Favorite / File Info /
- * Refresh / Delete). [DetailActions] decides which. Phones don't have the width
- * for a pile of unlabeled icon buttons.
+ * The detail action row, in the same order on every Sashimi client (#198):
+ * Play/Resume (prominent, cannot shrink), Start Over, Shuffle, Trailer,
+ * Watched, Download, then More (Go to Series / Go to Season and the item
+ * block). [DetailActions] decides which. Wraps onto a second line on a narrow
+ * phone instead of scrolling buttons off-screen.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActionButtons(
     state: DetailUiState,
@@ -901,18 +901,32 @@ private fun ActionButtons(
     val scope = rememberCoroutineScope()
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val server = LocalItemServer.current
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    val hasStartOver =
+        state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
+    // Wraps rather than scrolls, so every button stays visible on a narrow phone.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        DetailActions.mainRow(item, online).forEach { button ->
+        DetailActions.mainRow(item, online, hasStartOver).forEach { button ->
             when (button) {
                 // Play/Resume: prominent, fixed size so its label never wraps or shrinks.
                 DetailRowButton.PLAY ->
                     Button(onClick = { onPlay(false) }) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Text(playButtonLabel(state, item), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+                    }
+                // A series starts its next episode over.
+                DetailRowButton.START_OVER ->
+                    FilledTonalIconButton(onClick = { onPlay(true) }) {
+                        Icon(Icons.Filled.Replay, contentDescription = "Start Over", modifier = Modifier.size(20.dp))
+                    }
+                // Only when a local trailer exists, played inline.
+                DetailRowButton.TRAILER ->
+                    FilledTonalIconButton(onClick = onTrailer) {
+                        Icon(Icons.Filled.Movie, contentDescription = "Trailer", modifier = Modifier.size(20.dp))
                     }
                 // A plain toggle for this item only.
                 DetailRowButton.WATCHED ->
@@ -941,16 +955,16 @@ private fun ActionButtons(
                         Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(20.dp))
                     }
                 DetailRowButton.MORE ->
-                    DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer, online)
+                    DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, online)
             }
         }
     }
 }
 
 /**
- * The single labeled "⋮" overflow menu for the action row (iOS overflowMenu +
- * adminMenuItems). Contents come from [DetailActions.moreMenu]; the item
- * management block sits after a divider. Hosts its own File Info / Delete dialogs.
+ * The "⋮" More menu for the action row. Contents come from
+ * [DetailActions.moreMenu]; the item management block sits after a divider.
+ * Hosts its own File Info / Delete dialogs.
  */
 @Composable
 private fun DetailActionOverflow(
@@ -959,17 +973,13 @@ private fun DetailActionOverflow(
     vm: DetailViewModel,
     onOpenDetail: (String, String?) -> Unit,
     libraryName: String?,
-    onPlay: (Boolean) -> Unit,
-    onTrailer: () -> Unit,
     online: Boolean,
 ) {
     var open by remember { mutableStateOf(false) }
     var showFileInfo by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    val hasStartOver =
-        state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
-    val entries = DetailActions.moreMenu(item, online, hasStartOver)
+    val entries = DetailActions.moreMenu(item, online)
     if (entries.isEmpty()) return
 
     FilledTonalIconButton(onClick = { open = true }) {
@@ -983,8 +993,6 @@ private fun DetailActionOverflow(
                 when (entry) {
                     DetailMenuItem.GO_TO_SERIES -> "Go to Series" to Icons.Filled.Tv
                     DetailMenuItem.GO_TO_SEASON -> DetailActions.goToSeasonLabel(item) to Icons.Filled.VideoLibrary
-                    DetailMenuItem.START_OVER -> "Start Over" to Icons.Filled.Replay
-                    DetailMenuItem.PLAY_TRAILER -> "Play Trailer" to Icons.Filled.Movie
                     DetailMenuItem.FAVORITE ->
                         (if (isFavorite) "Remove from Favorites" else "Add to Favorites") to
                             (if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder)
@@ -1000,8 +1008,6 @@ private fun DetailActionOverflow(
                     when (entry) {
                         DetailMenuItem.GO_TO_SERIES -> item.seriesId?.let { onOpenDetail(it, libraryName) }
                         DetailMenuItem.GO_TO_SEASON -> item.seasonId?.let { onOpenDetail(it, libraryName) }
-                        DetailMenuItem.START_OVER -> onPlay(true)
-                        DetailMenuItem.PLAY_TRAILER -> onTrailer()
                         DetailMenuItem.FAVORITE -> vm.toggleFavorite()
                         DetailMenuItem.FILE_INFO -> showFileInfo = true
                         DetailMenuItem.REFRESH_METADATA -> vm.refreshMetadata()
