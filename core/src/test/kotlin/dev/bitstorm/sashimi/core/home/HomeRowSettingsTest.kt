@@ -142,4 +142,48 @@ class HomeRowSideMenuToggleTest {
         assertTrue(rows.getValue("b").showInSideMenu)
         assertTrue(rows.getValue(HomeRowConfig.CONTINUE_WATCHING_ID).showInSideMenu)
     }
+
+    @Test
+    fun `a new subscription's row goes right after Continue Watching, in subscription order`() {
+        val store =
+            FakeHomeRowStore(
+                listOf(HomeRowConfig.library("lib1", "Movies"), HomeRowConfig.continueWatching(), HomeRowConfig.library("lib2", "TV")),
+            )
+        val settings = HomeRowSettings(store)
+
+        settings.updateListRows(listOf("a" to "From Marge: Xmas", "b" to "Mine"))
+
+        assertEquals(listOf("lib1", "continue_watching", "list:a", "list:b", "lib2"), settings.rows.value.map { it.id })
+        assertEquals("From Marge: Xmas", settings.rows.value[2].displayName)
+        assertEquals(settings.rows.value, store.saved)
+    }
+
+    @Test
+    fun `a list row the user moved stays put, keeps its visibility, and takes the new title`() {
+        val moved = HomeRowConfig.list("a", "Old").copy(isEnabled = false)
+        val store = FakeHomeRowStore(listOf(HomeRowConfig.continueWatching(), HomeRowConfig.library("lib1", "Movies"), moved))
+        val settings = HomeRowSettings(store)
+
+        settings.updateListRows(listOf("a" to "From Marge: Renamed"))
+
+        val row = settings.rows.value.last()
+        assertEquals("list:a", row.id)
+        assertFalse(row.isEnabled)
+        assertEquals("From Marge: Renamed", row.displayName)
+        assertFalse("a list row is not a side-menu destination", row.isSideMenuDestination)
+    }
+
+    @Test
+    fun `unsubscribed lists lose their rows and library rows are untouched`() {
+        val store =
+            FakeHomeRowStore(
+                listOf(HomeRowConfig.continueWatching(), HomeRowConfig.list("a", "A"), HomeRowConfig.library("lib1", "Movies")),
+            )
+        val settings = HomeRowSettings(store)
+
+        settings.updateListRows(emptyList())
+        settings.updateLibraries(listOf(library("lib1", "Movies")))
+
+        assertEquals(listOf("continue_watching", "lib1"), settings.rows.value.map { it.id })
+    }
 }

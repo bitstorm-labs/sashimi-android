@@ -24,6 +24,11 @@ sealed interface SideMenuItem {
         override val key = "library:$id"
     }
 
+    /** Shared lists (2026-10-27): yours and everyone's public ones. */
+    data object Lists : SideMenuItem {
+        override val key = "lists"
+    }
+
     data object Search : SideMenuItem {
         override val key = "search"
     }
@@ -55,6 +60,8 @@ object SideMenu {
      * - A row switched off for the side menu is left out. Its Home toggle has
      *   no say: hiding a row on Home is a statement about Home.
      * - A row naming a library the server no longer has is ignored.
+     * - [showLists] puts Lists after the libraries; it can be hidden like a
+     *   library, from Home & Side Menu.
      * - [online] false (the offline library) lists Home, Downloads, Settings:
      *   nothing else works without the server.
      */
@@ -62,6 +69,7 @@ object SideMenu {
         rows: List<HomeRowConfig>,
         libraries: List<JellyfinLibrary>,
         online: Boolean = true,
+        showLists: Boolean = false,
     ): List<SideMenuItem> {
         if (!online) return listOf(SideMenuItem.Home, SideMenuItem.Downloads, SideMenuItem.Settings)
         val byId = libraries.associateBy { it.id }
@@ -76,7 +84,8 @@ object SideMenu {
         for (library in libraries) {
             if (placed.add(library.id)) shown += library.asItem()
         }
-        return listOf(SideMenuItem.Home) + shown + listOf(SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
+        val lists = if (showLists) listOf(SideMenuItem.Lists) else emptyList()
+        return listOf(SideMenuItem.Home) + shown + lists + listOf(SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
     }
 
     /**

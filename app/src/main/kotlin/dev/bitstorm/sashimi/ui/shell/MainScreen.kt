@@ -39,6 +39,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -74,6 +76,8 @@ import dev.bitstorm.sashimi.ui.home.HomeScreen
 import dev.bitstorm.sashimi.ui.home.RecentlyAddedGridScreen
 import dev.bitstorm.sashimi.ui.library.LibrariesScreen
 import dev.bitstorm.sashimi.ui.library.LibraryBrowseScreen
+import dev.bitstorm.sashimi.ui.lists.ListDetailScreen
+import dev.bitstorm.sashimi.ui.lists.ListsScreen
 import dev.bitstorm.sashimi.ui.nav.AdminActivityRoute
 import dev.bitstorm.sashimi.ui.nav.AdminHealthRoute
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
@@ -82,6 +86,8 @@ import dev.bitstorm.sashimi.ui.nav.HomeRoute
 import dev.bitstorm.sashimi.ui.nav.HomeRowOrderRoute
 import dev.bitstorm.sashimi.ui.nav.LibrariesRoute
 import dev.bitstorm.sashimi.ui.nav.LibraryBrowseRoute
+import dev.bitstorm.sashimi.ui.nav.ListDetailRoute
+import dev.bitstorm.sashimi.ui.nav.ListsRoute
 import dev.bitstorm.sashimi.ui.nav.PersonRoute
 import dev.bitstorm.sashimi.ui.nav.PlayerRoute
 import dev.bitstorm.sashimi.ui.nav.RecentlyAddedRoute
@@ -199,9 +205,10 @@ private fun AppShell(
     // Offline mode: hide Libraries + Search (iPhone PhoneTabView parity) and swap
     // Home for the local-only offline variant.
     val isOnline by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
+    val showLists by ServiceLocator.appSettings.showLists.collectAsStateWithLifecycle()
     val destinations =
         if (isOnline) {
-            Destination.entries.toList()
+            Destination.entries.filter { it != Destination.LISTS || showLists }
         } else {
             listOf(Destination.HOME, Destination.DOWNLOADS, Destination.SETTINGS)
         }
@@ -245,6 +252,7 @@ private fun AppShell(
                     HomeScreen(
                         session = session,
                         onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
+                        onOpenList = { id -> navController.navigate(ListDetailRoute(id)) },
                         onSeeAll = { id, name, ct -> navController.navigate(RecentlyAddedRoute(id, name, ct)) },
                         onAddServer = { showAddServer = true },
                     )
@@ -265,6 +273,20 @@ private fun AppShell(
             composable<LibrariesRoute> {
                 LibrariesScreen(
                     onOpenLibrary = { id, name, ct -> navController.navigate(LibraryBrowseRoute(id, name, ct)) },
+                )
+            }
+            composable<ListsRoute> {
+                ListsScreen(
+                    isCompact = isCompact,
+                    onOpenList = { id -> navController.navigate(ListDetailRoute(id)) },
+                )
+            }
+            composable<ListDetailRoute> { entry ->
+                ListDetailScreen(
+                    listId = entry.toRoute<ListDetailRoute>().listId,
+                    isCompact = isCompact,
+                    onBack = { navController.popBackStack() },
+                    onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
                 )
             }
             composable<SearchRoute> {
@@ -451,7 +473,8 @@ private fun AppShell(
                             selected = currentDestination.isOnTab(dest),
                             onClick = { navigateToTab(dest) },
                             icon = { DestinationIcon(dest) },
-                            label = { NavLabel(dest.label) },
+                            // Six tabs with Lists: a smaller label keeps "Downloads" whole on a phone.
+                            label = { NavLabel(dest.label, small = destinations.size > 5) },
                         )
                     }
                 }
@@ -501,6 +524,7 @@ private val SideMenuItem.destination: Destination?
             SideMenuItem.Search -> Destination.SEARCH
             SideMenuItem.Downloads -> Destination.DOWNLOADS
             SideMenuItem.Settings -> Destination.SETTINGS
+            SideMenuItem.Lists -> Destination.LISTS
             is SideMenuItem.Library -> null
         }
 
@@ -521,6 +545,7 @@ private fun androidx.navigation.NavDestination?.isOnTab(dest: Destination): Bool
         when (dest) {
             Destination.HOME -> navDest.hasRoute(HomeRoute::class)
             Destination.LIBRARIES -> navDest.hasRoute(LibrariesRoute::class)
+            Destination.LISTS -> navDest.hasRoute(ListsRoute::class)
             Destination.SEARCH -> navDest.hasRoute(SearchRoute::class)
             Destination.DOWNLOADS -> navDest.hasRoute(DownloadsRoute::class)
             Destination.SETTINGS -> navDest.hasRoute(SettingsRoute::class)
@@ -551,12 +576,22 @@ private fun FullScreenSheet(
  * broke mid-word; ellipsis is the last resort on a very narrow item.
  */
 @Composable
-private fun NavLabel(text: String) {
+private fun NavLabel(
+    text: String,
+    small: Boolean = false,
+) {
     val density = LocalDensity.current
     CompositionLocalProvider(
         LocalDensity provides Density(density.density, density.fontScale.coerceAtMost(MAX_NAV_LABEL_FONT_SCALE)),
     ) {
-        Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+        Text(
+            text,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = if (small) 11.sp else TextUnit.Unspecified,
+            letterSpacing = if (small) 0.sp else TextUnit.Unspecified,
+        )
     }
 }
 

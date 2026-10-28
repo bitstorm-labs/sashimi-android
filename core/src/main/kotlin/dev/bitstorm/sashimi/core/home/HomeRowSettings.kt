@@ -1,5 +1,6 @@
 package dev.bitstorm.sashimi.core.home
 
+import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,10 @@ data class HomeRowConfig(
      * libraries added later are in the menu.
      */
     val showInSideMenu: Boolean = true,
+    /** A subscribed list's playlist id ([Kind.LIST] only). */
+    val listId: String? = null,
+    /** The list's row title as last loaded ("From Marge: Christmas Movies"). */
+    val listTitle: String? = null,
 ) {
     /** Whether this row has a side-menu toggle at all ("—" otherwise). */
     val isSideMenuDestination: Boolean get() = kind == Kind.LIBRARY
@@ -36,7 +41,7 @@ data class HomeRowConfig(
     /** Hidden from both Home and the side menu: only Search can reach it. */
     val isOnlyReachableFromSearch: Boolean get() = isSideMenuDestination && !isEnabled && !showInSideMenu
 
-    enum class Kind { CONTINUE_WATCHING, LIBRARY }
+    enum class Kind { CONTINUE_WATCHING, LIBRARY, LIST }
 
     /** Stable identity used for reordering + dedupe (matches the Swift `id`). */
     val id: String
@@ -44,6 +49,7 @@ data class HomeRowConfig(
             when (kind) {
                 Kind.CONTINUE_WATCHING -> CONTINUE_WATCHING_ID
                 Kind.LIBRARY -> libraryId ?: ""
+                Kind.LIST -> "$LIST_ID_PREFIX${listId ?: ""}"
             }
 
     val displayName: String
@@ -51,10 +57,20 @@ data class HomeRowConfig(
             when (kind) {
                 Kind.CONTINUE_WATCHING -> "Continue Watching"
                 Kind.LIBRARY -> "Recently Added ${libraryName ?: ""}"
+                Kind.LIST -> listTitle ?: "List"
             }
 
     companion object {
         const val CONTINUE_WATCHING_ID = "continue_watching"
+        const val LIST_ID_PREFIX = "list:"
+
+        /** Android Home has no hero row; the shared placement rule still takes its key. */
+        const val HERO_ID = "hero"
+
+        fun list(
+            id: String,
+            title: String,
+        ) = HomeRowConfig(kind = Kind.LIST, listId = id, listTitle = title)
 
         fun continueWatching(isEnabled: Boolean = true): HomeRowConfig = HomeRowConfig(kind = Kind.CONTINUE_WATCHING, isEnabled = isEnabled)
 
@@ -121,6 +137,30 @@ class HomeRowSettings(
         current.removeAll { it.kind == HomeRowConfig.Kind.LIBRARY && it.libraryId !in liveIds }
 
         commit(current)
+    }
+
+    /**
+     * Reconcile list rows against the user's subscriptions ([lists]: playlist
+     * id to row title, in subscription order). A new subscription's row goes
+     * right after Continue Watching ([SharedLists.insertionIndex]); after that
+     * it is an ordinary row the user can move or hide. A list no longer
+     * subscribed (or gone from the server) loses its row. Titles refresh.
+     */
+    fun updateListRows(lists: List<Pair<String, String>>) {
+        val current = _rows.value.toMutableList()
+        val wanted = lists.toMap()
+        current.removeAll { it.kind == HomeRowConfig.Kind.LIST && it.listId !in wanted }
+        for (i in current.indices) {
+            val row = current[i]
+            if (row.kind == HomeRowConfig.Kind.LIST) wanted[row.listId]?.let { current[i] = row.copy(listTitle = it) }
+        }
+        val present = current.mapNotNull { it.listId }.toSet()
+        var at = SharedLists.insertionIndex(current.map { it.id }, HomeRowConfig.CONTINUE_WATCHING_ID, HomeRowConfig.HERO_ID)
+        for ((id, title) in lists) {
+            if (id in present) continue
+            current.add(at++, HomeRowConfig.list(id, title))
+        }
+        if (current != _rows.value) commit(current)
     }
 
     /** Move a row (drag-to-reorder). No-op if indices are out of range. */

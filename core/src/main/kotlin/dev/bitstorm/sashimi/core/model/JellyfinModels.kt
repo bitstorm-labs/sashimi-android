@@ -62,6 +62,7 @@ enum class ItemType(
     BOX_SET("BoxSet"),
     FOLDER("Folder"),
     COLLECTION_FOLDER("CollectionFolder"),
+    PLAYLIST("Playlist"),
     UNKNOWN("Unknown"),
     ;
 
@@ -160,6 +161,8 @@ data class BaseItemDto(
     @SerialName("ParentId") val parentId: String? = null,
     @SerialName("IndexNumber") val indexNumber: Int? = null,
     @SerialName("ParentIndexNumber") val parentIndexNumber: Int? = null,
+    // Only on /Playlists/{id}/Items: this entry's id within the list (remove/move take it).
+    @SerialName("PlaylistItemId") val playlistItemId: String? = null,
     @SerialName("Overview") val overview: String? = null,
     @SerialName("RunTimeTicks") val runTimeTicks: Long? = null,
     @SerialName("UserData") val userData: UserItemDataDto? = null,

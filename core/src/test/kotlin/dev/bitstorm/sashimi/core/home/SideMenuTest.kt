@@ -87,4 +87,18 @@ class SideMenuTest {
         val old = """[{"kind":"LIBRARY","libraryId":"movies","libraryName":"Movies","isEnabled":false}]"""
         assertTrue(json.decodeFromString<List<HomeRowConfig>>(old).single().showInSideMenu)
     }
+
+    @Test
+    fun `Lists follows the libraries and can be hidden`() {
+        val rows = listOf(row(movies), row(tv))
+        assertEquals(
+            listOf("home", "library:movies", "library:tv", "lists", "search", "downloads", "settings"),
+            keys(SideMenu.items(rows, listOf(movies, tv), showLists = true)),
+        )
+        assertFalse(keys(SideMenu.items(rows, listOf(movies, tv), showLists = false)).contains("lists"))
+        assertFalse(
+            "lists need the server",
+            keys(SideMenu.items(rows, listOf(movies, tv), online = false, showLists = true)).contains("lists"),
+        )
+    }
 }

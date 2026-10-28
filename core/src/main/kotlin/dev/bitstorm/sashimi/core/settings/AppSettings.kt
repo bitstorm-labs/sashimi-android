@@ -79,6 +79,10 @@ class AppSettings(
     private val _use24HourTime = MutableStateFlow(prefs.getBoolean(KEY_USE_24_HOUR_TIME, false))
     val use24HourTime: StateFlow<Boolean> = _use24HourTime.asStateFlow()
 
+    /** Lists in the side menu and tab bar; hidden from Home & Side Menu, like a library. */
+    private val _showLists = MutableStateFlow(prefs.getBoolean(KEY_SHOW_LISTS, true))
+    val showLists: StateFlow<Boolean> = _showLists.asStateFlow()
+
     /** What a TV library's Shuffle button plays (sashimi-roku#141). */
     private val _tvShuffleMode = MutableStateFlow(TvShuffleMode.fromKey(prefs.getString(KEY_TV_SHUFFLE_MODE, null)))
     val tvShuffleMode: StateFlow<TvShuffleMode> = _tvShuffleMode.asStateFlow()
@@ -138,6 +142,8 @@ class AppSettings(
 
     fun setUse24HourTime(value: Boolean) = putBoolean(_use24HourTime, KEY_USE_24_HOUR_TIME, value)
 
+    fun setShowLists(value: Boolean) = putBoolean(_showLists, KEY_SHOW_LISTS, value)
+
     fun setTvShuffleMode(value: TvShuffleMode) {
         _tvShuffleMode.value = value
         prefs.edit().putString(KEY_TV_SHUFFLE_MODE, value.key).apply()
@@ -179,6 +185,7 @@ class AppSettings(
         private const val KEY_HERO_TRAILERS = "playHeroTrailers"
         private const val KEY_USE_24_HOUR_TIME = "use24HourTime"
         private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
+        private const val KEY_SHOW_LISTS = "showListsInSideMenu"
         private const val KEY_DEFAULT_VIEW_MODE = "defaultViewMode"
 
         /**

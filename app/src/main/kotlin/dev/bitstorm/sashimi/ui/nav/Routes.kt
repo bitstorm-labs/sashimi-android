@@ -22,6 +22,16 @@ object DownloadsRoute
 @Serializable
 object SettingsRoute
 
+/** Shared lists: yours and everyone's public ones. */
+@Serializable
+object ListsRoute
+
+/** One shared list (subscriber or owner view). */
+@Serializable
+data class ListDetailRoute(
+    val listId: String,
+)
+
 /** Admin-only server dashboard (phone layout), pushed from Settings. */
 @Serializable
 object ServerDashboardRoute

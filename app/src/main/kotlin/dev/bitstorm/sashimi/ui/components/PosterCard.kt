@@ -51,6 +51,8 @@ fun PosterCard(
     libraryName: String? = null,
     isCircular: Boolean = false,
     badgeCount: Int? = null,
+    /** On a list: added since the viewer last opened it. */
+    isNew: Boolean = false,
 ) {
     val showQualityBadges = LocalShowQualityBadges.current
     val showReviewRatings = LocalShowReviewRatings.current
@@ -86,9 +88,9 @@ fun PosterCard(
                     tint = WatchedGreen,
                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(20.dp),
                 )
-            } else if (badgeCount != null && badgeCount >= 1) {
+            } else if (isNew || (badgeCount != null && badgeCount >= 1)) {
                 Text(
-                    text = "$badgeCount new",
+                    text = if (isNew) "NEW" else "$badgeCount new",
                     color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,

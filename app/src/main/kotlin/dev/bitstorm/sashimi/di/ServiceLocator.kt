@@ -102,6 +102,12 @@ object ServiceLocator {
     lateinit var homeRowSettings: HomeRowSettings
         private set
 
+    /** Shared lists on the active server (playlists + subscriptions). */
+    val sharedLists: dev.bitstorm.sashimi.core.lists.SharedListsService by lazy {
+        dev.bitstorm.sashimi.core.lists
+            .SharedListsService(client)
+    }
+
     /** Series removed from Continue Watching, per server + user. */
     lateinit var continueWatchingHides: ContinueWatchingHides
         private set
