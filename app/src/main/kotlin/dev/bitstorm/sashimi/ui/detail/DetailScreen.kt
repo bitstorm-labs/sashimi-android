@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
@@ -239,6 +240,9 @@ fun DetailScreen(
         LocalImageUrls provides images,
         LocalItemServer provides itemServer,
         LocalOpenPerson provides openPerson,
+        // Lists live on the active server only (shared lists design).
+        LocalListsAvailable provides (serverId == null),
+        LocalDetailSnackbar provides snackbar,
     ) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -291,6 +295,10 @@ private data class ItemServer(
 private val LocalItemServer = staticCompositionLocalOf { ItemServer(null, ServiceLocator.client) }
 
 private val LocalOpenPerson = staticCompositionLocalOf<(PersonInfo) -> Unit> { {} }
+
+private val LocalListsAvailable = staticCompositionLocalOf { false }
+
+private val LocalDetailSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
 
 private fun personRoute(
     person: PersonInfo,
@@ -937,6 +945,16 @@ private fun ActionButtons(
     val server = LocalItemServer.current
     val hasStartOver =
         state.hasProgress || (state.isSeries && (state.nextEpisode?.userData?.playbackPositionTicks ?: 0) > 0)
+    val listsAvailable = LocalListsAvailable.current
+    val snackbar = LocalDetailSnackbar.current
+    var addingToList by remember { mutableStateOf(false) }
+    if (addingToList) {
+        dev.bitstorm.sashimi.ui.lists.AddToListDialog(
+            item = item,
+            onDismiss = { addingToList = false },
+            onResult = { message -> scope.launch { snackbar?.showSnackbar(message) } },
+        )
+    }
     // Wraps rather than scrolls, so every button stays visible on a narrow phone.
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -944,7 +962,7 @@ private fun ActionButtons(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        DetailActions.mainRow(item, online, hasStartOver).forEach { button ->
+        DetailActions.mainRow(item, online, hasStartOver, listsAvailable).forEach { button ->
             when (button) {
                 // Play/Resume: prominent, fixed size so its label never wraps or shrinks.
                 DetailRowButton.PLAY ->
@@ -987,6 +1005,15 @@ private fun ActionButtons(
                         scope.launch { vm.randomEpisode()?.let { onOpenDetail(it.id, libraryName) } }
                     }) {
                         Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(20.dp))
+                    }
+                // Right before More, never inside it (owner decision, 2026-10-27).
+                DetailRowButton.ADD_TO_LIST ->
+                    FilledTonalIconButton(onClick = { addingToList = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = "Add to List",
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                 DetailRowButton.MORE ->
                     DetailActionOverflow(state, item, vm, onOpenDetail, libraryName, online)
