@@ -119,6 +119,8 @@ data class ListDetailUiState(
     /** Cards added since the viewer last opened it (subscribers only), fixed at open. */
     val newIds: Set<String> = emptySet(),
     val deleted: Boolean = false,
+    /** A Public/Private change is being sent and checked against the server. */
+    val publicSaving: Boolean = false,
 )
 
 /** One list: the subscriber view, plus the owner's tools on your own list. */
@@ -200,7 +202,25 @@ class ListDetailViewModel(
 
     fun rename(name: String) = mutate { service.rename(it.id, name.trim()) }
 
-    fun setPublic(isPublic: Boolean) = mutate { service.setPublic(it.id, isPublic) }
+    /**
+     * The switch shows only what the server says: the list reloads once the
+     * server has been re-read (see [SharedListsService.setPublic]), and if it
+     * still disagrees the user is told.
+     */
+    fun setPublic(isPublic: Boolean) {
+        if (_state.value.publicSaving) return
+        _state.update { it.copy(publicSaving = true) }
+        mutate { list ->
+            try {
+                val now = service.setPublic(list.id, isPublic)
+                // The server's answer, shown at once; the reload that follows agrees.
+                _state.update { s -> s.copy(list = s.list?.copy(isPublic = now)) }
+                if (now != isPublic) _messages.tryEmit("The server kept this list ${if (now) "public" else "private"}. Try again.")
+            } finally {
+                _state.update { it.copy(publicSaving = false) }
+            }
+        }
+    }
 
     fun remove(card: ListItem) = mutate { service.remove(it.id, card) }
 

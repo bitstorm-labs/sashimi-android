@@ -35,6 +35,29 @@ data class DisplayEntry(
     val isSeries: Boolean,
 )
 
+/** Who made a list, as the Sashimi Lists server plugin records it. */
+@Serializable
+data class ListOwner(
+    @SerialName("OwnerUserId") val userId: String,
+    @SerialName("OwnerName") val name: String? = null,
+)
+
+/** How a list's cover is drawn. */
+sealed interface ListCover {
+    /** Four different titles, 2x2, in list order (left to right, then down). */
+    data class Collage(
+        val tiles: List<BaseItemDto>,
+    ) : ListCover
+
+    /** Fewer than four different titles: the first one's poster, full-bleed. */
+    data class Single(
+        val item: BaseItemDto,
+    ) : ListCover
+
+    /** Nothing the viewer can see. */
+    data object Empty : ListCover
+}
+
 /** One subscribed list and the titles the subscriber had seen on it. */
 @Serializable
 data class ListSubscription(
@@ -51,6 +74,30 @@ object SharedLists {
 
     /** Jellyfin does not report a playlist's owner; Sashimi shares each list with its creator. */
     fun owner(shares: List<PlaylistShare>): String? = shares.firstOrNull { it.canEdit }?.userId
+
+    /**
+     * A list's cover, from its cards in display order (after the S1:E1 and
+     * repeat rules). Two cards from the same show are the same title: an
+     * episode card counts as its series, so the collage never repeats a poster.
+     */
+    fun cover(cards: List<ListItem>): ListCover {
+        val titles = cards.distinctBy { titleKey(it) }
+        return when {
+            titles.size >= 4 -> ListCover.Collage(titles.take(4).map { it.item })
+            titles.isNotEmpty() -> ListCover.Single(titles.first().item)
+            else -> ListCover.Empty
+        }
+    }
+
+    private fun titleKey(card: ListItem): String = card.item.seriesId?.takeIf { card.item.type == ItemType.EPISODE } ?: card.display.id
+
+    /** Jellyfin ids with or without dashes, any case, compare equal. */
+    fun sameId(
+        a: String?,
+        b: String?,
+    ): Boolean = a != null && b != null && normalizeId(a) == normalizeId(b)
+
+    fun normalizeId(id: String): String = id.replace("-", "").lowercase()
 
     /** S1:E1 stands for its series (adding a series adds every episode); repeats show once. */
     fun displayEntries(entries: List<ListEntry>): List<DisplayEntry> = entries.map(::displayEntry).distinctBy { it.id }
