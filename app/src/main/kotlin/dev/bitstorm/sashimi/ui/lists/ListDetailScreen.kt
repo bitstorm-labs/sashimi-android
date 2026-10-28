@@ -207,7 +207,7 @@ private fun Header(
                     Text("Shuffle", modifier = Modifier.padding(start = 4.dp))
                 }
             }
-            if (list.isMine) OwnerMenu(list, vm, onEdit)
+            if (list.isMine) OwnerMenu(list, state.publicSaving, vm, onEdit)
         }
     }
 }
@@ -221,7 +221,13 @@ private fun countLine(
         state.subscribed && state.newIds.isNotEmpty() -> "$titles · ${state.newIds.size} new since you last looked"
         list.isMine ->
             "$titles · " +
-                if (list.isPublic) "Public: everyone on the server can see and subscribe" else "Private: only you can see it"
+                if (state.publicSaving) {
+                    "Saving…"
+                } else if (list.isPublic) {
+                    "Public: everyone on the server can see and subscribe"
+                } else {
+                    "Private: only you can see it"
+                }
         else -> titles
     }
 }
@@ -229,6 +235,7 @@ private fun countLine(
 @Composable
 private fun OwnerMenu(
     list: SharedList,
+    publicSaving: Boolean,
     vm: ListDetailViewModel,
     onEdit: (EditMode) -> Unit,
 ) {
@@ -245,7 +252,7 @@ private fun OwnerMenu(
                 open = false
                 renaming = true
             })
-            DropdownMenuItem(text = { Text(if (list.isPublic) "Make Private" else "Make Public") }, onClick = {
+            DropdownMenuItem(text = { Text(if (list.isPublic) "Make Private" else "Make Public") }, enabled = !publicSaving, onClick = {
                 open = false
                 vm.setPublic(!list.isPublic)
             })
