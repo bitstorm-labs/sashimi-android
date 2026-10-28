@@ -31,6 +31,12 @@ private data class Seen(
 /** Answers "METHOD /path" from a table (404 when absent) and records every call. */
 private class StubServer : Interceptor {
     val routes = mutableMapOf<String, Pair<Int, String>>()
+
+    /** Answers used once each, in order, before [routes]. */
+    val queued = mutableMapOf<String, ArrayDeque<Pair<Int, String>>>()
+
+    /** Paths that fail as if the network were down. */
+    val unreachable = mutableSetOf<String>()
     val seen: MutableList<Seen> = Collections.synchronizedList(mutableListOf())
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -38,7 +44,8 @@ private class StubServer : Interceptor {
         val key = "${request.method} ${request.url.encodedPath}"
         val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readUtf8() }
         seen += Seen(key + (request.url.encodedQuery?.let { "?$it" } ?: ""), body)
-        val (status, json) = routes[key] ?: (404 to "")
+        if (key in unreachable) throw java.io.IOException("unreachable")
+        val (status, json) = queued[key]?.removeFirstOrNull() ?: routes[key] ?: (404 to "")
         return Response
             .Builder()
             .request(request)
@@ -79,7 +86,7 @@ class SharedListsServiceTest {
             it.sessionExpiredHandler = { expired = true }
         }
 
-    private val service = SharedListsService(client)
+    private val service = SharedListsService(client, publicRecheckDelayMs = 2_000)
 
     private fun serveList(
         id: String,
@@ -140,7 +147,7 @@ class SharedListsServiceTest {
 
             val list = service.list("l1")!!
             assertTrue(list.isMine)
-            assertEquals("Mine", list.rowTitle)
+            assertEquals("Your list: Mine", list.rowTitle)
             val show = list.items.first()
             assertEquals("show1", show.item.id)
             assertEquals("Show show1", show.item.name)
@@ -304,10 +311,181 @@ class SharedListsServiceTest {
     fun `rename and public switch send only the field that changes`() =
         runTest {
             stub.routes["POST /Playlists/l1"] = 204 to ""
+            stub.routes["GET /Playlists/l1"] = 200 to """{"OpenAccess":false,"Shares":[]}"""
 
             service.rename("l1", "New name")
             service.setPublic("l1", false)
 
             assertEquals(listOf("""{"Name":"New name"}""", """{"IsPublic":false}"""), stub.calls("POST /Playlists/l1").map { it.body })
+        }
+
+    // MARK: - Owner (#208)
+
+    private fun publicListWithWipedShare(id: String = "l1") =
+        serveList(id, "Christmas", """{"OpenAccess":true,"Shares":[]}""", items(movie("m1")))
+
+    @Test
+    fun `the plugin names the creator after the self-share was wiped`() =
+        runTest {
+            // Jellyfin 12.4 drops every self-share when any user is deleted.
+            publicListWithWipedShare()
+            stub.routes["GET /SashimiLists/Playlists/l1/Owner"] = 200 to """{"OwnerUserId":"marge","OwnerName":"Marge"}"""
+
+            val list = service.list("l1")!!
+
+            assertEquals("marge", list.ownerId)
+            assertEquals("Marge", list.ownerName)
+            assertFalse(list.isMine)
+            assertEquals("From Marge: Christmas", list.rowTitle)
+            assertTrue("someone else's share is never touched", stub.calls("POST").isEmpty())
+        }
+
+    @Test
+    fun `the plugin's owner wins over a stale self-share`() =
+        runTest {
+            serveList("l1", "Christmas", """{"OpenAccess":true,"Shares":[{"UserId":"me","CanEdit":true}]}""", items())
+            stub.routes["GET /SashimiLists/Playlists/l1/Owner"] = 200 to """{"OwnerUserId":"marge","OwnerName":"Marge"}"""
+
+            assertFalse(service.list("l1")!!.isMine)
+        }
+
+    @Test
+    fun `my list whose self-share was wiped is still mine and gets the share back`() =
+        runTest {
+            publicListWithWipedShare()
+            // The plugin may write ids with dashes and capitals.
+            stub.routes["GET /SashimiLists/Playlists/l1/Owner"] = 200 to """{"OwnerUserId":"M-E","OwnerName":"Me"}"""
+            stub.routes["POST /Playlists/l1/Users/$me"] = 204 to ""
+
+            val list = service.list("l1")!!
+
+            assertTrue(list.isMine)
+            assertEquals("Your list: Christmas", list.rowTitle)
+            assertEquals("""{"CanEdit":true}""", stub.calls("POST /Playlists/l1/Users/$me").single().body)
+        }
+
+    @Test
+    fun `without the plugin the owner self-check finds my list`() =
+        runTest {
+            publicListWithWipedShare()
+            stub.routes["GET /Playlists/l1/Users/$me"] = 200 to """{"UserId":"$me","CanEdit":true}"""
+            stub.routes["POST /Playlists/l1/Users/$me"] = 204 to ""
+
+            val list = service.list("l1")!!
+
+            assertTrue(list.isMine)
+            assertEquals(me, list.ownerId)
+            assertEquals(1, stub.calls("POST /Playlists/l1/Users/$me").size)
+        }
+
+    @Test
+    fun `the self-check ignores CanDelete, which every admin has`() =
+        runTest {
+            publicListWithWipedShare()
+            stub.unreachable += "GET /SashimiLists/Playlists/l1/Owner"
+            stub.routes["GET /Playlists/l1/Users/$me"] = 200 to """{"UserId":"$me","CanEdit":false,"CanDelete":true}"""
+
+            val list = service.list("l1")!!
+
+            assertFalse(list.isMine)
+            assertNull(list.ownerId)
+            assertTrue(stub.calls("POST").isEmpty())
+        }
+
+    @Test
+    fun `without the plugin the self-share still names the creator`() =
+        runTest {
+            serveList("l1", "Christmas", """{"OpenAccess":true,"Shares":[{"UserId":"marge","CanEdit":true}]}""", items())
+            stub.routes["GET /Users"] = 200 to """[{"Id":"marge","Name":"Marge"}]"""
+
+            val list = service.list("l1")!!
+
+            assertEquals("Marge", list.ownerName)
+            assertFalse(list.isMine)
+            assertTrue("no self-check needed", stub.calls("GET /Playlists/l1/Users").isEmpty())
+        }
+
+    @Test
+    fun `the Lists page asks the plugin once for every owner`() =
+        runTest {
+            stub.routes["GET /Items"] =
+                200 to items("""{"Id":"l1","Name":"A","Type":"Playlist"}""", """{"Id":"l2","Name":"B","Type":"Playlist"}""")
+            serveList("l1", "A", """{"OpenAccess":true,"Shares":[]}""", items())
+            serveList("l2", "B", """{"OpenAccess":true,"Shares":[]}""", items())
+            stub.routes["GET /SashimiLists/Owners"] =
+                200 to """{"l1":{"OwnerUserId":"marge","OwnerName":"Marge"},"l2":{"OwnerUserId":"me","OwnerName":"Me"}}"""
+            stub.routes["POST /Playlists/l2/Users/$me"] = 204 to ""
+
+            val lists = service.allLists().associateBy { it.id }
+
+            assertEquals("Marge", lists.getValue("l1").ownerName)
+            assertTrue(lists.getValue("l2").isMine)
+            val batch = java.net.URLDecoder.decode(stub.calls("GET /SashimiLists/Owners").single().call, "UTF-8")
+            assertTrue(batch, "ids=l1,l2" in batch)
+            assertTrue(stub.calls("GET /SashimiLists/Playlists").isEmpty())
+            assertTrue(stub.calls("GET /Playlists/l1/Users").isEmpty())
+        }
+
+    @Test
+    fun `a batch from Home is used instead of asking per list`() =
+        runTest {
+            publicListWithWipedShare()
+            stub.routes["GET /SashimiLists/Owners"] = 200 to """{"l1":{"OwnerUserId":"marge","OwnerName":"Marge"}}"""
+
+            val owners = service.owners(listOf("l1"))
+            val list = service.list("l1", owners)!!
+
+            assertEquals("Marge", list.ownerName)
+            assertTrue(stub.calls("GET /SashimiLists/Playlists").isEmpty())
+        }
+
+    @Test
+    fun `a plugin that is not installed falls back without failing the page`() =
+        runTest {
+            stub.routes["GET /Items"] = 200 to items("""{"Id":"l1","Name":"A","Type":"Playlist"}""")
+            serveList("l1", "A", """{"OpenAccess":true,"Shares":[{"UserId":"marge","CanEdit":true}]}""", items())
+            stub.routes["GET /Users"] = 200 to """[{"Id":"marge","Name":"Marge"}]"""
+            stub.unreachable += "GET /SashimiLists/Owners"
+
+            assertEquals("Marge", service.allLists().single().ownerName)
+            assertFalse(expired)
+        }
+
+    // MARK: - Public switch (#208)
+
+    @Test
+    fun `a Public switch the server reverted is sent again and the server's value returned`() =
+        runTest {
+            stub.routes["POST /Playlists/l1"] = 204 to ""
+            // A queued refresh after an add saves the old OpenAccess about a second later.
+            stub.queued["GET /Playlists/l1"] =
+                ArrayDeque(listOf(200 to """{"OpenAccess":false}""", 200 to """{"OpenAccess":true}"""))
+
+            val start = testScheduler.currentTime
+            assertTrue(service.setPublic("l1", true))
+
+            assertEquals(2, stub.calls("POST /Playlists/l1").size)
+            assertEquals(2, stub.calls("GET /Playlists/l1").size)
+            assertTrue("re-read only after the refresh lands", testScheduler.currentTime - start >= 4_000)
+        }
+
+    @Test
+    fun `a Public switch that held is sent once`() =
+        runTest {
+            stub.routes["POST /Playlists/l1"] = 204 to ""
+            stub.routes["GET /Playlists/l1"] = 200 to """{"OpenAccess":true}"""
+
+            assertTrue(service.setPublic("l1", true))
+            assertEquals(1, stub.calls("POST /Playlists/l1").size)
+        }
+
+    @Test
+    fun `a switch the server keeps undoing reports the server's value, not the wish`() =
+        runTest {
+            stub.routes["POST /Playlists/l1"] = 204 to ""
+            stub.routes["GET /Playlists/l1"] = 200 to """{"OpenAccess":false}"""
+
+            assertFalse(service.setPublic("l1", true))
+            assertEquals("re-applied once only", 2, stub.calls("POST /Playlists/l1").size)
         }
 }

@@ -386,7 +386,7 @@ private fun CompactHero(
         Modifier
             .fillMaxWidth()
             .height(220.dp)
-            .heroEdgeFade(fadeLeft = false)
+            .heroEdgeFade(fadeLeft = false, fadeTop = true)
             .background(SashimiCard),
     ) { fade ->
         // The picture fades out over the trailer and back in after it.
@@ -427,7 +427,7 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
                 .fillMaxWidth()
                 .height(bannerHeight)
                 .align(Alignment.TopCenter)
-                .heroEdgeFade(fadeLeft = false)
+                .heroEdgeFade(fadeLeft = false, fadeTop = true)
                 .background(SashimiCard),
         ) {
             AsyncImage(
@@ -522,11 +522,19 @@ private fun isPosterFallback(item: BaseItemDto): Boolean =
 
 /**
  * Fades the hero (picture and trailer together) to transparent: the left edge
- * from transparent to opaque when [fadeLeft], and the bottom edge from opaque to
- * transparent. Top and right never fade. An alpha mask rather than a gradient of
- * the page colour, so it holds over whatever is behind the hero.
+ * from transparent to opaque when [fadeLeft], the top edge the same way when
+ * [fadeTop], and the bottom edge from opaque to transparent. The right edge never
+ * fades. An alpha mask rather than a gradient of the page colour, so it holds
+ * over whatever is behind the hero.
+ *
+ * [fadeTop] is for a phone, where the hero starts under the solid top bar and
+ * would otherwise end in a hard line there (#208). The wide hero runs off the
+ * top of the screen, so it keeps a square top.
  */
-private fun Modifier.heroEdgeFade(fadeLeft: Boolean): Modifier =
+private fun Modifier.heroEdgeFade(
+    fadeLeft: Boolean,
+    fadeTop: Boolean = false,
+): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
@@ -537,7 +545,13 @@ private fun Modifier.heroEdgeFade(fadeLeft: Boolean): Modifier =
                 )
             }
             drawRect(
-                Brush.verticalGradient(BackdropFade.BOTTOM_FADE_START to Color.Black, 1f to Color.Transparent),
+                Brush.verticalGradient(
+                    *BackdropFade
+                        .verticalStops(fadeTop)
+                        .map { (at, opaque) ->
+                            at to if (opaque) Color.Black else Color.Transparent
+                        }.toTypedArray(),
+                ),
                 blendMode = BlendMode.DstIn,
             )
         }

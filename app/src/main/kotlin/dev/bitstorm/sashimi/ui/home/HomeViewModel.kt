@@ -256,9 +256,11 @@ class HomeViewModel(
             viewModelScope.launch {
                 val service = ServiceLocator.sharedLists
                 val subs = runCatchingCancellable { service.subscriptions() }.getOrNull() ?: return@launch
+                // Every row's creator in one plugin call, not one per list.
+                val owners = service.owners(subs.map { it.id })
                 val loaded =
                     subs
-                        .map { sub -> sub to async { runCatchingCancellable { service.list(sub.id) } } }
+                        .map { sub -> sub to async { runCatchingCancellable { service.list(sub.id, owners) } } }
                         .map { (sub, result) -> Triple(sub, result.await().getOrNull(), result.await().isSuccess) }
                 val titles = homeRowSettings.rows.value.associate { it.listId to it.listTitle }
                 homeRowSettings.updateListRows(

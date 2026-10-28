@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import dev.bitstorm.sashimi.core.lists.ListCover
 import dev.bitstorm.sashimi.core.lists.SharedList
 import dev.bitstorm.sashimi.core.model.ImageRef
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -83,16 +84,16 @@ internal fun NewPill(count: Int) {
 }
 
 /**
- * A list's cover: the first four posters side by side (the approved mockup),
- * Jellyfin's generated playlist picture when the viewer can see no titles.
+ * A list's cover ([SharedList.cover]): a 2x2 collage of its first four
+ * different titles, the first poster full-bleed when it has fewer, Jellyfin's
+ * generated playlist picture when the viewer can see no titles.
  */
 @Composable
-internal fun ListCover(
+internal fun ListCoverImage(
     list: SharedList,
     width: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val tileWidth = rememberImageWidth(width / 4)
     Box(
         modifier
             .width(width)
@@ -100,33 +101,47 @@ internal fun ListCover(
             .clip(RoundedCornerShape(10.dp))
             .background(SashimiCard),
     ) {
-        val posters = list.items.take(4)
-        if (posters.isNotEmpty()) {
-            Row(Modifier.fillMaxSize()) {
-                posters.forEach { card ->
+        when (val cover = list.cover) {
+            is ListCover.Collage -> {
+                val tileWidth = rememberImageWidth(width / 2)
+                Column(Modifier.fillMaxSize()) {
+                    cover.tiles.chunked(2).forEach { row ->
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            row.forEach { item ->
+                                AsyncImage(
+                                    model = ImageUrls.cardPoster(item, tileWidth),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            is ListCover.Single ->
+                AsyncImage(
+                    model = ImageUrls.cardPoster(cover.item, rememberImageWidth(width)),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            ListCover.Empty ->
+                if (list.imageTag != null) {
                     AsyncImage(
-                        model = ImageUrls.cardPoster(card.item, tileWidth),
+                        model = ImageUrls.url(ImageRef(list.id, "Primary", list.imageTag), rememberImageWidth(width)),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Filled.PlaylistPlay,
+                        contentDescription = null,
+                        tint = SashimiTextTertiary,
+                        modifier = Modifier.align(Alignment.Center).size(36.dp),
                     )
                 }
-                repeat(4 - posters.size) { Box(Modifier.weight(1f).fillMaxHeight()) }
-            }
-        } else if (list.imageTag != null) {
-            AsyncImage(
-                model = ImageUrls.url(ImageRef(list.id, "Primary", list.imageTag), rememberImageWidth(width)),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Icon(
-                Icons.AutoMirrored.Filled.PlaylistPlay,
-                contentDescription = null,
-                tint = SashimiTextTertiary,
-                modifier = Modifier.align(Alignment.Center).size(36.dp),
-            )
         }
     }
 }
@@ -144,7 +159,7 @@ internal fun ListCard(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box {
-            ListCover(list, width)
+            ListCoverImage(list, width)
             if (subscribed) {
                 Text(
                     "✓ Subscribed",

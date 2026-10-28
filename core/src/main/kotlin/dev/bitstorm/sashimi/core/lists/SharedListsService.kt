@@ -5,9 +5,11 @@ import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.model.ItemsResponse
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.network.JellyfinError
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -45,9 +47,28 @@ data class SharedList(
     val count: Int get() = items.size
     val displayIds: List<String> get() = items.map { it.display.id }
 
-    /** "From Marge: Christmas Movies"; your own and unattributed lists use the name alone. */
+    /** "From Marge: Christmas Movies"; "Your list: Date Night"; an unattributed list uses the name alone. */
     val rowTitle: String
-        get() = if (isMine || ownerName == null) name else "From $ownerName: $name"
+        get() =
+            when {
+                isMine -> "Your list: $name"
+                ownerName == null -> name
+                else -> "From $ownerName: $name"
+            }
+
+    /** The cover drawn for this list (see [SharedLists.cover]). */
+    val cover: ListCover get() = SharedLists.cover(items)
+}
+
+/**
+ * The Sashimi Lists plugin's owners for a set of lists, fetched in one call.
+ * [owners] is null when the plugin is not there (404 or a network error); a
+ * list missing from a non-null map falls back the same way a single list does.
+ */
+class PluginOwners internal constructor(
+    internal val owners: Map<String, ListOwner>?,
+) {
+    fun ownerOf(id: String): ListOwner? = owners?.get(SharedLists.normalizeId(id))
 }
 
 /** What Add to List did. */
@@ -68,6 +89,8 @@ enum class AddResult { ADDED, ALREADY_ON_LIST }
  */
 class SharedListsService(
     private val client: JellyfinClient,
+    /** How long to wait before re-reading OpenAccess after a Public switch. */
+    private val publicRecheckDelayMs: Long = PUBLIC_RECHECK_DELAY_MS,
 ) {
     private val json =
         Json {
@@ -96,13 +119,21 @@ class SharedListsService(
                 listOf("Recursive" to "true", "IncludeItemTypes" to "Playlist", "userId" to uid, "SortBy" to "SortName"),
             )
         val playlists = decodeItems(raw)
+        val owners = owners(playlists.map { it.id })
         return coroutineScope {
-            playlists.map { dto -> async { runCatching404 { build(dto) } } }.awaitAll().filterNotNull()
+            playlists.map { dto -> async { runCatching404 { build(dto, owners.ownerOf(dto.id)) } } }.awaitAll().filterNotNull()
         }
     }
 
-    /** One list, or null when it is gone or private to someone else (404). */
-    suspend fun list(id: String): SharedList? {
+    /**
+     * One list, or null when it is gone or private to someone else (404).
+     * [owners] comes from one batch [owners] call for a whole page (Home);
+     * without it the plugin is asked about this list alone.
+     */
+    suspend fun list(
+        id: String,
+        owners: PluginOwners? = null,
+    ): SharedList? {
         val dto =
             try {
                 decodeItem(client.listsRequest("GET", "/Users/${me()}/Items/$id"))
@@ -113,26 +144,85 @@ class SharedListsService(
                 }
                 throw e
             }
-        return runCatching404 { build(dto) }.also { if (it == null) markMissing(id) }
+        val plugin = if (owners != null) owners.ownerOf(id) else pluginOwner(id)
+        return runCatching404 { build(dto, plugin) }.also { if (it == null) markMissing(id) }
     }
 
-    private suspend fun build(dto: BaseItemDto): SharedList =
+    /**
+     * Who made each of [ids], from the Sashimi Lists plugin in one call. The
+     * plugin only answers for lists this user can see. Never throws: without
+     * the plugin the lists fall back to the self-share.
+     */
+    suspend fun owners(ids: List<String>): PluginOwners {
+        if (ids.isEmpty()) return PluginOwners(emptyMap())
+        val map =
+            runCatchingCancellable {
+                json
+                    .decodeFromString<Map<String, ListOwner>>(
+                        client.listsRequest("GET", "/SashimiLists/Owners", listOf("ids" to ids.joinToString(","))),
+                    ).mapKeys { SharedLists.normalizeId(it.key) }
+            }.getOrNull()
+        return PluginOwners(map)
+    }
+
+    /** The plugin's owner of one list; null when it has none for it or is not installed. */
+    private suspend fun pluginOwner(id: String): ListOwner? =
+        runCatchingCancellable {
+            json.decodeFromString<ListOwner>(client.listsRequest("GET", "/SashimiLists/Playlists/$id/Owner"))
+        }.getOrNull()
+
+    /**
+     * Jellyfin 12.4 wipes the self-share from every public playlist whenever
+     * ANY user is deleted, so the self-share alone cannot be trusted. The owner
+     * comes from the plugin; without it, the self-share; failing that, the
+     * owner self-check (Jellyfin answers CanEdit for a playlist's real owner
+     * even with no share). An owner whose self-share is gone gets it back.
+     */
+    private suspend fun build(
+        dto: BaseItemDto,
+        plugin: ListOwner?,
+    ): SharedList =
         coroutineScope {
             val sharing = async { sharing(dto.id) }
             val items = async { items(dto.id) }
             val (isPublic, shares) = sharing.await()
-            val ownerId = SharedLists.owner(shares)
+            val uid = me()
+            val shareOwner = SharedLists.owner(shares)
+            val isMine =
+                when {
+                    plugin != null -> SharedLists.sameId(plugin.userId, uid)
+                    shareOwner != null -> SharedLists.sameId(shareOwner, uid)
+                    else -> ownerSelfCheck(dto.id)
+                }
+            val ownerId = if (isMine) uid else plugin?.userId ?: shareOwner
+            if (isMine && shares.none { it.canEdit && SharedLists.sameId(it.userId, uid) }) {
+                // Put the self-share back so clients without the plugin still see the creator.
+                runCatchingCancellable { shareWithCreator(dto.id) }
+            }
             SharedList(
                 id = dto.id,
                 name = dto.name,
                 isPublic = isPublic,
                 ownerId = ownerId,
-                ownerName = ownerId?.let { userName(it) },
-                isMine = ownerId != null && ownerId == me(),
+                ownerName = plugin?.name ?: ownerId?.let { userName(it) },
+                isMine = isMine,
                 items = items.await(),
                 imageTag = dto.imageTags?.get("Primary"),
             )
         }
+
+    /**
+     * `GET /Playlists/{id}/Users/{me}`: 200 with CanEdit for the owner (or an
+     * editor). CanDelete is not read: every admin has it. Any failure is "not mine".
+     */
+    private suspend fun ownerSelfCheck(id: String): Boolean =
+        runCatchingCancellable {
+            json.decodeFromString<PlaylistShare>(client.listsRequest("GET", "/Playlists/$id/Users/${me()}")).canEdit
+        }.getOrDefault(false)
+
+    private suspend fun shareWithCreator(id: String) {
+        client.listsRequest("POST", "/Playlists/$id/Users/${me()}", jsonBody = """{"CanEdit":true}""")
+    }
 
     private suspend fun sharing(id: String): Pair<Boolean, List<PlaylistShare>> {
         val dto = json.decodeFromString<PlaylistDto>(client.listsRequest("GET", "/Playlists/$id"))
@@ -219,7 +309,7 @@ class SharedListsService(
         val body = CreatePlaylistBody(name = name, ids = emptyList(), userId = uid, mediaType = "Video", isPublic = isPublic)
         val id = json.decodeFromString<CreatedPlaylist>(client.listsRequest("POST", "/Playlists", jsonBody = json.encodeToString(body))).id
         try {
-            client.listsRequest("POST", "/Playlists/$id/Users/$uid", jsonBody = """{"CanEdit":true}""")
+            shareWithCreator(id)
         } catch (e: Exception) {
             runCatching { client.listsRequest("DELETE", "/Items/$id") }
             throw e
@@ -267,7 +357,30 @@ class SharedListsService(
         client.listsRequest("POST", "/Playlists/$listId", jsonBody = json.encodeToString(UpdatePlaylistBody(name = name)))
     }
 
+    /**
+     * Sets Public/Private and returns what the SERVER then says. Jellyfin can
+     * undo the change about a second later (a queued refresh after an add
+     * saves the playlist from its earlier state), so OpenAccess is read again
+     * after [publicRecheckDelayMs]; if it was reverted, the change is sent once
+     * more and read again. Callers show the returned value, never their own.
+     */
     suspend fun setPublic(
+        listId: String,
+        isPublic: Boolean,
+    ): Boolean {
+        sendPublic(listId, isPublic)
+        delay(publicRecheckDelayMs)
+        val now = sharing(listId).first
+        if (now == isPublic) return now
+        sendPublic(listId, isPublic)
+        delay(publicRecheckDelayMs)
+        return sharing(listId).first
+    }
+
+    /** The server's OpenAccess for a list. */
+    suspend fun isPublic(listId: String): Boolean = sharing(listId).first
+
+    private suspend fun sendPublic(
         listId: String,
         isPublic: Boolean,
     ) {
@@ -312,6 +425,9 @@ class SharedListsService(
         const val PREFS_ID = "sashimi-lists"
         const val PREFS_CLIENT = "sashimi"
         const val SUBSCRIPTIONS_KEY = "subscriptions"
+
+        /** The lost update lands about 1 s after the change; 2 s clears it. */
+        const val PUBLIC_RECHECK_DELAY_MS = 2_000L
         private const val CUSTOM_PREFS = "CustomPrefs"
 
         /** Groups playlist entries into cards: S1:E1 as its series, repeats once. */
