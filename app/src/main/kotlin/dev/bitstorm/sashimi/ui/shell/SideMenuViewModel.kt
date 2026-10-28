@@ -48,8 +48,13 @@ class SideMenuViewModel(
     }
 
     val items: StateFlow<List<SideMenuItem>> =
-        combine(rowSettings.rows, serverLibraries, ServiceLocator.networkMonitor.isOnline) { rows, libraries, online ->
-            SideMenu.items(rows, libraries ?: provisional(rows), online)
+        combine(
+            rowSettings.rows,
+            serverLibraries,
+            ServiceLocator.networkMonitor.isOnline,
+            ServiceLocator.appSettings.showLists,
+        ) { rows, libraries, online, showLists ->
+            SideMenu.items(rows, libraries ?: provisional(rows), online, showLists)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, SideMenu.ALWAYS_SHOWN)
 
     private fun provisional(rows: List<HomeRowConfig>): List<JellyfinLibrary> =

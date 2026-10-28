@@ -47,6 +47,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.home.SideMenu
+import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
@@ -181,6 +182,28 @@ fun HomeRowOrderScreen(
                         },
                 )
             }
+        }
+        // Lists is a destination, not a Home row: only its side-menu toggle applies.
+        val showLists by ServiceLocator.appSettings.showLists.collectAsStateWithLifecycle()
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(RowHeight)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SashimiCard)
+                    .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Lists", color = SashimiTextPrimary, modifier = Modifier.weight(1f))
+            Box(Modifier.width(ToggleColumnWidth), Alignment.Center) { Text("\u2014", color = SashimiTextTertiary) }
+            ToggleCell(
+                on = showLists,
+                description = "Lists in the side menu",
+                onToggle = { ServiceLocator.appSettings.setShowLists(!showLists) },
+            )
+            Spacer(Modifier.width(DragHandleWidth))
         }
         Text(
             SideMenu.ALWAYS_SHOWN_NOTE,

@@ -956,6 +956,25 @@ class JellyfinClient(
         )
     }
 
+    // MARK: - Shared lists (core.lists.SharedListsService)
+
+    /**
+     * A raw call for [dev.bitstorm.sashimi.core.lists.SharedListsService],
+     * which owns the playlist and DisplayPreferences shapes. A 403 here is
+     * [JellyfinError.Forbidden]: the server refusing a change to someone
+     * else's list, never an expired session (a 403 on an ordinary request
+     * signs the user out).
+     */
+    internal suspend fun listsRequest(
+        method: String,
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+        jsonBody: String? = null,
+    ): String = execute(method, path, query, jsonBody, isAdminRequest = true)
+
+    /** The signed-in user's id, for list calls; throws when signed out. */
+    internal fun listsUserId(): String = requireUserId()
+
     // MARK: - Admin dashboard (verified against Jellyfin 12.2, see plans/sashimi-android)
 
     /** `GET /Users/Me`: the signed-in user with their policy (the admin gate). */

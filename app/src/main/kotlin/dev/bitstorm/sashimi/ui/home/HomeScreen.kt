@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     session: SessionManager,
     onOpenDetail: (itemId: String, libraryName: String?) -> Unit,
+    onOpenList: (listId: String) -> Unit,
     onSeeAll: (libraryId: String, libraryName: String, collectionType: String?) -> Unit,
     onAddServer: () -> Unit,
     modifier: Modifier = Modifier,
@@ -163,6 +164,8 @@ fun HomeScreen(
                                     onRemove = vm::removeFromContinueWatching,
                                 )
                             }
+                        HomeRowConfig.Kind.LIST ->
+                            ListRow(vm = vm, listId = row.listId ?: return@items, onOpenList = onOpenList, onOpenDetail = onOpenDetail)
                         HomeRowConfig.Kind.LIBRARY ->
                             RecentlyAddedRow(
                                 vm = vm,
@@ -368,6 +371,64 @@ private fun RecentlyAddedRow(
                             badgeCount = data.badgeCounts[key],
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A subscribed list ("From Marge: Christmas Movies") with its "N new" pill;
+ * new titles carry a NEW mark. Hidden while loading, when the list is gone,
+ * and when it is empty. The title opens the list (which marks it seen).
+ */
+@Composable
+private fun ListRow(
+    vm: HomeViewModel,
+    listId: String,
+    onOpenList: (String) -> Unit,
+    onOpenDetail: (String, String?) -> Unit,
+) {
+    val listRows by vm.listRows.collectAsStateWithLifecycle()
+    val data = listRows[listId] ?: return
+    if (data.list.items.isEmpty()) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { onOpenList(listId) }.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The title takes what it needs; the pill follows it and See All stays at the end.
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    data.list.rowTitle,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SashimiTextPrimary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (data.newIds.isNotEmpty()) {
+                    dev.bitstorm.sashimi.ui.lists
+                        .NewPill(data.newIds.size)
+                }
+            }
+            TextButton(onClick = { onOpenList(listId) }) { Text("See All", color = SashimiLink) }
+        }
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(horizontal = 16.dp),
+        ) {
+            items(data.list.items, key = { it.display.id }) { card ->
+                ContextMenuBox(item = card.item, onClick = { onOpenDetail(card.item.id, null) }) {
+                    PosterCard(item = card.item, width = 110.dp, isNew = card.display.id in data.newIds)
                 }
             }
         }

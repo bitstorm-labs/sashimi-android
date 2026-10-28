@@ -131,4 +131,20 @@ class DetailActionsTest {
         assertEquals("show-next", DetailActions.playTargetId(series, BaseItemDto(id = "show-next"), emptyList()))
         assertEquals("m", DetailActions.playTargetId(movie, null, emptyList()))
     }
+
+    @Test
+    fun `Add to List sits right before More on movies, series and episodes`() {
+        for (item in listOf(movie, series, episode)) {
+            val row = DetailActions.mainRow(item, online = true, listsAvailable = true)
+            assertEquals(listOf(DetailRowButton.ADD_TO_LIST, DetailRowButton.MORE), row.takeLast(2))
+        }
+    }
+
+    @Test
+    fun `Add to List is never offered on a season, offline, or for another server's title`() {
+        val season = BaseItemDto(id = "s", type = ItemType.SEASON)
+        assertFalse(DetailRowButton.ADD_TO_LIST in DetailActions.mainRow(season, online = true, listsAvailable = true))
+        assertFalse(DetailRowButton.ADD_TO_LIST in DetailActions.mainRow(movie, online = false, listsAvailable = true))
+        assertFalse(DetailRowButton.ADD_TO_LIST in DetailActions.mainRow(movie, online = true, listsAvailable = false))
+    }
 }

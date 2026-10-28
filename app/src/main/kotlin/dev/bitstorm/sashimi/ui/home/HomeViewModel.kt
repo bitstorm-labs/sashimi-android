@@ -54,6 +54,12 @@ sealed interface RemovalNotice {
     data object UndoFailed : RemovalNotice
 }
 
+/** A subscribed list's Home row: the list as this viewer sees it, and how many are new. */
+data class ListRowData(
+    val list: dev.bitstorm.sashimi.core.lists.SharedList,
+    val newIds: Set<String>,
+)
+
 /** Result of a Recently Added row load: deduped items + per-series unplayed counts. */
 data class RecentlyAddedData(
     val items: List<BaseItemDto> = emptyList(),
@@ -108,6 +114,15 @@ class HomeViewModel(
     private var rowGeneration = 0
 
     val rows = homeRowSettings.rows
+
+    /**
+     * Subscribed lists by playlist id, loaded after the other rows so Home
+     * never waits on them. A missing key: still loading (or the list is gone).
+     */
+    private val _listRows = MutableStateFlow<Map<String, ListRowData>>(emptyMap())
+    val listRows: StateFlow<Map<String, ListRowData>> = _listRows.asStateFlow()
+
+    private var listsJob: Job? = null
 
     init {
         // Reload when connectivity returns: content that loaded (or failed)
@@ -177,6 +192,7 @@ class HomeViewModel(
                 _recentlyAdded.value = emptyMap()
             }
             prefetchRecentlyAdded(mediaLibraries)
+            loadListRows()
             loadContinueWatchingLibraryNames(cw)
         }.onFailure {
             _state.update {
@@ -225,6 +241,38 @@ class HomeViewModel(
                 // Only clear the entry if it is still OURS -- removing blindly
                 // deleted a newer job's registration.
                 if (loadingRows[libraryId] === coroutineContext[Job]) loadingRows.remove(libraryId)
+            }
+    }
+
+    /**
+     * Subscribed lists become Home rows. Each list loads on its own, in
+     * parallel; a list that answers 404 (deleted, or made private) loses its
+     * row and is pruned from the subscriptions on their next save. Any other
+     * failure keeps the row as it was, so a blip never unsubscribes anyone.
+     */
+    private fun loadListRows() {
+        listsJob?.cancel()
+        listsJob =
+            viewModelScope.launch {
+                val service = ServiceLocator.sharedLists
+                val subs = runCatchingCancellable { service.subscriptions() }.getOrNull() ?: return@launch
+                val loaded =
+                    subs
+                        .map { sub -> sub to async { runCatchingCancellable { service.list(sub.id) } } }
+                        .map { (sub, result) -> Triple(sub, result.await().getOrNull(), result.await().isSuccess) }
+                val titles = homeRowSettings.rows.value.associate { it.listId to it.listTitle }
+                homeRowSettings.updateListRows(
+                    loaded
+                        .filter { (sub, list, ok) -> list != null || !ok && sub.id !in service.missing }
+                        .map { (sub, list, _) -> sub.id to (list?.rowTitle ?: titles[sub.id] ?: "List") },
+                )
+                _listRows.value =
+                    loaded
+                        .mapNotNull { (sub, list, _) ->
+                            list ?: return@mapNotNull null
+                            val seen = sub.seen.toSet()
+                            sub.id to ListRowData(list, list.displayIds.filterNot { it in seen }.toSet())
+                        }.toMap()
             }
     }
 

@@ -4,7 +4,7 @@ import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
 
 /** A button in a detail page's main action row. */
-enum class DetailRowButton { PLAY, START_OVER, SHUFFLE, TRAILER, WATCHED, DOWNLOAD, MORE }
+enum class DetailRowButton { PLAY, START_OVER, SHUFFLE, TRAILER, WATCHED, DOWNLOAD, ADD_TO_LIST, MORE }
 
 /** An entry in a detail page's "More" menu. */
 enum class DetailMenuItem {
@@ -26,17 +26,26 @@ enum class DetailMenuItem {
  * can reuse them.
  */
 object DetailActions {
+    /** What can go on a list: not seasons, people, channels or music. */
+    private val LISTABLE = setOf(ItemType.MOVIE, ItemType.SERIES, ItemType.EPISODE)
+
     /**
      * The main row, in Apple's order (DetailRowAction.mainRow, #198): Play,
      * Start Over (when [hasStartOver]: there is progress to start over from),
      * Shuffle (series), Trailer (a movie or series with a local trailer),
-     * Watched, Download (movies and episodes), More. Watched and Shuffle are
-     * server calls, so online-only.
+     * Watched, Download (movies and episodes), Add to List, More. Watched and
+     * Shuffle are server calls, so online-only.
+     *
+     * Add to List (shared lists, 2026-10-27) sits right before More, never in
+     * the More menu, on movies, series and episodes. [listsAvailable] is false
+     * for a title opened from a server other than the active one: lists come
+     * from the active server only.
      */
     fun mainRow(
         item: BaseItemDto,
         online: Boolean,
         hasStartOver: Boolean = false,
+        listsAvailable: Boolean = false,
     ): List<DetailRowButton> =
         buildList {
             add(DetailRowButton.PLAY)
@@ -45,6 +54,7 @@ object DetailActions {
             if ((item.localTrailerCount ?: 0) > 0 && item.type != ItemType.EPISODE) add(DetailRowButton.TRAILER)
             if (online) add(DetailRowButton.WATCHED)
             if (item.type == ItemType.MOVIE || item.type == ItemType.EPISODE) add(DetailRowButton.DOWNLOAD)
+            if (online && listsAvailable && item.type in LISTABLE) add(DetailRowButton.ADD_TO_LIST)
             add(DetailRowButton.MORE)
         }
 
