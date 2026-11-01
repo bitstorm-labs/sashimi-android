@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -142,6 +143,9 @@ private fun ServerEntry(
         singleLine = true,
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+        // The Fire TV keyboard's "Next" fires the IME action, not the button:
+        // without this the connect step reads as dead (remote gets stuck).
+        keyboardActions = KeyboardActions(onGo = { onConnect() }),
         modifier = modifier,
     )
     Button(
@@ -193,6 +197,7 @@ private fun LoginEntry(
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+        keyboardActions = KeyboardActions(onGo = { onSignIn() }),
         supportingText =
             if (isUnencrypted) {
                 { Text("This server uses http://, so your password is sent unencrypted.") }
