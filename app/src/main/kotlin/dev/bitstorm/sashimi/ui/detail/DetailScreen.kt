@@ -120,6 +120,7 @@ import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.person.CastOrdering
 import dev.bitstorm.sashimi.core.person.ServerMediaGrouping
 import dev.bitstorm.sashimi.core.person.displayRole
+import dev.bitstorm.sashimi.core.playback.AudioLanguageSummary
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.herotrailer.HeroTrailerBackdrop
 import dev.bitstorm.sashimi.herotrailer.rememberHeroTrailerOwner
@@ -815,6 +816,9 @@ private fun RatingsAndMedia(
                 val ac = info.audioCodec
                 val ch = info.audioChannels
                 if (ac != null && ch != null) AudioBadge(codec = ac, channels = ch)
+                // The language that will play, "+N" other languages (#219).
+                val preferredAudio by ServiceLocator.appSettings.preferredAudioLanguage.collectAsStateWithLifecycle()
+                AudioLanguageSummary.of(info.audioStreams, preferredAudio)?.let { MediaBadge(it.label()) }
             }
         }
         SeriesStatusBadge.from(item, state.seriesStatus)?.let { StatusBadge(it) }
