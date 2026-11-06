@@ -832,7 +832,8 @@ private val StatusUpcoming = Color(0xFF5CADE6)
 /**
  * Show-status badge at the end of the info row (series, season, episode): the word
  * in the status colour on that colour at 14% alpha. A rounded rectangle with the
- * same shape, text size/weight and padding as the neighbouring MediaBadge (#195).
+ * same shape, text size/weight, padding and 1dp white (30%) border as the
+ * neighbouring MediaBadge (#195, #222).
  */
 @Composable
 private fun StatusBadge(badge: SeriesStatusBadge) {
@@ -851,6 +852,7 @@ private fun StatusBadge(badge: SeriesStatusBadge) {
             Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(color.copy(alpha = 0.14f))
+                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
