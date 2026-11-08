@@ -223,3 +223,37 @@ class PrefsKeepNextEpisodesStore(
         private const val KEY = "settings"
     }
 }
+
+/**
+ * SharedPreferences-backed [dev.bitstorm.sashimi.core.seerr.SeerrSettingsStore]:
+ * the Seerr server, the last signed-in user (for an offline restore) and the
+ * Plex client id. Never the session cookie, which lives in [EncryptedTokenStore].
+ */
+class PrefsSeerrSettingsStore(
+    context: Context,
+) : dev.bitstorm.sashimi.core.seerr.SeerrSettingsStore {
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    override fun getString(key: String): String? = prefs.getString(key, null)
+
+    override fun getInt(key: String): Int? = if (prefs.contains(key)) prefs.getInt(key, 0) else null
+
+    override fun putString(
+        key: String,
+        value: String?,
+    ) {
+        prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+    }
+
+    override fun putInt(
+        key: String,
+        value: Int?,
+    ) {
+        prefs.edit().apply { if (value == null) remove(key) else putInt(key, value) }.apply()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "sashimi_seerr"
+    }
+}
