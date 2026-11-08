@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoveToInbox
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -121,6 +122,8 @@ import dev.bitstorm.sashimi.core.person.CastOrdering
 import dev.bitstorm.sashimi.core.person.ServerMediaGrouping
 import dev.bitstorm.sashimi.core.person.displayRole
 import dev.bitstorm.sashimi.core.playback.AudioLanguageSummary
+import dev.bitstorm.sashimi.core.seerr.SeerrTarget
+import dev.bitstorm.sashimi.core.seerr.SeerrTitle
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.herotrailer.HeroTrailerBackdrop
 import dev.bitstorm.sashimi.herotrailer.rememberHeroTrailerOwner
@@ -164,6 +167,8 @@ fun DetailScreen(
     onPlay: (playItemId: String, startFromBeginning: Boolean) -> Unit,
     onPlayTrailer: (trailerItemId: String) -> Unit,
     onOpenPerson: (PersonRoute) -> Unit,
+    /** A Seerr title's request page ("Request Missing Seasons" on a library show). */
+    onOpenSeerrTarget: (SeerrTarget) -> Unit = {},
     /** Pins the screen to one saved server; null = the active server. See [DetailRoute.serverId]. */
     serverId: String? = null,
 ) {
@@ -237,7 +242,16 @@ fun DetailScreen(
         scope.launch { vm.firstLocalTrailerId()?.let { onPlayTrailer(it) } }
     }
 
+    // "Request Missing Seasons" (Apple SeerrMissingSeasonsOffer): asks Seerr once
+    // per show on the active server, and only with a Seerr account.
+    val seerrUser by ServiceLocator.seerr.state.collectAsStateWithLifecycle()
+    val missingSeasons by androidx.compose.runtime.produceState<SeerrTarget?>(null, item?.id, seerrUser.user?.id, serverId) {
+        val show = item
+        value = if (show != null && serverId == null) SeerrTitle.missingSeasonsTarget(show, ServiceLocator.seerr) else null
+    }
+
     CompositionLocalProvider(
+        LocalMissingSeasons provides missingSeasons?.let { target -> { onOpenSeerrTarget(target) } },
         LocalImageUrls provides images,
         LocalItemServer provides itemServer,
         LocalOpenPerson provides openPerson,
@@ -298,6 +312,9 @@ private val LocalItemServer = staticCompositionLocalOf { ItemServer(null, Servic
 private val LocalOpenPerson = staticCompositionLocalOf<(PersonInfo) -> Unit> { {} }
 
 private val LocalListsAvailable = staticCompositionLocalOf { false }
+
+/** Opens the request page for a library show's missing seasons; null when there are none. */
+private val LocalMissingSeasons = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> { null }
 
 private val LocalDetailSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
 
@@ -1061,12 +1078,23 @@ private fun DetailActionOverflow(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val entries = DetailActions.moreMenu(item, online)
-    if (entries.isEmpty()) return
+    val requestMissing = LocalMissingSeasons.current
+    if (entries.isEmpty() && requestMissing == null) return
 
     FilledTonalIconButton(onClick = { open = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More", modifier = Modifier.size(20.dp))
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        if (requestMissing != null) {
+            DropdownMenuItem(
+                text = { Text("Request Missing Seasons") },
+                leadingIcon = { Icon(Icons.Filled.MoveToInbox, contentDescription = null) },
+                onClick = {
+                    open = false
+                    requestMissing()
+                },
+            )
+        }
         entries.forEachIndexed { index, entry ->
             if (entry.isItemManagement && index > 0 && !entries[index - 1].isItemManagement) HorizontalDivider()
             val isFavorite = item.userData?.isFavorite == true

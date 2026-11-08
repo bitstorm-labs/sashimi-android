@@ -36,12 +36,24 @@ data class HomeRowConfig(
     val listTitle: String? = null,
 ) {
     /** Whether this row has a side-menu toggle at all ("—" otherwise). */
-    val isSideMenuDestination: Boolean get() = kind == Kind.LIBRARY
+    val isSideMenuDestination: Boolean get() = kind == Kind.LIBRARY || kind == Kind.REQUESTS || kind == Kind.LISTS || kind == Kind.DASHBOARD
+
+    /**
+     * A side-menu entry Home draws no row for (Lists, the admin Dashboard): it
+     * is in this list only for its place in the one order Home & Side Menu
+     * edits, and its Home toggle is "—" (Apple SideMenuOrder parity).
+     */
+    val isMenuOnly: Boolean get() = kind == Kind.LISTS || kind == Kind.DASHBOARD
 
     /** Hidden from both Home and the side menu: only Search can reach it. */
-    val isOnlyReachableFromSearch: Boolean get() = isSideMenuDestination && !isEnabled && !showInSideMenu
+    val isOnlyReachableFromSearch: Boolean get() = kind == Kind.LIBRARY && !isEnabled && !showInSideMenu
 
-    enum class Kind { CONTINUE_WATCHING, LIBRARY, LIST }
+    /**
+     * Names are what is saved: never rename one once shipped. REQUESTS is the
+     * Seerr requests row (a Home row and the Requests menu entry); LISTS and
+     * DASHBOARD are menu-only.
+     */
+    enum class Kind { CONTINUE_WATCHING, LIBRARY, LIST, REQUESTS, LISTS, DASHBOARD }
 
     /** Stable identity used for reordering + dedupe (matches the Swift `id`). */
     val id: String
@@ -50,6 +62,9 @@ data class HomeRowConfig(
                 Kind.CONTINUE_WATCHING -> CONTINUE_WATCHING_ID
                 Kind.LIBRARY -> libraryId ?: ""
                 Kind.LIST -> "$LIST_ID_PREFIX${listId ?: ""}"
+                Kind.REQUESTS -> REQUESTS_ID
+                Kind.LISTS -> LISTS_ID
+                Kind.DASHBOARD -> DASHBOARD_ID
             }
 
     val displayName: String
@@ -58,11 +73,21 @@ data class HomeRowConfig(
                 Kind.CONTINUE_WATCHING -> "Continue Watching"
                 Kind.LIBRARY -> "Recently Added ${libraryName ?: ""}"
                 Kind.LIST -> listTitle ?: "List"
+                Kind.REQUESTS -> "Requests"
+                Kind.LISTS -> "Lists"
+                Kind.DASHBOARD -> "Dashboard"
             }
 
     companion object {
         const val CONTINUE_WATCHING_ID = "continue_watching"
         const val LIST_ID_PREFIX = "list:"
+
+        /** The requests row's id: never changes once shipped (Apple raw value parity). */
+        const val REQUESTS_ID = "requests"
+
+        /** Menu-only keys, as Apple saves them ("menu:<destination>"). */
+        const val LISTS_ID = "menu:lists"
+        const val DASHBOARD_ID = "menu:dashboard"
 
         /** Android Home has no hero row; the shared placement rule still takes its key. */
         const val HERO_ID = "hero"
@@ -73,6 +98,12 @@ data class HomeRowConfig(
         ) = HomeRowConfig(kind = Kind.LIST, listId = id, listTitle = title)
 
         fun continueWatching(isEnabled: Boolean = true): HomeRowConfig = HomeRowConfig(kind = Kind.CONTINUE_WATCHING, isEnabled = isEnabled)
+
+        fun requests(): HomeRowConfig = HomeRowConfig(kind = Kind.REQUESTS)
+
+        fun lists(): HomeRowConfig = HomeRowConfig(kind = Kind.LISTS)
+
+        fun dashboard(): HomeRowConfig = HomeRowConfig(kind = Kind.DASHBOARD)
 
         fun library(
             id: String,
@@ -112,7 +143,7 @@ class HomeRowSettings(
      * the migration behaviour: an install with no saved order still gets the
      * built-in row (port of Swift loadRows()).
      */
-    private fun loadRows(): List<HomeRowConfig> = store.load() ?: listOf(HomeRowConfig.continueWatching())
+    private fun loadRows(): List<HomeRowConfig> = normalized(store.load() ?: listOf(HomeRowConfig.continueWatching()))
 
     /**
      * Reconcile the row list against the current library set: append rows for
@@ -123,12 +154,22 @@ class HomeRowSettings(
     fun updateLibraries(libraries: List<JellyfinLibrary>) {
         val current = _rows.value.toMutableList()
 
-        // Append any library not already present.
+        // Add any library not already present: after the last library row,
+        // or (none yet) before the menu-only entries, so Lists and the
+        // Dashboard keep following the libraries until the user moves them.
         for (library in libraries) {
             val present =
                 current.any { it.kind == HomeRowConfig.Kind.LIBRARY && it.libraryId == library.id }
             if (!present) {
-                current.add(HomeRowConfig.library(id = library.id, name = library.name))
+                val lastLibrary = current.indexOfLast { it.kind == HomeRowConfig.Kind.LIBRARY }
+                val firstMenuOnly = current.indexOfFirst { it.isMenuOnly }
+                val at =
+                    when {
+                        lastLibrary >= 0 -> lastLibrary + 1
+                        firstMenuOnly >= 0 -> firstMenuOnly
+                        else -> current.size
+                    }
+                current.add(at, HomeRowConfig.library(id = library.id, name = library.name))
             }
         }
 
@@ -174,10 +215,19 @@ class HomeRowSettings(
         commit(list)
     }
 
-    /** Toggle a row's visibility by its stable id. */
+    /** Move the row [fromId] to where [toId] is now (the screen lists some rows only while they apply). */
+    fun moveRow(
+        fromId: String,
+        toId: String,
+    ) {
+        val list = _rows.value
+        moveRow(list.indexOfFirst { it.id == fromId }, list.indexOfFirst { it.id == toId })
+    }
+
+    /** Toggle a row's visibility by its stable id. Menu-only entries have no Home visibility. */
     fun toggleRow(id: String) {
         val list =
-            _rows.value.map { if (it.id == id) it.copy(isEnabled = !it.isEnabled) else it }
+            _rows.value.map { if (it.id == id && !it.isMenuOnly) it.copy(isEnabled = !it.isEnabled) else it }
         commit(list)
     }
 
@@ -190,7 +240,27 @@ class HomeRowSettings(
         commit(list)
     }
 
-    fun setRows(rows: List<HomeRowConfig>) = commit(rows)
+    fun setRows(rows: List<HomeRowConfig>) = commit(normalized(rows))
+
+    companion object {
+        /**
+         * Adds the built-in entries a saved order is missing, without moving
+         * anything already there: the requests row right after Continue
+         * Watching (where Apple drew it before it was a row; the start if
+         * there is none), then Lists and the Dashboard at the end, which is
+         * where the side menu has always listed Lists.
+         */
+        fun normalized(rows: List<HomeRowConfig>): List<HomeRowConfig> {
+            val result = rows.toMutableList()
+            if (result.none { it.kind == HomeRowConfig.Kind.REQUESTS }) {
+                val cw = result.indexOfFirst { it.kind == HomeRowConfig.Kind.CONTINUE_WATCHING }
+                result.add(if (cw >= 0) cw + 1 else 0, HomeRowConfig.requests())
+            }
+            if (result.none { it.kind == HomeRowConfig.Kind.LISTS }) result.add(HomeRowConfig.lists())
+            if (result.none { it.kind == HomeRowConfig.Kind.DASHBOARD }) result.add(HomeRowConfig.dashboard())
+            return result
+        }
+    }
 
     private fun commit(rows: List<HomeRowConfig>) {
         _rows.value = rows

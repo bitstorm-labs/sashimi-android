@@ -105,6 +105,8 @@ fun SettingsScreen(
     onOpenRowOrder: () -> Unit,
     /** Opens the admin dashboard; the row only exists for an administrator. */
     onOpenServerDashboard: () -> Unit,
+    /** Settings › Requests: the Seerr server and sign-in. */
+    onOpenRequestsSettings: () -> Unit,
     /** Compact width decides the hero-trailer default until the user picks one. */
     isCompact: Boolean,
     modifier: Modifier = Modifier,
@@ -162,6 +164,18 @@ fun SettingsScreen(
             if (isAdmin) {
                 item { SectionHeader("ADMIN") }
                 item { NavRow("Dashboard", onClick = onOpenServerDashboard) }
+            }
+
+            item { SectionHeader("REQUESTS") }
+            item {
+                val seerr by ServiceLocator.seerr.state.collectAsStateWithLifecycle()
+                val label =
+                    when (val s = seerr) {
+                        is dev.bitstorm.sashimi.core.seerr.SeerrAuthState.SignedIn -> "Requests \u00B7 ${s.account.name}"
+                        dev.bitstorm.sashimi.core.seerr.SeerrAuthState.Expired -> "Requests \u00B7 sign in again"
+                        else -> "Requests"
+                    }
+                NavRow(label, onClick = onOpenRequestsSettings)
             }
 
             item { SectionHeader("HOME SCREEN") }

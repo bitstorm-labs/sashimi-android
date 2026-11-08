@@ -544,7 +544,7 @@ class JellyfinClient(
                         "Fields" to
                             "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
                             "Genres,Taglines,ParentBackdropImageTags,BackdropImageTags,UserData," +
-                            "ParentId,Path,MediaStreams",
+                            "ParentId,Path,MediaStreams,ProviderIds",
                         "EnableImageTypes" to "Primary,Backdrop,Thumb",
                         "IncludeItemTypes" to "Movie,Series",
                         "Recursive" to "true",
@@ -656,7 +656,7 @@ class JellyfinClient(
                         "Fields" to
                             "Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating," +
                             "Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags," +
-                            "RemoteTrailers,LocalTrailerCount,Trickplay",
+                            "RemoteTrailers,LocalTrailerCount,Trickplay,ProviderIds",
                         // Logo/Banner too, so their tags reach the logo and banner URLs.
                         "EnableImageTypes" to "Primary,Backdrop,Thumb,Logo,Banner",
                     ),

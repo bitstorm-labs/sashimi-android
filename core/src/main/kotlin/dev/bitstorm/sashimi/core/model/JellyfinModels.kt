@@ -176,6 +176,8 @@ data class BaseItemDto(
     @SerialName("PrimaryImageAspectRatio") val primaryImageAspectRatio: Double? = null,
     @SerialName("MediaType") val mediaType: String? = null,
     @SerialName("ProductionYear") val productionYear: Int? = null,
+    // Only with Fields=ProviderIds (search, getItem): "Tmdb" matches a Seerr title.
+    @SerialName("ProviderIds") val providerIds: Map<String, String>? = null,
     @SerialName("CommunityRating") val communityRating: Double? = null,
     @SerialName("OfficialRating") val officialRating: String? = null,
     // Series air status ("Continuing" / "Ended" / "Unreleased"). Jellyfin sends it

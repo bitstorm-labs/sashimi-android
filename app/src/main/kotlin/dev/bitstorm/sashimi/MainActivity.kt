@@ -98,6 +98,8 @@ class MainActivity : ComponentActivity() {
 
     private fun stashDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "sashimi") ServiceLocator.setPendingDeepLink(data.toString())
+        // plex-auth only brings the app back from Plex's sign-in page; the
+        // Seerr session is already polling the PIN.
+        if (data.scheme == "sashimi" && data.host != "plex-auth") ServiceLocator.setPendingDeepLink(data.toString())
     }
 }

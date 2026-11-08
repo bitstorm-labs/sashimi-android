@@ -91,6 +91,8 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3.window.size)
     implementation(libs.androidx.navigation.compose)
+    // Custom Tabs: Plex sign-in for Seerr requests opens app.plex.tv in one.
+    implementation(libs.androidx.browser)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
 
