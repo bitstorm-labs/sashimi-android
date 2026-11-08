@@ -28,11 +28,14 @@ import dev.bitstorm.sashimi.core.remote.RemoteControlPresence
 import dev.bitstorm.sashimi.core.remote.RemoteMessageBoard
 import dev.bitstorm.sashimi.core.remote.RemoteSessionKey
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
+import dev.bitstorm.sashimi.core.seerr.PlexPinClient
+import dev.bitstorm.sashimi.core.seerr.SeerrSession
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHiddenSeriesStore
 import dev.bitstorm.sashimi.core.session.PrefsHomeRowStore
 import dev.bitstorm.sashimi.core.session.PrefsKeepNextEpisodesStore
 import dev.bitstorm.sashimi.core.session.PrefsRecentSearchStore
+import dev.bitstorm.sashimi.core.session.PrefsSeerrSettingsStore
 import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.ServerScopedClients
 import dev.bitstorm.sashimi.core.session.SessionManager
@@ -40,6 +43,7 @@ import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.herotrailer.HeroTrailerController
 import dev.bitstorm.sashimi.themesong.ThemeSongService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +122,14 @@ object ServiceLocator {
     lateinit var appSettings: AppSettings
         private set
 
+    /**
+     * The person's Seerr (Overseerr/Jellyseerr) account for requests. Not set
+     * up means no request UI anywhere. Its cookie lives in the encrypted token
+     * store, keyed per Seerr server.
+     */
+    lateinit var seerr: SeerrSession
+        private set
+
     lateinit var playbackEngine: PlaybackEngine
         private set
 
@@ -184,11 +196,14 @@ object ServiceLocator {
         // session reported the client's placeholder default, 0.1.0 (#163).
         client = JellyfinClient(deviceId = stableDeviceId(app), clientVersion = BuildConfig.VERSION_NAME)
         val serverStore = PrefsServerStore(app)
+        // One instance for Jellyfin tokens and the Seerr cookie: two would race to
+        // create the same encrypted file's keyset on first launch.
+        val tokenStore = EncryptedTokenStore(app)
         session =
             SessionManager(
                 gateway = client,
                 serverStore = serverStore,
-                tokenStore = EncryptedTokenStore(app),
+                tokenStore = tokenStore,
                 scope = appScope,
             )
         serverClients =
@@ -211,6 +226,14 @@ object ServiceLocator {
         continueWatchingHides = ContinueWatchingHides(PrefsHiddenSeriesStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
+        seerr =
+            SeerrSession(
+                settings = PrefsSeerrSettingsStore(app),
+                cookies = tokenStore,
+                plexFactory = { PlexPinClient(it, BuildConfig.VERSION_NAME) },
+            )
+        // Checks a stored cookie with the server; stays off the network without one.
+        appScope.launch(Dispatchers.Main) { seerr.restore() }
         networkMonitor = NetworkMonitor(app)
         startRemoteControl()
         playbackEngine =

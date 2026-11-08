@@ -80,9 +80,11 @@ fun HomeScreen(
     onOpenList: (listId: String) -> Unit,
     onSeeAll: (libraryId: String, libraryName: String, collectionType: String?) -> Unit,
     onAddServer: () -> Unit,
+    onOpenSeerrTarget: (dev.bitstorm.sashimi.core.seerr.SeerrTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory())
+    val requestsVm: dev.bitstorm.sashimi.ui.requests.HomeRequestsViewModel = viewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val rows by vm.rows.collectAsStateWithLifecycle()
 
@@ -95,6 +97,7 @@ fun HomeScreen(
     // initial load above (#186: a remembered flag reset on every return).
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
         vm.onScreenResumed()
+        requestsVm.load()
         onPauseOrDispose {}
     }
 
@@ -152,7 +155,8 @@ fun HomeScreen(
                     }
                 }
             } else {
-                items(rows.filter { it.isEnabled }, key = { it.id }) { row ->
+                // Menu-only entries (Lists, Dashboard) hold a place in the order, not a row.
+                items(rows.filter { it.isEnabled && !it.isMenuOnly }, key = { it.id }) { row ->
                     when (row.kind) {
                         HomeRowConfig.Kind.CONTINUE_WATCHING ->
                             if (state.continueWatching.isNotEmpty()) {
@@ -164,6 +168,11 @@ fun HomeScreen(
                                     onRemove = vm::removeFromContinueWatching,
                                 )
                             }
+                        // Draws nothing without a Seerr account or anything waiting.
+                        HomeRowConfig.Kind.REQUESTS ->
+                            dev.bitstorm.sashimi.ui.requests
+                                .SeerrHomeRow(vm = requestsVm, onOpenTarget = onOpenSeerrTarget)
+                        HomeRowConfig.Kind.LISTS, HomeRowConfig.Kind.DASHBOARD -> Unit
                         HomeRowConfig.Kind.LIST ->
                             ListRow(vm = vm, listId = row.listId ?: return@items, onOpenList = onOpenList, onOpenDetail = onOpenDetail)
                         HomeRowConfig.Kind.LIBRARY ->

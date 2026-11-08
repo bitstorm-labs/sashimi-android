@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoveToInbox
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,12 +93,18 @@ import dev.bitstorm.sashimi.ui.nav.ListsRoute
 import dev.bitstorm.sashimi.ui.nav.PersonRoute
 import dev.bitstorm.sashimi.ui.nav.PlayerRoute
 import dev.bitstorm.sashimi.ui.nav.RecentlyAddedRoute
+import dev.bitstorm.sashimi.ui.nav.RequestsRoute
+import dev.bitstorm.sashimi.ui.nav.RequestsSettingsRoute
 import dev.bitstorm.sashimi.ui.nav.SearchRoute
+import dev.bitstorm.sashimi.ui.nav.SeerrTitleRoute
 import dev.bitstorm.sashimi.ui.nav.ServerDashboardRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
 import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.remote.RemoteMessageBanner
+import dev.bitstorm.sashimi.ui.requests.RequestsScreen
+import dev.bitstorm.sashimi.ui.requests.RequestsSettingsScreen
+import dev.bitstorm.sashimi.ui.requests.SeerrTitleScreen
 import dev.bitstorm.sashimi.ui.search.SearchScreen
 import dev.bitstorm.sashimi.ui.settings.SettingsScreen
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -241,6 +249,10 @@ private fun AppShell(
         }
     }
 
+    val openSeerrTarget: (dev.bitstorm.sashimi.core.seerr.SeerrTarget) -> Unit = { target ->
+        navController.navigate(SeerrTitleRoute(target.kind.wire, target.tmdbId, target.title, target.posterPath))
+    }
+
     val host: @Composable (Modifier) -> Unit = { hostModifier ->
         NavHost(
             navController = navController,
@@ -255,6 +267,7 @@ private fun AppShell(
                         onOpenList = { id -> navController.navigate(ListDetailRoute(id)) },
                         onSeeAll = { id, name, ct -> navController.navigate(RecentlyAddedRoute(id, name, ct)) },
                         onAddServer = { showAddServer = true },
+                        onOpenSeerrTarget = openSeerrTarget,
                     )
                 } else {
                     OfflineHomeScreen(
@@ -273,6 +286,31 @@ private fun AppShell(
             composable<LibrariesRoute> {
                 LibrariesScreen(
                     onOpenLibrary = { id, name, ct -> navController.navigate(LibraryBrowseRoute(id, name, ct)) },
+                    onOpenRequests = { navController.navigate(RequestsRoute) },
+                )
+            }
+            composable<RequestsRoute> {
+                RequestsScreen(
+                    onOpenTarget = openSeerrTarget,
+                    onOpenSettings = { navController.navigate(RequestsSettingsRoute) },
+                    // A rail root on wide layouts; pushed from Libraries on phones.
+                    onBack = if (isCompact) ({ navController.popBackStack() }) else null,
+                )
+            }
+            composable<RequestsSettingsRoute> {
+                RequestsSettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable<SeerrTitleRoute> { entry ->
+                val route = entry.toRoute<SeerrTitleRoute>()
+                val kind =
+                    dev.bitstorm.sashimi.core.seerr.SeerrMediaKind
+                        .from(route.kind) ?: dev.bitstorm.sashimi.core.seerr.SeerrMediaKind.MOVIE
+                SeerrTitleScreen(
+                    target =
+                        dev.bitstorm.sashimi.core.seerr
+                            .SeerrTarget(kind, route.tmdbId, route.title, route.posterPath),
+                    onBack = { navController.popBackStack() },
+                    onOpenLibraryItem = { id -> navController.navigate(DetailRoute(id)) },
                 )
             }
             composable<ListsRoute> {
@@ -293,6 +331,7 @@ private fun AppShell(
                 SearchScreen(
                     isCompact = isCompact,
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln)) },
+                    onOpenSeerrTarget = openSeerrTarget,
                 )
             }
             composable<DownloadsRoute> {
@@ -304,6 +343,7 @@ private fun AppShell(
                     onAddServer = { showAddServer = true },
                     onOpenRowOrder = { navController.navigate(HomeRowOrderRoute) },
                     onOpenServerDashboard = { navController.navigate(ServerDashboardRoute) },
+                    onOpenRequestsSettings = { navController.navigate(RequestsSettingsRoute) },
                     isCompact = isCompact,
                 )
             }
@@ -357,6 +397,7 @@ private fun AppShell(
                     // Episodes, seasons and "Go to Series" stay on the same server.
                     onOpenDetail = { id, ln -> navController.navigate(DetailRoute(id, ln, route.serverId)) },
                     onOpenPerson = { navController.navigate(it) },
+                    onOpenSeerrTarget = openSeerrTarget,
                     // Playback stays on the title's server too, without switching servers.
                     onPlay = { playId, fromBeginning ->
                         DetailAmbience.stopForPlayback()
@@ -438,6 +479,12 @@ private fun AppShell(
                             selected =
                                 when (item) {
                                     is SideMenuItem.Library -> item.id == openLibraryId
+                                    SideMenuItem.Requests ->
+                                        currentDestination?.hierarchy?.any { it.hasRoute(RequestsRoute::class) } ==
+                                            true
+                                    SideMenuItem.Dashboard ->
+                                        currentDestination?.hierarchy?.any { it.hasRoute(ServerDashboardRoute::class) } ==
+                                            true
                                     else -> dest != null && currentDestination.isOnTab(dest)
                                 },
                             onClick = {
@@ -447,17 +494,38 @@ private fun AppShell(
                                             // A side-menu library is a root, like a tab.
                                             popUpTo(navController.graph.findStartDestination().id) { saveState = false }
                                         }
+                                    // Menu entries that are not tabs are roots too.
+                                    SideMenuItem.Requests ->
+                                        navController.navigate(RequestsRoute) {
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                                            launchSingleTop = true
+                                        }
+                                    SideMenuItem.Dashboard ->
+                                        navController.navigate(ServerDashboardRoute) {
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                                            launchSingleTop = true
+                                        }
                                     else -> dest?.let(navigateToTab)
                                 }
                             },
                             icon = {
-                                if (dest != null) {
-                                    DestinationIcon(dest)
-                                } else if (item is SideMenuItem.Library) {
-                                    Icon(libraryIcon(item), contentDescription = item.name)
+                                when {
+                                    dest != null -> DestinationIcon(dest)
+                                    item is SideMenuItem.Library -> Icon(libraryIcon(item), contentDescription = item.name)
+                                    item == SideMenuItem.Requests -> Icon(Icons.Filled.MoveToInbox, contentDescription = "Requests")
+                                    item == SideMenuItem.Dashboard -> Icon(Icons.Filled.Speed, contentDescription = "Dashboard")
                                 }
                             },
-                            label = { NavLabel(if (item is SideMenuItem.Library) item.name else dest?.label.orEmpty()) },
+                            label = {
+                                NavLabel(
+                                    when (item) {
+                                        is SideMenuItem.Library -> item.name
+                                        SideMenuItem.Requests -> "Requests"
+                                        SideMenuItem.Dashboard -> "Dashboard"
+                                        else -> dest?.label.orEmpty()
+                                    },
+                                )
+                            },
                         )
                     }
                 }
@@ -525,7 +593,7 @@ private val SideMenuItem.destination: Destination?
             SideMenuItem.Downloads -> Destination.DOWNLOADS
             SideMenuItem.Settings -> Destination.SETTINGS
             SideMenuItem.Lists -> Destination.LISTS
-            is SideMenuItem.Library -> null
+            is SideMenuItem.Library, SideMenuItem.Requests, SideMenuItem.Dashboard -> null
         }
 
 /** A library's side-menu icon. YouTube libraries report "tvshows", so they match by name (Apple parity). */

@@ -36,6 +36,11 @@ class SearchViewModel(
 
     val recentSearches = recentSearchStore.searches
 
+    /** "Not in your library": Seerr titles for the same query, only with a Seerr account. */
+    val seerr =
+        dev.bitstorm.sashimi.core.seerr
+            .SeerrSearch(ServiceLocator.seerr)
+
     private var searchJob: Job? = null
     private var historyJob: Job? = null
 
@@ -68,6 +73,7 @@ class SearchViewModel(
     private suspend fun performSearch(query: String) {
         if (query.isEmpty()) {
             _state.update { it.copy(results = emptyList(), isSearching = false) }
+            seerr.clear()
             return
         }
         _state.update { it.copy(isSearching = true) }
@@ -81,6 +87,8 @@ class SearchViewModel(
         // Ignore a stale response if the text moved on.
         if (_state.value.searchText == query) {
             _state.update { it.copy(results = results, isSearching = false) }
+            // After the library answers, so nothing appears in both rows.
+            seerr.search(query, results)
         } else {
             _state.update { it.copy(isSearching = false) }
         }
