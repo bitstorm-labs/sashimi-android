@@ -204,18 +204,18 @@ class SeerrClient(
         val cookie = cookie
         if (cookie != null && !isSignIn) builder.header("Cookie", cookie)
         builder.method(method, body?.toRequestBody(JSON))
-        val response =
+        val it =
             try {
-                http.newCall(builder.build()).await()
+                http.newCall(builder.build()).awaitReply()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: IOException) {
                 throw SeerrError.Network("Couldn't reach the request server.")
             }
-        response.use {
-            val text = it.body.string()
+        run {
+            val text = it.body
             return when (it.code) {
-                in 200..299 -> Reply(text, it.headers("Set-Cookie"))
+                in 200..299 -> Reply(text, it.setCookies)
                 401, 403 -> throw if (isSignIn) SeerrError.InvalidCredentials else SeerrError.Unauthorized
                 else -> {
                     val error = runCatching { SeerrJson.json.decodeFromString<SeerrErrorBody>(text) }.getOrNull()
@@ -314,17 +314,17 @@ class PlexPinClient(
                 .header("X-Plex-Platform", "Android")
                 .header("X-Plex-Device-Name", "Sashimi (Android)")
                 .build()
-        val response =
+        val it =
             try {
-                http.newCall(request).await()
+                http.newCall(request).awaitReply()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: IOException) {
                 throw SeerrError.Network("Couldn't reach plex.tv.")
             }
-        response.use {
+        run {
             if (it.code !in 200..299) throw SeerrError.Server(it.code, null)
-            val text = it.body.string()
+            val text = it.body
             return try {
                 SeerrJson.json.decodeFromString(text)
             } catch (_: Exception) {
@@ -356,27 +356,41 @@ class PlexPinClient(
     }
 }
 
-/** OkHttp's async call as a cancellable suspend: cancelling the coroutine cancels the call. */
-internal suspend fun Call.await(): Response =
-    withContext(Dispatchers.IO) {
-        suspendCancellableCoroutine { cont ->
-            cont.invokeOnCancellation { runCatching { cancel() } }
-            enqueue(
-                object : Callback {
-                    override fun onFailure(
-                        call: Call,
-                        e: IOException,
-                    ) {
-                        if (!cont.isCancelled) cont.resumeWithException(e)
-                    }
+/** A finished HTTP exchange, body already read. */
+internal class HttpReply(
+    val code: Int,
+    val body: String,
+    val setCookies: List<String>,
+)
 
-                    override fun onResponse(
-                        call: Call,
-                        response: Response,
-                    ) {
-                        cont.resume(response)
-                    }
-                },
-            )
-        }
+/**
+ * OkHttp's async call as a cancellable suspend, with the body read on the IO
+ * dispatcher too. Reading it on the caller's (main) thread threw
+ * NetworkOnMainThreadException for any body not already buffered, which
+ * surfaced as "sent something unexpected" on every Discover row.
+ */
+internal suspend fun Call.awaitReply(): HttpReply =
+    withContext(Dispatchers.IO) {
+        val response =
+            suspendCancellableCoroutine { cont ->
+                cont.invokeOnCancellation { runCatching { cancel() } }
+                enqueue(
+                    object : Callback {
+                        override fun onFailure(
+                            call: Call,
+                            e: IOException,
+                        ) {
+                            if (!cont.isCancelled) cont.resumeWithException(e)
+                        }
+
+                        override fun onResponse(
+                            call: Call,
+                            response: Response,
+                        ) {
+                            cont.resume(response)
+                        }
+                    },
+                )
+            }
+        response.use { HttpReply(it.code, it.body.string(), it.headers("Set-Cookie")) }
     }

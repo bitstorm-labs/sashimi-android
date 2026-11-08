@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -298,4 +299,42 @@ class SeerrClientTest {
         assertNull(SeerrClient.sessionCookie(listOf("connect.sid=; Path=/")))
         assertNull(SeerrClient.sessionCookie(emptyList()))
     }
+
+    /**
+     * Found on the emulator: the body was read on the caller's thread (main on
+     * Android), which throws NetworkOnMainThreadException for any body not
+     * already buffered, so every Discover row failed as "unexpected".
+     */
+    @Test
+    fun `the response body is read off the calling thread`() =
+        runTest {
+            var readOn: Thread? = null
+            val body =
+                object : okhttp3.ResponseBody() {
+                    override fun contentType() = "application/json".toMediaType()
+
+                    override fun contentLength() = -1L
+
+                    override fun source(): okio.BufferedSource {
+                        readOn = Thread.currentThread()
+                        return okio.Buffer().writeUtf8(SeerrFixtures.user())
+                    }
+                }
+            val http =
+                okhttp3.OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        okhttp3.Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("ok")
+                            .body(body)
+                            .build()
+                    }.build()
+            val caller = Thread.currentThread()
+            SeerrClient(SeerrFixtures.SERVER, SeerrFixtures.SESSION_COOKIE, http).currentUser()
+            assertTrue("read on the caller's thread", readOn != null && readOn != caller)
+        }
 }

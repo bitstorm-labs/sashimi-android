@@ -119,7 +119,12 @@ fun SeerrTitleScreen(
                             ).joinToString(" · ")
                         if (facts.isNotEmpty()) Text(facts, color = SashimiTextSecondary)
                         if (!details?.genres.isNullOrEmpty()) Text(details.genres.joinToString(", "), color = SashimiTextTertiary)
-                        if (details != null) StatusPill(SeerrStatusLabel(vm.model.badge.label, vm.model.badge))
+                        // No "Request" pill over a Request button: only a state worth saying.
+                        if (details != null &&
+                            vm.model.badge != SeerrBadge.REQUEST
+                        ) {
+                            StatusPill(SeerrStatusLabel(vm.model.badge.label, vm.model.badge))
+                        }
                     }
                 }
                 ActionArea(state, onRequestMovie = vm::requestMovie, onChooseSeasons = { picking = vm.model.seasonPlan() })
@@ -216,7 +221,8 @@ private fun SeasonPickerDialog(
                     SeasonLine(
                         title = row.title,
                         detail = row.detail,
-                        checked = row.seasons.all { it in plan.selected },
+                        // Seasons on the server read as had, not as unticked.
+                        checked = row.id.startsWith("server-") || row.seasons.all { it in plan.selected },
                         enabled = row.isPickable,
                         onToggle = { row.seasons.forEach { plan = plan.toggle(it) } },
                     )
