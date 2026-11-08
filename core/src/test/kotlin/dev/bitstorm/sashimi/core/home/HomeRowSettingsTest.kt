@@ -24,16 +24,15 @@ private fun library(
 
 class HomeRowSettingsTest {
     @Test
-    fun `first launch defaults to continue watching only`() {
+    fun `first launch defaults to continue watching, requests, then the menu-only entries`() {
         val settings = HomeRowSettings(FakeHomeRowStore(saved = null))
         val rows = settings.rows.value
-        assertEquals(1, rows.size)
+        assertEquals(listOf("continue_watching", "requests", "menu:lists", "menu:dashboard"), rows.map { it.id })
         assertEquals(HomeRowConfig.Kind.CONTINUE_WATCHING, rows.first().kind)
-        assertEquals(HomeRowConfig.CONTINUE_WATCHING_ID, rows.first().id)
     }
 
     @Test
-    fun `persisted rows are restored verbatim`() {
+    fun `persisted rows are restored in order, with only the missing built-ins added`() {
         val store =
             FakeHomeRowStore(
                 saved =
@@ -44,8 +43,7 @@ class HomeRowSettingsTest {
             )
         val settings = HomeRowSettings(store)
         val rows = settings.rows.value
-        assertEquals(2, rows.size)
-        assertEquals("L1", rows.first().id)
+        assertEquals(listOf("L1", "continue_watching", "requests", "menu:lists", "menu:dashboard"), rows.map { it.id })
         assertFalse(rows.first().isEnabled)
     }
 
@@ -57,10 +55,7 @@ class HomeRowSettingsTest {
         settings.updateLibraries(listOf(library("L1", "Movies"), library("L2", "Shows")))
 
         val rows = settings.rows.value
-        assertEquals(3, rows.size)
-        assertEquals(HomeRowConfig.CONTINUE_WATCHING_ID, rows[0].id)
-        assertEquals("L1", rows[1].id)
-        assertEquals("L2", rows[2].id)
+        assertEquals(listOf("continue_watching", "requests", "L1", "L2", "menu:lists", "menu:dashboard"), rows.map { it.id })
         assertEquals(rows, store.saved)
     }
 
@@ -72,7 +67,7 @@ class HomeRowSettingsTest {
         settings.updateLibraries(listOf(library("L2", "Shows")))
 
         val ids = settings.rows.value.map { it.id }
-        assertEquals(listOf(HomeRowConfig.CONTINUE_WATCHING_ID, "L2"), ids)
+        assertEquals(listOf(HomeRowConfig.CONTINUE_WATCHING_ID, "requests", "L2", "menu:lists", "menu:dashboard"), ids)
     }
 
     @Test
@@ -112,7 +107,7 @@ class HomeRowSettingsTest {
         val settings = HomeRowSettings(FakeHomeRowStore(saved = null))
         settings.updateLibraries(listOf(library("L1", "Movies"), library("L2", "Shows")))
 
-        settings.moveRow(fromIndex = 2, toIndex = 0)
+        settings.moveRow(fromIndex = 3, toIndex = 0)
         assertEquals(
             "L2",
             settings.rows.value
@@ -153,7 +148,10 @@ class HomeRowSideMenuToggleTest {
 
         settings.updateListRows(listOf("a" to "From Marge: Xmas", "b" to "Mine"))
 
-        assertEquals(listOf("lib1", "continue_watching", "list:a", "list:b", "lib2"), settings.rows.value.map { it.id })
+        assertEquals(
+            listOf("lib1", "continue_watching", "list:a", "list:b", "requests", "lib2", "menu:lists", "menu:dashboard"),
+            settings.rows.value.map { it.id },
+        )
         assertEquals("From Marge: Xmas", settings.rows.value[2].displayName)
         assertEquals(settings.rows.value, store.saved)
     }
@@ -166,8 +164,13 @@ class HomeRowSideMenuToggleTest {
 
         settings.updateListRows(listOf("a" to "From Marge: Renamed"))
 
-        val row = settings.rows.value.last()
-        assertEquals("list:a", row.id)
+        val row = settings.rows.value.first { it.kind == HomeRowConfig.Kind.LIST }
+        assertEquals(
+            listOf("continue_watching", "requests", "lib1", "list:a"),
+            settings.rows.value
+                .map { it.id }
+                .take(4),
+        )
         assertFalse(row.isEnabled)
         assertEquals("From Marge: Renamed", row.displayName)
         assertFalse("a list row is not a side-menu destination", row.isSideMenuDestination)
@@ -184,6 +187,6 @@ class HomeRowSideMenuToggleTest {
         settings.updateListRows(emptyList())
         settings.updateLibraries(listOf(library("lib1", "Movies")))
 
-        assertEquals(listOf("continue_watching", "lib1"), settings.rows.value.map { it.id })
+        assertEquals(listOf("continue_watching", "requests", "lib1", "menu:lists", "menu:dashboard"), settings.rows.value.map { it.id })
     }
 }
