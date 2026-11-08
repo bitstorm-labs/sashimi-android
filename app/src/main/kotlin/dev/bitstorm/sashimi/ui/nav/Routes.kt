@@ -128,3 +128,20 @@ data class PlayerRoute(
      */
     val downloadServerId: String? = null,
 )
+
+/** Seerr requests: Discover and the request list (a rail entry, or Libraries on phones). */
+@Serializable
+object RequestsRoute
+
+/** Settings › Requests: the Seerr server and sign-in. */
+@Serializable
+object RequestsSettingsRoute
+
+/** A Seerr title's request page ([kind] is Seerr's "movie" or "tv"). */
+@Serializable
+data class SeerrTitleRoute(
+    val kind: String,
+    val tmdbId: Int,
+    val title: String,
+    val posterPath: String? = null,
+)

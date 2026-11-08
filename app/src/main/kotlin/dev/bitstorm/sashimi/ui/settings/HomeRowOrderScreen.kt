@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.bitstorm.sashimi.core.home.HomeRowConfig
 import dev.bitstorm.sashimi.core.home.HomeRowSettings
 import dev.bitstorm.sashimi.core.home.SideMenu
 import dev.bitstorm.sashimi.di.ServiceLocator
@@ -69,7 +70,20 @@ fun HomeRowOrderScreen(
     settings: HomeRowSettings,
     modifier: Modifier = Modifier,
 ) {
-    val rows by settings.rows.collectAsStateWithLifecycle()
+    val allRows by settings.rows.collectAsStateWithLifecycle()
+    val seerr by ServiceLocator.seerr.state.collectAsStateWithLifecycle()
+    val isAdmin by ServiceLocator.adminGate.isAdmin.collectAsStateWithLifecycle()
+    val showLists by ServiceLocator.appSettings.showLists.collectAsStateWithLifecycle()
+    // Requests is listed only while Seerr is connected or expired, the Dashboard
+    // only for administrators: the same rule as their side-menu entries.
+    val rows =
+        allRows.filter {
+            when (it.kind) {
+                HomeRowConfig.Kind.REQUESTS -> seerr.showsRequestsEntry
+                HomeRowConfig.Kind.DASHBOARD -> isAdmin
+                else -> true
+            }
+        }
     val rowsState = rememberUpdatedState(rows)
     val rowHeightPx = with(LocalDensity.current) { RowHeight.toPx() }
 
@@ -131,12 +145,23 @@ fun HomeRowOrderScreen(
                         )
                     }
                 }
-                ToggleCell(
-                    on = row.isEnabled,
-                    description = "${row.displayName} on Home",
-                    onToggle = { settings.toggleRow(row.id) },
-                )
-                if (row.isSideMenuDestination) {
+                if (row.isMenuOnly) {
+                    Box(Modifier.width(ToggleColumnWidth), Alignment.Center) { Text("\u2014", color = SashimiTextTertiary) }
+                } else {
+                    ToggleCell(
+                        on = row.isEnabled,
+                        description = "${row.displayName} on Home",
+                        onToggle = { settings.toggleRow(row.id) },
+                    )
+                }
+                if (row.kind == HomeRowConfig.Kind.LISTS) {
+                    // Lists keeps its own switch: it also decides the phone tab bar.
+                    ToggleCell(
+                        on = showLists,
+                        description = "Lists in the side menu",
+                        onToggle = { ServiceLocator.appSettings.setShowLists(!showLists) },
+                    )
+                } else if (row.isSideMenuDestination) {
                     ToggleCell(
                         on = row.showInSideMenu,
                         description = "${row.displayName} in the side menu",
@@ -174,7 +199,8 @@ fun HomeRowOrderScreen(
                                     val shift = (dragOffset / rowHeightPx).roundToInt()
                                     val target = current + shift
                                     if (shift != 0 && target in rowsState.value.indices) {
-                                        settings.moveRow(current, target)
+                                        // By id: rows that don't apply now are not on screen.
+                                        settings.moveRow(fromId = rowsState.value[current].id, toId = rowsState.value[target].id)
                                         dragOffset -= shift * rowHeightPx
                                     }
                                 },
@@ -182,28 +208,6 @@ fun HomeRowOrderScreen(
                         },
                 )
             }
-        }
-        // Lists is a destination, not a Home row: only its side-menu toggle applies.
-        val showLists by ServiceLocator.appSettings.showLists.collectAsStateWithLifecycle()
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(RowHeight)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(SashimiCard)
-                    .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Lists", color = SashimiTextPrimary, modifier = Modifier.weight(1f))
-            Box(Modifier.width(ToggleColumnWidth), Alignment.Center) { Text("\u2014", color = SashimiTextTertiary) }
-            ToggleCell(
-                on = showLists,
-                description = "Lists in the side menu",
-                onToggle = { ServiceLocator.appSettings.setShowLists(!showLists) },
-            )
-            Spacer(Modifier.width(DragHandleWidth))
         }
         Text(
             SideMenu.ALWAYS_SHOWN_NOTE,

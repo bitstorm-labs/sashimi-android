@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MoveToInbox
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Tv
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -31,8 +33,11 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 @Composable
 fun LibrariesScreen(
     onOpenLibrary: (libraryId: String, name: String, collectionType: String?) -> Unit,
+    /** Requests, the iPhone's place for it: only while a Seerr account is connected or expired. */
+    onOpenRequests: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val seerr by ServiceLocator.seerr.state.collectAsStateWithLifecycle()
     val libraries by produceState(initialValue = emptyList<JellyfinLibrary>()) {
         value = runCatching { ServiceLocator.client.getUserViews() }.getOrDefault(emptyList())
     }
@@ -45,6 +50,12 @@ fun LibrariesScreen(
             modifier = Modifier.padding(16.dp),
         )
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            if (seerr.showsRequestsEntry) {
+                item(key = "requests") {
+                    EntryRow(Icons.Filled.MoveToInbox, "Requests", onOpenRequests)
+                    HorizontalDivider()
+                }
+            }
             items(libraries, key = { it.id }) { library ->
                 LibraryRow(library = library, onClick = { onOpenLibrary(library.id, library.name, library.collectionType) })
                 HorizontalDivider()
@@ -57,13 +68,20 @@ fun LibrariesScreen(
 private fun LibraryRow(
     library: JellyfinLibrary,
     onClick: () -> Unit,
+) = EntryRow(iconFor(library.collectionType), library.name, onClick)
+
+@Composable
+private fun EntryRow(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
 ) {
     androidx.compose.foundation.layout.Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(iconFor(library.collectionType), contentDescription = null, tint = SashimiAccent)
-        Text(library.name, color = SashimiTextPrimary, modifier = Modifier.padding(start = 16.dp))
+        Icon(icon, contentDescription = null, tint = SashimiAccent)
+        Text(title, color = SashimiTextPrimary, modifier = Modifier.padding(start = 16.dp))
     }
 }
 

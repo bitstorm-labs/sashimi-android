@@ -30,6 +30,7 @@ import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.ui.components.PosterGrid
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
+import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 
 /**
  * Search tab: poster-grid results (same card + column math as the library) with
@@ -40,11 +41,38 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 fun SearchScreen(
     isCompact: Boolean,
     onOpenDetail: (itemId: String, libraryName: String?) -> Unit,
+    onOpenSeerrTarget: (dev.bitstorm.sashimi.core.seerr.SeerrTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val vm: SearchViewModel = viewModel(factory = SearchViewModel.Factory())
     val state by vm.state.collectAsStateWithLifecycle()
     val recent by vm.recentSearches.collectAsStateWithLifecycle()
+    val seerrItems by vm.seerr.items.collectAsStateWithLifecycle()
+    val seerrRow: (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? =
+        if (seerrItems.isEmpty()) {
+            null
+        } else {
+            { padding ->
+                dev.bitstorm.sashimi.ui.requests.SeerrPosterRow(
+                    title = vm.seerr.sectionTitle,
+                    items = seerrItems,
+                    key = { it.id },
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalPadding = padding,
+                ) { item, width ->
+                    dev.bitstorm.sashimi.ui.requests.SeerrPosterCard(
+                        title = item.result.title,
+                        posterPath = item.result.posterPath,
+                        width = width,
+                        onClick = { onOpenSeerrTarget(item.target) },
+                        pill =
+                            dev.bitstorm.sashimi.core.seerr
+                                .SeerrStatusLabel(item.badge.label, item.badge),
+                        subtitle = item.result.year?.toString(),
+                    )
+                }
+            }
+        }
 
     Column(modifier = modifier.fillMaxSize()) {
         Text(
@@ -75,6 +103,11 @@ fun SearchScreen(
                 }
             state.isSearching && state.results.isEmpty() ->
                 Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+            state.results.isEmpty() && seerrRow != null ->
+                Column(Modifier.padding(top = 8.dp)) {
+                    Text("Nothing in your library", color = SashimiTextTertiary, modifier = Modifier.padding(horizontal = 16.dp))
+                    seerrRow(16.dp)
+                }
             state.results.isEmpty() ->
                 CenteredMessage("No results found for \"${state.searchText}\"")
             else ->
@@ -84,6 +117,7 @@ fun SearchScreen(
                     onOpenDetail = onOpenDetail,
                     headerText = if (state.results.size == 1) "1 result" else "${state.results.size} results",
                     caption = { subtitleText(it) },
+                    footer = seerrRow?.let { row -> { row(0.dp) } },
                     modifier = Modifier.weight(1f),
                 )
         }

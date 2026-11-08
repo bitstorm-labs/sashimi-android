@@ -29,6 +29,16 @@ sealed interface SideMenuItem {
         override val key = "lists"
     }
 
+    /** Seerr requests: while a Seerr account is connected (or its sign-in expired). */
+    data object Requests : SideMenuItem {
+        override val key = "requests"
+    }
+
+    /** The admin server dashboard: administrators only. */
+    data object Dashboard : SideMenuItem {
+        override val key = "dashboard"
+    }
+
     data object Search : SideMenuItem {
         override val key = "search"
     }
@@ -53,15 +63,22 @@ object SideMenu {
 
     /**
      * The menu for [rows] (the user's Home row order and toggles) and
-     * [libraries] (what the server reports now, in its order).
+     * [libraries] (what the server reports now, in its order). Every
+     * destination between Home and Search is listed in exactly the rows'
+     * relative order (2026-11-07 parity brief, A).
      *
-     * - Libraries follow the row order; one the rows don't mention yet (added
-     *   on the server since) follows in server order, shown.
+     * - A library row is listed where it sits; one the rows don't mention yet
+     *   (added on the server since) follows the last listed library, shown.
+     * - The requests row carries the Requests entry ([showRequests]: a Seerr
+     *   account is connected or expired). Lists ([showLists]) and the
+     *   Dashboard ([showDashboard]: administrators) are menu-only entries in
+     *   the same list.
      * - A row switched off for the side menu is left out. Its Home toggle has
-     *   no say: hiding a row on Home is a statement about Home.
+     *   no say: hiding a row on Home is a statement about Home. Lists keeps its
+     *   own switch, [showLists], which also drives the phone tab bar.
      * - A row naming a library the server no longer has is ignored.
-     * - [showLists] puts Lists after the libraries; it can be hidden like a
-     *   library, from Home & Side Menu.
+     * - An entry the rows don't place (an order saved before it existed and
+     *   never normalised) trails, Lists then Requests then Dashboard.
      * - [online] false (the offline library) lists Home, Downloads, Settings:
      *   nothing else works without the server.
      */
@@ -70,22 +87,38 @@ object SideMenu {
         libraries: List<JellyfinLibrary>,
         online: Boolean = true,
         showLists: Boolean = false,
+        showRequests: Boolean = false,
+        showDashboard: Boolean = false,
     ): List<SideMenuItem> {
         if (!online) return listOf(SideMenuItem.Home, SideMenuItem.Downloads, SideMenuItem.Settings)
         val byId = libraries.associateBy { it.id }
-        val placed = mutableSetOf<String>()
-        val shown = mutableListOf<SideMenuItem.Library>()
+        val placedLibraries = mutableSetOf<String>()
+        val placedKinds = mutableSetOf<HomeRowConfig.Kind>()
+        val shown = mutableListOf<SideMenuItem>()
+        var afterLastLibrary = 0
         for (row in rows) {
-            if (!row.isSideMenuDestination) continue
-            val library = byId[row.libraryId] ?: continue
-            if (!placed.add(library.id)) continue
-            if (row.showInSideMenu) shown += library.asItem()
+            when (row.kind) {
+                HomeRowConfig.Kind.LIBRARY -> {
+                    val library = byId[row.libraryId] ?: continue
+                    if (!placedLibraries.add(library.id)) continue
+                    if (row.showInSideMenu) shown += library.asItem()
+                    afterLastLibrary = shown.size
+                }
+                HomeRowConfig.Kind.REQUESTS ->
+                    if (placedKinds.add(row.kind) && showRequests && row.showInSideMenu) shown += SideMenuItem.Requests
+                HomeRowConfig.Kind.LISTS ->
+                    if (placedKinds.add(row.kind) && showLists) shown += SideMenuItem.Lists
+                HomeRowConfig.Kind.DASHBOARD ->
+                    if (placedKinds.add(row.kind) && showDashboard && row.showInSideMenu) shown += SideMenuItem.Dashboard
+                HomeRowConfig.Kind.CONTINUE_WATCHING, HomeRowConfig.Kind.LIST -> Unit
+            }
         }
-        for (library in libraries) {
-            if (placed.add(library.id)) shown += library.asItem()
-        }
-        val lists = if (showLists) listOf(SideMenuItem.Lists) else emptyList()
-        return listOf(SideMenuItem.Home) + shown + lists + listOf(SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
+        val added = libraries.filter { placedLibraries.add(it.id) }.map { it.asItem() }
+        shown.addAll(afterLastLibrary, added)
+        if (HomeRowConfig.Kind.LISTS !in placedKinds && showLists) shown += SideMenuItem.Lists
+        if (HomeRowConfig.Kind.REQUESTS !in placedKinds && showRequests) shown += SideMenuItem.Requests
+        if (HomeRowConfig.Kind.DASHBOARD !in placedKinds && showDashboard) shown += SideMenuItem.Dashboard
+        return listOf(SideMenuItem.Home) + shown + listOf(SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
     }
 
     /**

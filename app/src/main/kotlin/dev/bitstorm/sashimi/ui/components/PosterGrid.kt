@@ -37,6 +37,8 @@ fun PosterGrid(
     badgeCounts: Map<String, Int> = emptyMap(),
     onItemAction: () -> Unit = {},
     caption: ((BaseItemDto) -> String?)? = null,
+    /** A full-width section after the items (Search's "Not in your library" row). */
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val isYouTube = libraryName?.contains("youtube", ignoreCase = true) == true
 
@@ -81,6 +83,9 @@ fun PosterGrid(
                         )
                     }
                 }
+            }
+            if (footer != null) {
+                item(span = { GridItemSpan(maxLineSpan) }) { footer() }
             }
         }
     }

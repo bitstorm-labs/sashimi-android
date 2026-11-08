@@ -47,14 +47,19 @@ class SideMenuViewModel(
         }
     }
 
+    /** Requests while a Seerr account is connected or expired; the Dashboard for administrators. */
+    private val conditional =
+        combine(ServiceLocator.seerr.state, ServiceLocator.adminGate.isAdmin) { seerr, admin -> seerr.showsRequestsEntry to admin }
+
     val items: StateFlow<List<SideMenuItem>> =
         combine(
             rowSettings.rows,
             serverLibraries,
             ServiceLocator.networkMonitor.isOnline,
             ServiceLocator.appSettings.showLists,
-        ) { rows, libraries, online, showLists ->
-            SideMenu.items(rows, libraries ?: provisional(rows), online, showLists)
+            conditional,
+        ) { rows, libraries, online, showLists, (showRequests, showDashboard) ->
+            SideMenu.items(rows, libraries ?: provisional(rows), online, showLists, showRequests, showDashboard)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, SideMenu.ALWAYS_SHOWN)
 
     private fun provisional(rows: List<HomeRowConfig>): List<JellyfinLibrary> =
