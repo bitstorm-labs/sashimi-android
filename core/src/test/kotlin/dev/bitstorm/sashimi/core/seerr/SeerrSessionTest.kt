@@ -23,23 +23,65 @@ class SeerrSessionTest {
         stub.on("POST", "/api/v1/auth/local", body = user, headers = mapOf("Set-Cookie" to SeerrFixtures.SET_COOKIE))
 
     @Test
-    fun `a new install is not set up and points at the default server`() {
+    fun `a new install has no server and is not set up`() {
         val session = SeerrSession(settings, cookies)
         assertEquals(SeerrAuthState.NotConfigured, session.state.value)
         assertFalse(session.isActive)
         assertNull(session.client)
-        assertEquals("https://bitstorm.ca", session.serverUrl.value)
+        assertNull("no server is assumed", session.serverUrl.value)
+        assertFalse(session.hasServer)
         assertFalse(session.state.value.showsRequestsEntry)
     }
 
     @Test
-    fun `server addresses are normalised`() {
-        assertEquals("https://bitstorm.ca", SeerrSession.normalizedServerUrl("bitstorm.ca"))
-        assertEquals("http://192.168.86.151:5055", SeerrSession.normalizedServerUrl(" http://192.168.86.151:5055/ "))
-        assertEquals("https://example.com/seerr", SeerrSession.normalizedServerUrl("https://example.com/seerr/"))
-        assertNull(SeerrSession.normalizedServerUrl(""))
-        assertNull(SeerrSession.normalizedServerUrl("ftp://example.com"))
+    fun `a saved server address survives a relaunch`() {
+        settings.putString(SeerrSession.KEY_SERVER, "https://requests.example.com/")
+        val session = SeerrSession(settings, cookies)
+        assertEquals("https://requests.example.com", session.serverUrl.value)
+        assertTrue(session.hasServer)
     }
+
+    @Test
+    fun `an address entered on a fresh install is saved for next launch`() {
+        assertTrue(SeerrSession(settings, cookies).setServerAddress("requests.example.com"))
+        assertEquals("https://requests.example.com", SeerrSession(settings, cookies).serverUrl.value)
+    }
+
+    @Test
+    fun `an invalid address leaves a fresh install without a server`() {
+        val session = SeerrSession(settings, cookies)
+        assertFalse(session.setServerAddress("   "))
+        assertFalse(session.setServerAddress("ftp://example.com"))
+        assertNull(session.serverUrl.value)
+        assertNull(settings.getString(SeerrSession.KEY_SERVER))
+    }
+
+    private fun sessionWithoutServer() =
+        SeerrSession(
+            settings = settings,
+            cookies = cookies,
+            pollIntervalMillis = 0,
+            clientFactory = { url, cookie -> SeerrClient(url, cookie, stub.http) },
+            plexFactory = { PlexPinClient(it, "1.0", stub.http) },
+        )
+
+    @Test
+    fun `sign-in is refused without a server and never touches the network`() =
+        runTest {
+            signInReply()
+            stub.on("POST", "/api/v2/pins", body = """{"id":42,"code":"ABCD"}""")
+            val session = sessionWithoutServer()
+            session.signInLocal("mom@example.com", "pw")
+            assertEquals(SeerrAuthState.NotConfigured, session.state.value)
+            assertFalse(session.isActive)
+            assertNotNull("the person is told why", session.errorMessage.value)
+            assertNull("Plex sign-in is gated too", session.beginPlexSignIn())
+            assertEquals(SeerrAuthState.NotConfigured, session.state.value)
+            session.restore()
+            session.refreshPublicSettings()
+            assertTrue("no Seerr or Plex calls without an address", stub.requests.isEmpty())
+            assertFalse(session.state.value.showsRequestsEntry)
+        }
 
     @Test
     fun `local sign-in stores the cookie under the server and signs in`() =
@@ -249,6 +291,6 @@ class SeerrSessionTest {
 
     @Test
     fun `cookies are scoped per server`() {
-        assertNotEquals(SeerrSession.cookieKey("https://bitstorm.ca"), SeerrSession.cookieKey("http://192.168.86.151:5055"))
+        assertNotEquals(SeerrSession.cookieKey("https://requests.example.com"), SeerrSession.cookieKey("http://192.168.1.10:5055"))
     }
 }

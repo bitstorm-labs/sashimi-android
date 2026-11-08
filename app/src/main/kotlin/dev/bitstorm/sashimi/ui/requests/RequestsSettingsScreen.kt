@@ -38,6 +38,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.seerr.SeerrAuthState
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
+import dev.bitstorm.sashimi.core.seerr.SeerrSession
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
@@ -64,10 +65,12 @@ fun RequestsSettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var address by rememberSaveable(server) { mutableStateOf(server) }
+    var address by rememberSaveable(server) { mutableStateOf(server.orEmpty()) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var addressError by remember { mutableStateOf<String?>(null) }
+    // No default server: sign-in stays off until the field holds a real address.
+    val addressValid = SeerrSession.normalizedServerUrl(address) != null
 
     fun applyAddress(): Boolean {
         val ok = session.setServerAddress(address)
@@ -93,7 +96,7 @@ fun RequestsSettingsScreen(
                 when (val s = state) {
                     is SeerrAuthState.SignedIn -> {
                         Text("Signed in as ${s.account.name}", style = MaterialTheme.typography.titleMedium)
-                        Text(server, color = SashimiTextTertiary)
+                        server?.let { Text(it, color = SashimiTextTertiary) }
                         OutlinedButton(onClick = { scope.launch { session.signOut() } }) { Text("Sign Out") }
                     }
                     is SeerrAuthState.AwaitingPlex -> {
@@ -113,6 +116,7 @@ fun RequestsSettingsScreen(
                                 addressError = null
                             },
                             label = { Text("Server address") },
+                            placeholder = { Text("https://requests.example.com") },
                             singleLine = true,
                             isError = addressError != null,
                             supportingText = addressError?.let { { Text(it) } },
@@ -129,6 +133,7 @@ fun RequestsSettingsScreen(
                                     session.completePlexSignIn(pin)
                                 }
                             },
+                            enabled = addressValid,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Sign in with Plex") }
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -158,7 +163,7 @@ fun RequestsSettingsScreen(
                                     if (session.isActive) password = ""
                                 }
                             },
-                            enabled = email.isNotBlank() && password.isNotEmpty(),
+                            enabled = addressValid && email.isNotBlank() && password.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Sign In") }
                     }
