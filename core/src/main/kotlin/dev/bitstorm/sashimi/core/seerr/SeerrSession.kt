@@ -72,9 +72,12 @@ class SeerrSession(
     private val _state = MutableStateFlow<SeerrAuthState>(SeerrAuthState.NotConfigured)
     val state: StateFlow<SeerrAuthState> = _state.asStateFlow()
 
-    private val _serverUrl =
-        MutableStateFlow(settings.getString(KEY_SERVER)?.let(::normalizedServerUrl) ?: DEFAULT_SERVER)
-    val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
+    /** Null until the person enters an address: there is no default server. */
+    private val _serverUrl = MutableStateFlow(settings.getString(KEY_SERVER)?.let(::normalizedServerUrl))
+    val serverUrl: StateFlow<String?> = _serverUrl.asStateFlow()
+
+    /** Without an address nothing talks to Seerr or Plex, and no request UI appears. */
+    val hasServer: Boolean get() = _serverUrl.value != null
 
     /** The server's own name ("MondoVision"), for "from MondoVision". */
     private val _applicationTitle = MutableStateFlow(settings.getString(KEY_TITLE) ?: "Seerr")
@@ -123,10 +126,11 @@ class SeerrSession(
 
     /** At launch: a stored cookie is checked with the server. An unreachable server keeps the last account. */
     suspend fun restore() {
-        // No account: stay off the network entirely.
-        val cookie = cookies.get(cookieKey(_serverUrl.value)) ?: return
+        // No server or no account: stay off the network entirely.
+        val server = _serverUrl.value ?: return
+        val cookie = cookies.get(cookieKey(server)) ?: return
         refreshPublicSettings()
-        val client = clientFactory(_serverUrl.value, cookie)
+        val client = clientFactory(server, cookie)
         try {
             signedIn(client.currentUser(), cookie, client)
         } catch (e: CancellationException) {
@@ -144,9 +148,10 @@ class SeerrSession(
     }
 
     suspend fun refreshPublicSettings() {
+        val server = _serverUrl.value ?: return
         val public =
             try {
-                clientFactory(_serverUrl.value, null).publicSettings()
+                clientFactory(server, null).publicSettings()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -167,9 +172,10 @@ class SeerrSession(
         password: String,
     ) {
         _errorMessage.value = null
+        val server = _serverUrl.value ?: return noServer()
         val previous = _state.value
         _state.value = SeerrAuthState.SigningIn
-        val client = clientFactory(_serverUrl.value, null)
+        val client = clientFactory(server, null)
         try {
             val result = client.signInLocal(email.trim(), password)
             signedIn(result.user, result.cookie, client)
@@ -186,6 +192,10 @@ class SeerrSession(
     /** Step 1 of Plex sign-in: a PIN (strong for the web page the phone opens). */
     suspend fun beginPlexSignIn(strong: Boolean = true): PlexPin? {
         _errorMessage.value = null
+        if (!hasServer) {
+            noServer()
+            return null
+        }
         return try {
             plexFactory(plexClientIdentifier).createPin(strong).also { _state.value = SeerrAuthState.AwaitingPlex(it.code) }
         } catch (e: CancellationException) {
@@ -233,8 +243,13 @@ class SeerrSession(
     fun plexWebSignInUrl(pin: PlexPin): String = PlexPinClient.webSignInUrl(plexClientIdentifier, pin.code, PLEX_FORWARD_URL)
 
     private suspend fun exchangePlexToken(token: String) {
+        val server =
+            _serverUrl.value ?: run {
+                _state.value = SeerrAuthState.NotConfigured
+                return noServer()
+            }
         _state.value = SeerrAuthState.SigningIn
-        val client = clientFactory(_serverUrl.value, null)
+        val client = clientFactory(server, null)
         try {
             val result = client.signInWithPlex(token)
             signedIn(result.user, result.cookie, client)
@@ -253,6 +268,10 @@ class SeerrSession(
                     e.message
                 }
         }
+    }
+
+    private fun noServer() {
+        _errorMessage.value = "Enter your server address first."
     }
 
     /** Stable per install, so plex.tv lists one "Sashimi" device, not one per sign-in. */
@@ -296,7 +315,7 @@ class SeerrSession(
         cookie: String,
         client: SeerrClient,
     ) {
-        cookies.save(cookie, cookieKey(_serverUrl.value))
+        _serverUrl.value?.let { cookies.save(cookie, cookieKey(it)) }
         settings.putInt(KEY_USER_ID, user.id)
         settings.putString(KEY_USER_NAME, user.name)
         settings.putInt(KEY_PERMISSIONS, user.permissions)
@@ -311,7 +330,7 @@ class SeerrSession(
     }
 
     private fun forget() {
-        cookies.delete(cookieKey(_serverUrl.value))
+        _serverUrl.value?.let { cookies.delete(cookieKey(it)) }
         settings.putInt(KEY_USER_ID, null)
         settings.putString(KEY_USER_NAME, null)
         settings.putInt(KEY_PERMISSIONS, null)
@@ -319,7 +338,6 @@ class SeerrSession(
     }
 
     companion object {
-        const val DEFAULT_SERVER = "https://bitstorm.ca"
         const val PLEX_FORWARD_URL = "sashimi://plex-auth"
         private const val PLEX_TIMEOUT_MILLIS = 15 * 60 * 1000L
 
@@ -330,7 +348,7 @@ class SeerrSession(
         const val KEY_TITLE = "seerr.applicationTitle"
         const val KEY_PLEX_CLIENT_ID = "seerr.plexClientIdentifier"
 
-        /** "bitstorm.ca" to https://bitstorm.ca; trailing slashes dropped. Only http and https. */
+        /** "requests.example.com" to https://requests.example.com; trailing slashes dropped. Only http and https. */
         fun normalizedServerUrl(text: String): String? {
             var trimmed = text.trim()
             if (trimmed.isEmpty()) return null
