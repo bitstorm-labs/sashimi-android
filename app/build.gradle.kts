@@ -19,8 +19,8 @@ android {
         applicationId = "dev.bitstorm.sashimi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 41
-        versionName = "0.18.2"
+        versionCode = 42
+        versionName = "0.19.0"
     }
 
     // Upload signing, read from env vars (CI) or gradle properties (local). When
