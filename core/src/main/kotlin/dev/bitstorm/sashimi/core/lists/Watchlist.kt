@@ -190,6 +190,17 @@ object Watchlist {
         return seerrTarget(entry)?.let { WatchlistTap.Seerr(it) } ?: WatchlistTap.NotOnServer
     }
 
+    /**
+     * The entries to show after removing [failed] didn't go through. [current]
+     * is what shows now (other removes may have happened since); [before] is
+     * the list as it was when [failed] was removed.
+     */
+    fun afterFailedRemove(
+        current: List<WatchlistEntry>,
+        failed: WatchlistEntry,
+        before: List<WatchlistEntry>,
+    ): List<WatchlistEntry> = before
+
     /** "Use Plex too?": only before a link and until "Not now". */
     fun showsCard(view: WatchlistView): Boolean = view.plex == null && !view.cardDismissed
 }

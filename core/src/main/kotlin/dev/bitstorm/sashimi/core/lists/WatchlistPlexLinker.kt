@@ -34,6 +34,11 @@ class WatchlistPlexLinker(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
+    private val _linked = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+
+    /** Fires each time the Watchlist is linked to a Plex account, so an open Watchlist re-reads its Plex line. */
+    val linked: SharedFlow<Unit> = _linked.asSharedFlow()
+
     @Volatile private var heldToken: String? = null
 
     /** The Jellyfin server and user the held token was offered for. */

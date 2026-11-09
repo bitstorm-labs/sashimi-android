@@ -18,8 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import dev.bitstorm.sashimi.core.lists.PlexLinkResult
-import dev.bitstorm.sashimi.core.util.runCatchingCancellable
+import dev.bitstorm.sashimi.core.lists.ConnectPlexOutcome
 import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.ui.requests.openPlexSignIn
 import dev.bitstorm.sashimi.ui.requests.returnToApp
@@ -50,31 +49,21 @@ fun ConnectPlexDialog(
     LaunchedEffect(attempt) {
         error = null
         ServiceLocator.appScope.launch(Dispatchers.Main) {
-            val signIn = ServiceLocator.plexSignIn
-            val pin =
-                runCatchingCancellable { signIn.begin(strong = true) }.getOrElse {
-                    error = "Couldn't start Plex sign-in. Try again."
-                    return@launch
-                }
-            openPlexSignIn(context, signIn.webSignInUrl(pin))
             val app = context.applicationContext
-            val token = signIn.awaitToken(pin) { open.get() }
-            if (!open.get()) return@launch
-            if (token == null) {
-                error = "The Plex code expired. Try again."
-                return@launch
+            val outcome =
+                ServiceLocator.watchlistConnectPlex.run(
+                    resume = null,
+                    onPin = { pin -> openPlexSignIn(context, ServiceLocator.plexSignIn.webSignInUrl(pin)) },
+                    onToken = { returnToApp(app) },
+                    stillWaiting = { open.get() },
+                )
+            when (outcome) {
+                ConnectPlexOutcome.Linked -> currentOnLinked()
+                // The app-wide prompt asks whether to switch accounts.
+                ConnectPlexOutcome.Conflict -> currentOnDismiss()
+                ConnectPlexOutcome.Abandoned -> Unit
+                else -> error = connectPlexMessage(outcome)
             }
-            returnToApp(app)
-            runCatchingCancellable { ServiceLocator.watchlistLinker.connect(token) }
-                .onSuccess { result ->
-                    when (result) {
-                        is PlexLinkResult.Linked -> currentOnLinked()
-                        PlexLinkResult.Rejected -> error = "Plex didn't accept that sign-in. Try again."
-                        PlexLinkResult.PlexUnreachable -> error = "Couldn't reach Plex. Try again."
-                        // The app-wide prompt asks whether to switch accounts.
-                        is PlexLinkResult.ConflictsWith -> currentOnDismiss()
-                    }
-                }.onFailure { error = listErrorMessage(it) }
         }
     }
 
@@ -98,3 +87,14 @@ fun ConnectPlexDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** What a failed Connect Plex tells the person. */
+private fun connectPlexMessage(outcome: ConnectPlexOutcome): String =
+    when (outcome) {
+        ConnectPlexOutcome.CouldNotStart -> "Couldn't start Plex sign-in. Try again."
+        ConnectPlexOutcome.Expired -> "The Plex code expired. Try again."
+        ConnectPlexOutcome.Rejected -> "Plex didn't accept that sign-in. Try again."
+        ConnectPlexOutcome.PlexUnreachable -> "Couldn't reach Plex. Try again."
+        is ConnectPlexOutcome.Failed -> listErrorMessage(outcome.error)
+        ConnectPlexOutcome.Linked, ConnectPlexOutcome.Conflict, ConnectPlexOutcome.Abandoned -> ""
+    }

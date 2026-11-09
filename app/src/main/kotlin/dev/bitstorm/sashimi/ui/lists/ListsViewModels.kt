@@ -3,6 +3,9 @@ package dev.bitstorm.sashimi.ui.lists
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.bitstorm.sashimi.core.lists.AddResult
+import dev.bitstorm.sashimi.core.lists.AddToListPicker
+import dev.bitstorm.sashimi.core.lists.AddToListTarget
+import dev.bitstorm.sashimi.core.lists.AddToListUiState
 import dev.bitstorm.sashimi.core.lists.ListItem
 import dev.bitstorm.sashimi.core.lists.NoEpisodesException
 import dev.bitstorm.sashimi.core.lists.SharedList
@@ -13,10 +16,10 @@ import dev.bitstorm.sashimi.core.lists.WatchlistService
 import dev.bitstorm.sashimi.core.lists.WatchlistView
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.network.JellyfinError
-import dev.bitstorm.sashimi.core.seerr.SeerrTitleDetails
 import dev.bitstorm.sashimi.core.util.ResumeRefreshGate
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.di.ServiceLocator
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -292,48 +295,6 @@ class ListDetailViewModel(
 
 // MARK: - Add to List picker
 
-/** What Add to List is adding: a library title, or a Seerr title (Watchlist only). */
-sealed interface AddToListTarget {
-    val title: String
-    val key: String
-
-    data class Library(
-        val item: BaseItemDto,
-    ) : AddToListTarget {
-        override val title: String get() = item.name
-        override val key: String get() = item.id
-    }
-
-    data class Seerr(
-        val details: SeerrTitleDetails,
-    ) : AddToListTarget {
-        override val title: String get() = details.title
-        override val key: String get() = "seerr-${details.kind.wire}-${details.tmdbId}"
-    }
-}
-
-/** One of your lists in the picker. */
-data class PickerRow(
-    val list: SharedList,
-    val alreadyOn: Boolean,
-)
-
-/** The Watchlist row, always first. Null in [AddToListUiState.watchlist] hides it. */
-data class WatchlistRow(
-    val alreadyOn: Boolean,
-    val count: Int,
-)
-
-data class AddToListUiState(
-    val isLoading: Boolean = true,
-    val watchlist: WatchlistRow? = null,
-    val rows: List<PickerRow> = emptyList(),
-    /** False for a Seerr title: only the Watchlist can take it. */
-    val showsLists: Boolean = true,
-    val error: String? = null,
-    val busy: Boolean = false,
-)
-
 /** The Add to List picker for one title: the Watchlist, then your lists, marked where it is already on. */
 class AddToListViewModel(
     private val target: AddToListTarget,
@@ -345,60 +306,17 @@ class AddToListViewModel(
 
     private val libraryItem: BaseItemDto? get() = (target as? AddToListTarget.Library)?.item
 
+    private val picker = AddToListPicker(service, watchlist, ::listErrorMessage)
+    private var loading: Job? = null
+
     /**
      * Reads your lists afresh. Called each time the picker opens: the
      * ViewModel outlives the dialog (it belongs to the detail page), and a
      * list made or changed since must show.
      */
     fun load() {
-        val showsLists = Watchlist.pickerShowsLists(isSeerr = target is AddToListTarget.Seerr)
-        _state.value = AddToListUiState(showsLists = showsLists)
-        viewModelScope.launch {
-            val item = libraryItem
-            // The plugin is optional and an error here must not hide your lists: no row then.
-            val view =
-                async {
-                    if (item != null && !Watchlist.eligible(item)) return@async Result.success(null)
-                    runCatchingCancellable { watchlist.view() }
-                }
-            if (item == null) {
-                view
-                    .await()
-                    .onSuccess { v ->
-                        _state.value =
-                            if (v == null) {
-                                AddToListUiState(isLoading = false, showsLists = false, error = "Your server doesn't have a Watchlist.")
-                            } else {
-                                AddToListUiState(isLoading = false, showsLists = false, watchlist = watchlistRow(v))
-                            }
-                    }.onFailure { e -> _state.value = AddToListUiState(isLoading = false, showsLists = false, error = listErrorMessage(e)) }
-                return@launch
-            }
-            val stored = async { runCatchingCancellable { service.storedId(item) }.getOrNull() }
-            runCatchingCancellable { service.allLists().filter { it.isMine } }
-                .onSuccess { mine ->
-                    val storedId = stored.await()
-                    val v = view.await().getOrNull()
-                    _state.value =
-                        AddToListUiState(
-                            isLoading = false,
-                            watchlist = v?.takeIf { Watchlist.pickerShowsWatchlist(item, it) }?.let(::watchlistRow),
-                            rows = mine.map { PickerRow(it, SharedListsService.contains(it.items, item, storedId)) },
-                        )
-                }.onFailure { e -> _state.value = AddToListUiState(isLoading = false, error = listErrorMessage(e)) }
-        }
-    }
-
-    private fun watchlistRow(view: WatchlistView): WatchlistRow {
-        val already =
-            when (target) {
-                is AddToListTarget.Library -> Watchlist.alreadyOn(view, target.item)
-                is AddToListTarget.Seerr -> {
-                    val candidate = Watchlist.newEntry(target.details)
-                    view.entries.any { Watchlist.matches(it, candidate) }
-                }
-            }
-        return WatchlistRow(alreadyOn = already, count = view.entries.size)
+        loading?.cancel()
+        loading = viewModelScope.launch { picker.load(target).collect { _state.value = it } }
     }
 
     fun addToWatchlist(done: (String) -> Unit) =

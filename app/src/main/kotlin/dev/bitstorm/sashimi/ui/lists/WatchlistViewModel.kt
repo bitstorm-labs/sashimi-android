@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistEntry
 import dev.bitstorm.sashimi.core.lists.WatchlistService
 import dev.bitstorm.sashimi.core.lists.WatchlistView
@@ -106,7 +107,9 @@ class WatchlistViewModel(
         _state.update { it.copy(view = before.copy(entries = before.entries.filterNot { e -> e.id == entry.id })) }
         viewModelScope.launch {
             runCatchingCancellable { service.remove(entry.id) }.onFailure { e ->
-                _state.update { it.copy(view = before) }
+                _state.update { s ->
+                    s.copy(view = s.view?.let { v -> v.copy(entries = Watchlist.afterFailedRemove(v.entries, entry, before.entries)) })
+                }
                 _messages.tryEmit(listErrorMessage(e))
             }
         }

@@ -146,6 +146,11 @@ object ServiceLocator {
             .WatchlistPlexLinker(watchlist, appScope)
     }
 
+    val watchlistConnectPlex: dev.bitstorm.sashimi.core.lists.WatchlistConnectPlex by lazy {
+        dev.bitstorm.sashimi.core.lists
+            .WatchlistConnectPlex(plexSignIn, watchlistLinker)
+    }
+
     lateinit var playbackEngine: PlaybackEngine
         private set
 
