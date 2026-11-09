@@ -251,7 +251,7 @@ object ServiceLocator {
                 cookies = tokenStore,
                 plexFactory = plexFactory,
                 // Requests sign-in also links the Watchlist to the same Plex account.
-                onPlexToken = { token -> watchlistLinker.autoLink(token) },
+                onPlexToken = { token -> watchlistLinker.autoLinkInBackground(token) },
             )
         // Checks a stored cookie with the server; stays off the network without one.
         appScope.launch(Dispatchers.Main) { seerr.restore() }

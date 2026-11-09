@@ -231,4 +231,58 @@ class WatchlistPlexLinkerTest {
             )
             assertFalse(linker.toString().contains("SECRET-T"))
         }
+
+    @Test
+    fun `a held token is dropped once the jellyfin user changes`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to linkedAsChad
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 409 to """{"username":"chad","newUsername":"mondo"}"""
+            val linker = linker()
+            linker.autoLink("T")
+            assertTrue(linker.promptStillValid())
+            client.configure(serverUrl = "http://stub.local", accessToken = "token-b", userId = "someone-else")
+            assertFalse(linker.promptStillValid())
+            assertNull(linker.prompt.value)
+            assertNull(linker.answer(true))
+            assertEquals(1, linkCalls().size)
+        }
+
+    @Test
+    fun `answering yes after a user switch never relinks`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to linkedAsChad
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 409 to """{"username":"chad","newUsername":"mondo"}"""
+            val linker = linker()
+            linker.autoLink("T")
+            client.configure(serverUrl = "http://other.local", accessToken = "token-b", userId = "me")
+            assertNull(linker.answer(true))
+            assertEquals(1, linkCalls().size)
+        }
+
+    @Test
+    fun `requests sign-in does not wait for the watchlist link`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to unlinked
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"chad"}"""
+            val idle = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+            val linker = WatchlistPlexLinker(service, idle)
+            val seerr = SeerrStub()
+            seerr.on("POST", "/api/v2/pins", status = 201, body = """{"id":42,"code":"K7QF"}""")
+            seerr.on("GET", "/api/v2/pins/42", body = """{"id":42,"code":"K7QF","authToken":"plex-token"}""")
+            seerr.on("POST", "/api/v1/auth/plex", body = SeerrFixtures.user(), headers = mapOf("Set-Cookie" to SeerrFixtures.SET_COOKIE))
+            val session =
+                SeerrSession(
+                    settings = MemorySeerrSettings(),
+                    cookies = MemoryTokenStore(),
+                    pollIntervalMillis = 0,
+                    clientFactory = { url, cookie -> SeerrClient(url, cookie, seerr.http) },
+                    plexFactory = { PlexPinClient(it, "1.0", seerr.http) },
+                    onPlexToken = { linker.autoLinkInBackground(it) },
+                ).also { it.setServerAddress(SeerrFixtures.SERVER) }
+            session.completePlexSignIn(session.beginPlexSignIn()!!)
+            assertTrue(session.state.value is SeerrAuthState.SignedIn)
+            assertTrue("the link has not run yet", stub.calls("GET /SashimiLists/Watchlist").isEmpty())
+            advanceUntilIdle()
+            kotlinx.coroutines.yield()
+        }
 }

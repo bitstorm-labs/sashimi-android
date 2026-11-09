@@ -155,14 +155,14 @@ class WatchlistServiceTest {
     @Test
     fun `the token never appears in an exception message`() =
         runTest {
-            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 500 to """{"error":"bad token SECRET-T"}"""
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 418 to """{"error":"bad token SECRET-T"}"""
             try {
                 service.linkPlex("SECRET-T", replace = false)
                 fail("expected an error")
             } catch (e: JellyfinError) {
                 assertFalse(e.toString().contains("SECRET-T"))
                 assertFalse((e.message ?: "").contains("SECRET-T"))
-                assertEquals(JellyfinError.HttpError(500), e)
+                assertEquals(JellyfinError.HttpError(418), e)
             }
         }
 
@@ -195,5 +195,33 @@ class WatchlistServiceTest {
         runTest {
             assertTrue(service.libraryItems(emptyList()).isEmpty())
             assertTrue(stub.seen.isEmpty())
+        }
+
+    @Test
+    fun `a 5xx on link is Plex unreachable, not a rejected token`() =
+        runTest {
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 503 to ""
+            assertEquals(PlexLinkResult.PlexUnreachable, service.linkPlex("T", replace = false))
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 500 to ""
+            assertEquals(PlexLinkResult.PlexUnreachable, service.linkPlex("T", replace = false))
+            assertFalse(expired)
+        }
+
+    @Test
+    fun `library items are fetched in batches`() =
+        runTest {
+            stub.routes["GET /Items"] = 200 to """{"Items":[],"TotalRecordCount":0}"""
+            service.libraryItems((1..250).map { "id$it" })
+            val calls = stub.calls("GET /Items")
+            assertEquals(3, calls.size)
+            assertTrue(
+                calls.all {
+                    it.call
+                        .substringAfter("Ids=")
+                        .substringBefore("&")
+                        .split("%2C", ",")
+                        .size <= 100
+                },
+            )
         }
 }

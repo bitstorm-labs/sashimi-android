@@ -70,6 +70,7 @@ fun ConnectPlexDialog(
                     when (result) {
                         is PlexLinkResult.Linked -> currentOnLinked()
                         PlexLinkResult.Rejected -> error = "Plex didn't accept that sign-in. Try again."
+                        PlexLinkResult.PlexUnreachable -> error = "Couldn't reach Plex. Try again."
                         // The app-wide prompt asks whether to switch accounts.
                         is PlexLinkResult.ConflictsWith -> currentOnDismiss()
                     }

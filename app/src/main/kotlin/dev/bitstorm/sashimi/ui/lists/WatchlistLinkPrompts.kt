@@ -30,7 +30,8 @@ fun WatchlistLinkPrompts(modifier: Modifier = Modifier) {
 
     SnackbarHost(snackbar, modifier)
 
-    when (val p = prompt) {
+    // A question asked for another person (signed out or switched since) is dropped, never shown.
+    when (val p = prompt?.takeIf { linker.promptStillValid() }) {
         is LinkPrompt.Replace ->
             AlertDialog(
                 onDismissRequest = { linker.answer(false) },

@@ -20,6 +20,9 @@ sealed interface PlexLinkResult {
     /** plex.tv refused the token (the plugin's 422). */
     data object Rejected : PlexLinkResult
 
+    /** The plugin couldn't reach plex.tv (a 5xx): not the token's fault, try again. */
+    data object PlexUnreachable : PlexLinkResult
+
     /** Already linked to [username]; the token belongs to [newUsername]. */
     data class ConflictsWith(
         val username: String,
@@ -57,7 +60,10 @@ class WatchlistService(
     /** Server|user → whether the plugin answered. Only real answers (200 or 404) are cached. */
     private val availability = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
-    private fun key(): String = "${client.currentServerUrl}|${client.currentUserId}"
+    /** Which server and user the client is signed in as now. */
+    internal fun sessionKey(): String = "${client.currentServerUrl}|${client.currentUserId}"
+
+    private fun key(): String = sessionKey()
 
     /** Null only when the server has no Watchlist (404). Anything else that fails throws. */
     suspend fun view(): WatchlistView? {
@@ -95,7 +101,11 @@ class WatchlistService(
     }
 
     /** The on-server entries' library items, keyed by [SharedLists.normalizeId]. */
-    suspend fun libraryItems(ids: List<String>): Map<String, BaseItemDto> {
+    suspend fun libraryItems(ids: List<String>): Map<String, BaseItemDto> =
+        // Batches keep the request line short: a synced Plex watchlist can hold hundreds of titles.
+        ids.chunked(LIBRARY_BATCH).fold(emptyMap()) { acc, batch -> acc + libraryBatch(batch) }
+
+    private suspend fun libraryBatch(ids: List<String>): Map<String, BaseItemDto> {
         if (ids.isEmpty()) return emptyMap()
         val body =
             client.listsRequest(
@@ -149,6 +159,7 @@ class WatchlistService(
             in 200..299 -> PlexLinkResult.Linked(decode<PlexLink>(reply.body))
             409 -> decode<PlexConflict>(reply.body).let { PlexLinkResult.ConflictsWith(it.username, it.newUsername) }
             422 -> PlexLinkResult.Rejected
+            in 500..599 -> PlexLinkResult.PlexUnreachable
             else -> throw JellyfinError.HttpError(reply.code)
         }
     }
@@ -167,4 +178,8 @@ class WatchlistService(
         } catch (e: Exception) {
             throw JellyfinError.DecodingError
         }
+
+    private companion object {
+        const val LIBRARY_BATCH = 100
+    }
 }
