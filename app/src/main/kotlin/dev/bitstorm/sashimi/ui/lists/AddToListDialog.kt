@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.bitstorm.sashimi.core.lists.AddToListTarget
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
@@ -114,7 +115,7 @@ fun AddToListDialog(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            if (row.alreadyOn) "Already on this list" else "Private \u00b7 ${row.count}",
+                            if (row.alreadyOn) "Already on this list" else row.count?.let { "Private \u00b7 $it" } ?: "Private",
                             color = SashimiTextTertiary,
                             fontSize = 13.sp,
                         )

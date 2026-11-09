@@ -1,7 +1,6 @@
 package dev.bitstorm.sashimi.core.seerr
 
 import dev.bitstorm.sashimi.core.session.TokenStore
-import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,9 +65,12 @@ class SeerrSession(
     private val clock: () -> Long = System::currentTimeMillis,
     /**
      * Gets the Plex token once Seerr accepted it (the Watchlist links with it).
+     * Not a suspend function on purpose: sign-in can't wait on the Watchlist,
+     * which may be missing, failing or slow; the link runs on its own
+     * ([dev.bitstorm.sashimi.core.lists.WatchlistPlexLinker.autoLinkInBackground]).
      * Its failures are swallowed: it can never change Seerr's state or error.
      */
-    private val onPlexToken: (suspend (token: String) -> Unit)? = null,
+    private val onPlexToken: ((token: String) -> Unit)? = null,
 ) {
     private val plexSignIn = PlexPinSignIn(settings, plexFactory, pollIntervalMillis, PLEX_TIMEOUT_MILLIS, clock)
 
@@ -259,7 +261,7 @@ class SeerrSession(
                 }
             return
         }
-        onPlexToken?.let { handOff -> runCatchingCancellable { handOff(token) } }
+        onPlexToken?.let { handOff -> runCatching { handOff(token) } }
     }
 
     private fun noServer() {

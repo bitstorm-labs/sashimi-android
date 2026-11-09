@@ -44,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +106,8 @@ fun WatchlistScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var removing by remember { mutableStateOf(false) }
-    var connecting by remember { mutableStateOf(false) }
+    // Saved: Connect Plex comes back if Android kills the app behind Plex's page.
+    var connecting by rememberSaveable { mutableStateOf(false) }
     var note by remember { mutableStateOf<NotOnServerNote?>(null) }
 
     LifecycleResumeEffect(Unit) {
@@ -160,10 +162,8 @@ fun WatchlistScreen(
     if (connecting) {
         ConnectPlexDialog(
             onDismiss = { connecting = false },
-            onLinked = {
-                connecting = false
-                vm.load()
-            },
+            // The linker's change signal reloads the Watchlist.
+            onLinked = { connecting = false },
         )
     }
 

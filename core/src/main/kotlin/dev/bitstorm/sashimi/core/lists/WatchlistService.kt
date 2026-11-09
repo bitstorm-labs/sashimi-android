@@ -88,16 +88,24 @@ class WatchlistService(
         return view
     }
 
-    /** Whether this server has a Watchlist. An error answers false and is asked again next time. */
-    suspend fun available(): Boolean {
-        availability[key()]?.let { return it }
-        return try {
-            view() != null
+    /** [view] as a [WatchlistRead]: never throws, except to cancel. */
+    suspend fun read(): WatchlistRead =
+        try {
+            view()?.let { WatchlistRead.Ready(it) } ?: WatchlistRead.Absent
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
-            false
+        } catch (e: Exception) {
+            WatchlistRead.Failed(e)
         }
+
+    /**
+     * Whether this server has a Watchlist. False only on a 404: a network
+     * error or a 5xx answers true (the Watchlist is offered, and acting on it
+     * shows the error) and is asked again next time.
+     */
+    suspend fun available(): Boolean {
+        availability[key()]?.let { return it }
+        return read() !is WatchlistRead.Absent
     }
 
     /** The on-server entries' library items, keyed by [SharedLists.normalizeId]. */

@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
+import dev.bitstorm.sashimi.core.lists.AddToListTarget
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
 import dev.bitstorm.sashimi.core.seerr.SeerrImages
 import dev.bitstorm.sashimi.core.seerr.SeerrSeasonPlan
@@ -57,7 +58,6 @@ import dev.bitstorm.sashimi.core.seerr.SeerrTarget
 import dev.bitstorm.sashimi.core.seerr.SeerrTitle
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.lists.AddToListDialog
-import dev.bitstorm.sashimi.ui.lists.AddToListTarget
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
