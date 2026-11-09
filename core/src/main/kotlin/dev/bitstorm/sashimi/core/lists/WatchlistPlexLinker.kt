@@ -70,10 +70,13 @@ class WatchlistPlexLinker(
     /**
      * Requests sign-in just got [token]. Never fails and never speaks unless
      * something changed: no plugin, an error, or a rejected token are all silent.
+     * Someone who disconnected Plex ([WatchlistView.plexOptedOut]) is left alone.
      */
     internal suspend fun autoLink(token: String) {
         try {
             val view = service.view() ?: return
+            // They disconnected Plex: only their own Connect links it again.
+            if (view.plexOptedOut) return
             when (val result = service.linkPlex(token, replace = false)) {
                 is PlexLinkResult.Linked -> {
                     if (view.plex == null) _notices.tryEmit(LINKED_NOTICE)

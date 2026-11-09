@@ -38,6 +38,8 @@ data class WatchlistEntry(
 data class WatchlistView(
     val plex: PlexLink? = null,
     val cardDismissed: Boolean = false,
+    /** The person disconnected Plex (plugin 0.2.2+): the Requests auto-link must not reconnect them. */
+    val plexOptedOut: Boolean = false,
     val entries: List<WatchlistEntry> = emptyList(),
 )
 

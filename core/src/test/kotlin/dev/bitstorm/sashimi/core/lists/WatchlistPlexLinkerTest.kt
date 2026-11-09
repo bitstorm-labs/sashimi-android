@@ -435,4 +435,28 @@ class WatchlistPlexLinkerTest {
     @Test
     fun `requests sign-in finishes when jellyfin is unreachable`() =
         runTest { assertTrue(signInToRequestsWhile { stub.unreachable += "GET /SashimiLists/Watchlist" }) }
+
+    @Test
+    fun `auto-link leaves alone someone who disconnected plex`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to """{"plex":null,"plexOptedOut":true,"entries":[]}"""
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"chad"}"""
+            val linker = linker()
+            watchChanges(linker)
+            linker.autoLink("T")
+            runCurrent()
+            assertTrue(linkCalls().isEmpty())
+            assertTrue(notices.isEmpty())
+            assertTrue(changes.isEmpty())
+            assertNull(linker.prompt.value)
+        }
+
+    @Test
+    fun `an explicit connect still links after a disconnect`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to """{"plex":null,"plexOptedOut":true,"entries":[]}"""
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"chad"}"""
+            assertEquals(PlexLinkResult.Linked(PlexLink("chad")), linker().connect("T"))
+            assertEquals(1, linkCalls().size)
+        }
 }
