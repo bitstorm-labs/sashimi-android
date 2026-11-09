@@ -46,6 +46,7 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 fun ListsScreen(
     isCompact: Boolean,
     onOpenList: (String) -> Unit,
+    onOpenWatchlist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val vm: ListsViewModel = viewModel()
@@ -78,6 +79,7 @@ fun ListsScreen(
                         }
                     else -> {
                         Section("Your lists") {
+                            state.watchlist?.let { slot -> WatchlistCard(slot, cardWidth, onOpenWatchlist) }
                             state.mine.forEach { list ->
                                 ListCard(list, cardWidth, subscribed = list.id in state.subscribed) { onOpenList(list.id) }
                             }

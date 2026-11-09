@@ -47,6 +47,11 @@ as a signed APK.
   page, and a title's local trailer plays behind the page. Both can be turned
   off in Settings. Theme songs stay quiet when other audio is playing, and
   trailers never play on mobile data.
+- **Watchlist:** one private Watchlist per person, pinned first on Lists and
+  in Add to List. It holds titles the server doesn't have yet (dimmed, tagged
+  Not on server or Requested, and opening their Requests page), takes Seerr
+  titles from their Requests page, and can stay in step with the person's Plex
+  watchlist (Connect Plex). Needs the Sashimi Lists plugin 0.2.0 or later.
 - **Admin server dashboard** (Jellyfin administrators only, under Settings):
   Now playing cards for every active stream, with Stop and Send a message
   (shown on the viewer's screen), an Activity log, and a Health screen with
@@ -69,11 +74,12 @@ as a signed APK.
 ## Get more out of Sashimi
 
 Sashimi works against a plain Jellyfin server. These server add-ons make it
-better. None are required. The first three are made by Bitstorm Labs. The last two
+better. None are required. The first four are made by Bitstorm Labs. The last two
 are separate projects by other people; see [Acknowledgments](#acknowledgments).
 
 | Add-on | What you get in Sashimi for Android | Without it |
 |--------|-------------------------------------|------------|
+| [Sashimi Lists plugin](https://github.com/bitstorm-labs/jellyfin-plugin-sashimi-lists) | Shared lists and the Watchlist: shared lists name who made them, and 0.2.0+ adds the Watchlist (titles not on the server, optional Plex sync). | Shared lists read "Shared list" instead of the creator's name, and there is no Watchlist anywhere. |
 | [Continue Watching plugin](https://github.com/bitstorm-labs/jellyfin-plugin-continue-watching) | The server merges Resume and Next Up into one ranked row (`GET /ContinueWatching`), and Home shows it as Continue Watching. | The app builds the same row itself from Resume, Next Up and your recent plays when the server answers 404. |
 | [Channels plugin](https://github.com/bitstorm-labs/jellyfin-plugin-channels) | Not supported yet. The Android app has no channels row or guide. | Nothing changes. |
 | [Theme Songs plugin](https://github.com/bitstorm-labs/jellyfin-theme-songs) (manifest: `https://raw.githubusercontent.com/bitstorm-labs/jellyfin-theme-songs/main/manifest.json`) | Theme music plays on series pages. Toggle: Settings, Play theme songs. | Series pages are silent. |

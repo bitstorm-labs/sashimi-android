@@ -281,6 +281,9 @@ data class SeerrTitleDetails(
     val seasons: List<SeerrSeason> = emptyList(),
     /** TV: content rating; movies: certification. US first, else the first non-empty. */
     val contentRating: String? = null,
+    /** From `externalIds` (a movie also has it top-level); lets the Watchlist match Plex and Jellyfin. */
+    val imdbId: String? = null,
+    val tvdbId: Int? = null,
 ) {
     val year: Int? get() = SeerrDates.year(date)
 
@@ -320,6 +323,10 @@ data class SeerrTitleDetails(
                 tmdbStatus = obj.string("status"),
                 seasons = (obj["seasons"] as? JsonArray).orEmpty().mapNotNull { SeerrJson.decodeOrNull<SeerrSeason>(it) },
                 contentRating = rating(obj["contentRatings"] as? JsonObject, obj["releases"] as? JsonObject),
+                imdbId =
+                    (obj["externalIds"] as? JsonObject)?.string("imdbId")?.takeIf { it.isNotBlank() }
+                        ?: obj.string("imdbId")?.takeIf { it.isNotBlank() },
+                tvdbId = (obj["externalIds"] as? JsonObject)?.int("tvdbId"),
             )
         }
 

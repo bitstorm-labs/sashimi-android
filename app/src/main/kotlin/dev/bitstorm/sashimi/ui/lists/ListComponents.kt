@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.lists.ListCover
 import dev.bitstorm.sashimi.core.lists.SharedList
+import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.model.ImageRef
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
@@ -178,6 +180,54 @@ internal fun ListCard(
         }
         Text(list.name, color = SashimiTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(listMeta(list), color = SashimiTextTertiary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** The Watchlist's card, first in Your lists: the newest on-server title's poster, else a bookmark. */
+@Composable
+internal fun WatchlistCard(
+    slot: WatchlistSlot,
+    width: Dp,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.width(width).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            Modifier
+                .width(width)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(SashimiCard),
+        ) {
+            val cover = (slot as? WatchlistSlot.Ready)?.cover
+            if (cover != null) {
+                AsyncImage(
+                    model = ImageUrls.cardPoster(cover, rememberImageWidth(width)),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Bookmark,
+                    contentDescription = null,
+                    tint = SashimiTextTertiary,
+                    modifier = Modifier.align(Alignment.Center).size(36.dp),
+                )
+            }
+        }
+        Text(Watchlist.NAME, color = SashimiTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(
+            when (slot) {
+                is WatchlistSlot.Ready -> "Private \u00b7 ${slot.view.entries.size}"
+                WatchlistSlot.Failed -> "Couldn't load"
+            },
+            color = SashimiTextTertiary,
+            fontSize = 12.sp,
+            maxLines = 1,
+        )
     }
 }
 

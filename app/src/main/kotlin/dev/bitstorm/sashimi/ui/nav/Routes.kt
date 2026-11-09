@@ -26,6 +26,10 @@ object SettingsRoute
 @Serializable
 object ListsRoute
 
+/** The signed-in user's Watchlist (Sashimi Lists plugin 0.2.0+). */
+@Serializable
+object WatchlistRoute
+
 /** One shared list (subscriber or owner view). */
 @Serializable
 data class ListDetailRoute(

@@ -29,6 +29,7 @@ import dev.bitstorm.sashimi.core.remote.RemoteMessageBoard
 import dev.bitstorm.sashimi.core.remote.RemoteSessionKey
 import dev.bitstorm.sashimi.core.search.RecentSearchStore
 import dev.bitstorm.sashimi.core.seerr.PlexPinClient
+import dev.bitstorm.sashimi.core.seerr.PlexPinSignIn
 import dev.bitstorm.sashimi.core.seerr.SeerrSession
 import dev.bitstorm.sashimi.core.session.EncryptedTokenStore
 import dev.bitstorm.sashimi.core.session.PrefsHiddenSeriesStore
@@ -130,6 +131,21 @@ object ServiceLocator {
     lateinit var seerr: SeerrSession
         private set
 
+    /** The signed-in user's Watchlist (Sashimi Lists plugin 0.2.0+; hidden without it). */
+    val watchlist: dev.bitstorm.sashimi.core.lists.WatchlistService by lazy {
+        dev.bitstorm.sashimi.core.lists
+            .WatchlistService(client)
+    }
+
+    /** Plex PIN sign-in for the Watchlist's Connect Plex; the same client id Requests uses. */
+    lateinit var plexSignIn: PlexPinSignIn
+        private set
+
+    val watchlistLinker: dev.bitstorm.sashimi.core.lists.WatchlistPlexLinker by lazy {
+        dev.bitstorm.sashimi.core.lists
+            .WatchlistPlexLinker(watchlist, appScope)
+    }
+
     lateinit var playbackEngine: PlaybackEngine
         private set
 
@@ -226,11 +242,16 @@ object ServiceLocator {
         continueWatchingHides = ContinueWatchingHides(PrefsHiddenSeriesStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
+        val seerrSettings = PrefsSeerrSettingsStore(app)
+        val plexFactory = { id: String -> PlexPinClient(id, BuildConfig.VERSION_NAME) }
+        plexSignIn = PlexPinSignIn(seerrSettings, plexFactory)
         seerr =
             SeerrSession(
-                settings = PrefsSeerrSettingsStore(app),
+                settings = seerrSettings,
                 cookies = tokenStore,
-                plexFactory = { PlexPinClient(it, BuildConfig.VERSION_NAME) },
+                plexFactory = plexFactory,
+                // Requests sign-in also links the Watchlist to the same Plex account.
+                onPlexToken = { token -> watchlistLinker.autoLinkInBackground(token) },
             )
         // Checks a stored cookie with the server; stays off the network without one.
         appScope.launch(Dispatchers.Main) { seerr.restore() }

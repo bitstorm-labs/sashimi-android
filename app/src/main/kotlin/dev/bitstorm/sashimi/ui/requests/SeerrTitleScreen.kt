@@ -25,12 +25,15 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,12 +56,15 @@ import dev.bitstorm.sashimi.core.seerr.SeerrStatusLabel
 import dev.bitstorm.sashimi.core.seerr.SeerrTarget
 import dev.bitstorm.sashimi.core.seerr.SeerrTitle
 import dev.bitstorm.sashimi.ui.components.BackTopBar
+import dev.bitstorm.sashimi.ui.lists.AddToListDialog
+import dev.bitstorm.sashimi.ui.lists.AddToListTarget
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
+import kotlinx.coroutines.launch
 
 /**
  * A Seerr title's request page (Apple mockup C): the backdrop, poster and
@@ -79,6 +85,10 @@ fun SeerrTitleScreen(
     var picking by remember { mutableStateOf<SeerrSeasonPlan?>(null) }
     val context = LocalContext.current
     val details = state.details
+    val watchlistAvailable by vm.watchlistAvailable.collectAsStateWithLifecycle()
+    var addingToList by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -148,6 +158,9 @@ fun SeerrTitleScreen(
                             }
                         }) { Text("Trailer") }
                     }
+                    if (details != null && watchlistAvailable) {
+                        OutlinedButton(onClick = { addingToList = true }) { Text("Add to List") }
+                    }
                 }
                 details?.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = SashimiTextSecondary) }
                 if (!details?.cast.isNullOrEmpty()) {
@@ -158,6 +171,15 @@ fun SeerrTitleScreen(
             }
         }
         BackTopBar(title = "", onBack = onBack, containerColor = Color.Transparent)
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+
+    if (addingToList && details != null) {
+        AddToListDialog(
+            target = AddToListTarget.Seerr(details),
+            onDismiss = { addingToList = false },
+            onResult = { message -> scope.launch { snackbar.showSnackbar(message) } },
+        )
     }
 
     picking?.let { plan ->
