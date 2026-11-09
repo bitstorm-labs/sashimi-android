@@ -37,7 +37,8 @@ data class PickerRow(
 /** The Watchlist row, always first. Null in [AddToListUiState.watchlist] hides it. */
 data class WatchlistRow(
     val alreadyOn: Boolean,
-    val count: Int,
+    /** Null when the Watchlist hasn't been read (yet, or it failed): the row still takes adds. */
+    val count: Int?,
 )
 
 data class AddToListUiState(
@@ -61,52 +62,63 @@ class AddToListPicker(
     private val watchlist: WatchlistService,
     private val errorMessage: (Throwable) -> String,
 ) {
+    /**
+     * The Watchlist row never waits on the Watchlist read: your lists show as
+     * soon as they arrive, and a read that is slow, retrying or failed leaves
+     * the row in place (only a 404 removes it). An add then shows any error.
+     */
     fun load(target: AddToListTarget): Flow<AddToListUiState> =
         flow {
             val showsLists = Watchlist.pickerShowsLists(isSeerr = target is AddToListTarget.Seerr)
             emit(AddToListUiState(showsLists = showsLists))
             val item = (target as? AddToListTarget.Library)?.item
             coroutineScope {
-                // The plugin is optional and an error here must not hide your lists: no row then.
-                val view =
+                val read =
                     async {
-                        if (item != null && !Watchlist.eligible(item)) return@async Result.success(null)
-                        runCatchingCancellable { watchlist.view() }
+                        if (item != null && !Watchlist.eligible(item)) WatchlistRead.Absent else watchlist.read()
                     }
                 if (item == null) {
-                    view
-                        .await()
-                        .onSuccess { v ->
-                            emit(
-                                if (v == null) {
-                                    AddToListUiState(isLoading = false, showsLists = false, error = NO_WATCHLIST)
-                                } else {
-                                    AddToListUiState(isLoading = false, showsLists = false, watchlist = row(target, v))
-                                },
-                            )
-                        }.onFailure { e -> emit(AddToListUiState(isLoading = false, showsLists = false, error = errorMessage(e))) }
+                    // A Seerr title: the Watchlist is all there is, so the row shows at once and fills in.
+                    emit(seerrState(target, WatchlistRead.Pending))
+                    emit(seerrState(target, read.await()))
                     return@coroutineScope
                 }
                 val stored = async { runCatchingCancellable { lists.storedId(item) }.getOrNull() }
-                runCatchingCancellable { lists.allLists().filter { it.isMine } }
-                    .onSuccess { mine ->
-                        val storedId = stored.await()
-                        val v = view.await().getOrNull()
-                        emit(
-                            AddToListUiState(
-                                isLoading = false,
-                                watchlist = v?.takeIf { Watchlist.pickerShowsWatchlist(item, it) }?.let { row(target, it) },
-                                rows = mine.map { PickerRow(it, SharedListsService.contains(it.items, item, storedId)) },
-                            ),
-                        )
-                    }.onFailure { e -> emit(AddToListUiState(isLoading = false, error = errorMessage(e))) }
+                val mine =
+                    runCatchingCancellable { lists.allLists().filter { it.isMine } }.getOrElse { e ->
+                        read.cancel()
+                        emit(AddToListUiState(isLoading = false, error = errorMessage(e)))
+                        return@coroutineScope
+                    }
+                val storedId = stored.await()
+                val ready =
+                    AddToListUiState(
+                        isLoading = false,
+                        rows = mine.map { PickerRow(it, SharedListsService.contains(it.items, item, storedId)) },
+                    )
+                if (!read.isCompleted) emit(ready.copy(watchlist = row(target, item, WatchlistRead.Pending)))
+                emit(ready.copy(watchlist = row(target, item, read.await())))
             }
         }
 
+    private fun seerrState(
+        target: AddToListTarget,
+        read: WatchlistRead,
+    ): AddToListUiState =
+        if (read is WatchlistRead.Absent) {
+            AddToListUiState(isLoading = false, showsLists = false, error = NO_WATCHLIST)
+        } else {
+            AddToListUiState(isLoading = false, showsLists = false, watchlist = row(target, null, read))
+        }
+
+    /** Null hides the row. Before (or without) a read there's no count and nothing marked. */
     private fun row(
         target: AddToListTarget,
-        view: WatchlistView,
-    ): WatchlistRow {
+        item: BaseItemDto?,
+        read: WatchlistRead,
+    ): WatchlistRow? {
+        if (!Watchlist.pickerShowsWatchlist(item, read)) return null
+        val view = (read as? WatchlistRead.Ready)?.view ?: return WatchlistRow(alreadyOn = false, count = null)
         val already =
             when (target) {
                 is AddToListTarget.Library -> Watchlist.alreadyOn(view, target.item)

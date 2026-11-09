@@ -115,7 +115,7 @@ fun AddToListDialog(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            if (row.alreadyOn) "Already on this list" else "Private \u00b7 ${row.count}",
+                            if (row.alreadyOn) "Already on this list" else row.count?.let { "Private \u00b7 $it" } ?: "Private",
                             color = SashimiTextTertiary,
                             fontSize = 13.sp,
                         )

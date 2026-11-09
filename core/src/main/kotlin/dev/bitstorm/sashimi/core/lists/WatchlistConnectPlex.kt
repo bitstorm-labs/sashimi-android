@@ -37,6 +37,8 @@ class WatchlistConnectPlex(
     private val linker: WatchlistPlexLinker,
 ) {
     /**
+     * [resume] is a PIN kept from an earlier run (the activity or process died
+     * behind Plex's page): it is polled again, and no new PIN is made.
      * [onPin] gets a new PIN to keep and open Plex's page for ([PlexPinSignIn.webSignInUrl]).
      * [onToken] runs once Plex answered, before the link (the app comes back to the front).
      */
@@ -46,9 +48,12 @@ class WatchlistConnectPlex(
         onToken: () -> Unit,
         stillWaiting: () -> Boolean,
     ): ConnectPlexOutcome {
+        // A PIN kept from before the app was killed behind Plex's page: the person
+        // may already have signed in there, so poll it rather than starting over.
         val pin =
-            runCatchingCancellable { signIn.begin(strong = true) }.getOrElse { return ConnectPlexOutcome.CouldNotStart }
-        onPin(pin)
+            resume ?: runCatchingCancellable { signIn.begin(strong = true) }
+                .getOrElse { return ConnectPlexOutcome.CouldNotStart }
+                .also(onPin)
         val token = signIn.awaitToken(pin, stillWaiting)
         if (!stillWaiting()) return ConnectPlexOutcome.Abandoned
         if (token == null) return ConnectPlexOutcome.Expired

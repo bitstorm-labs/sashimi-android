@@ -25,11 +25,15 @@ internal class StubServer : Interceptor {
     val unreachable = mutableSetOf<String>()
     val seen: MutableList<Seen> = Collections.synchronizedList(mutableListOf())
 
+    /** Paths whose answer waits until the latch opens: a slow or hung Jellyfin. */
+    val held = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val key = "${request.method} ${request.url.encodedPath}"
         val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readUtf8() }
         seen += Seen(key + (request.url.encodedQuery?.let { "?$it" } ?: ""), body)
+        held[key]?.await()
         if (key in unreachable) throw java.io.IOException("unreachable")
         val (status, json) = queued[key]?.removeFirstOrNull() ?: routes[key] ?: (404 to "")
         return Response

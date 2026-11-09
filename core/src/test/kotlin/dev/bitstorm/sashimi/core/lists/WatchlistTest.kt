@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.core.lists
 
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.model.ItemType
+import dev.bitstorm.sashimi.core.network.JellyfinError
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
 import dev.bitstorm.sashimi.core.seerr.SeerrMediaKind
 import dev.bitstorm.sashimi.core.seerr.SeerrTitleDetails
@@ -136,20 +137,30 @@ class WatchlistTest {
 
     @Test
     fun `picker hides the watchlist for an episode`() {
-        val view = WatchlistView()
-        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.EPISODE, mapOf("Tmdb" to "1")), view))
-        assertTrue(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), view))
+        val read = WatchlistRead.Ready(WatchlistView())
+        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.EPISODE, mapOf("Tmdb" to "1")), read))
+        assertTrue(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), read))
     }
 
     @Test
     fun `picker hides the watchlist without the plugin`() {
-        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), null))
+        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), WatchlistRead.Absent))
+        assertFalse(Watchlist.pickerShowsWatchlist(null, WatchlistRead.Absent))
+    }
+
+    @Test
+    fun `picker keeps the watchlist when it couldn't be read or hasn't answered yet`() {
+        val movie = item(ItemType.MOVIE, mapOf("Tmdb" to "1"))
+        val failed = WatchlistRead.Failed(JellyfinError.HttpError(503))
+        assertTrue(Watchlist.pickerShowsWatchlist(movie, failed))
+        assertTrue(Watchlist.pickerShowsWatchlist(null, failed))
+        assertTrue(Watchlist.pickerShowsWatchlist(movie, WatchlistRead.Pending))
+        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.EPISODE, mapOf("Tmdb" to "1")), failed))
     }
 
     @Test
     fun `seerr picker offers only the watchlist`() {
-        assertTrue(Watchlist.pickerShowsWatchlist(null, WatchlistView()))
-        assertFalse(Watchlist.pickerShowsWatchlist(null, null))
+        assertTrue(Watchlist.pickerShowsWatchlist(null, WatchlistRead.Ready(WatchlistView())))
         assertFalse(Watchlist.pickerShowsLists(isSeerr = true))
         assertTrue(Watchlist.pickerShowsLists(isSeerr = false))
     }
@@ -181,5 +192,30 @@ class WatchlistTest {
         assertTrue(Watchlist.showsCard(WatchlistView()))
         assertFalse(Watchlist.showsCard(WatchlistView(cardDismissed = true)))
         assertFalse(Watchlist.showsCard(WatchlistView(plex = PlexLink("chad"))))
+    }
+
+    private fun titled(id: String) = WatchlistEntry(id = id, type = "Movie", title = id, addedAt = "2026-11-09T00:00:00Z")
+
+    @Test
+    fun `a failed remove brings back only that title`() {
+        val (a, b, c, d) = listOf("a", "b", "c", "d").map(::titled)
+        val before = listOf(a, b, c, d)
+        // b and c were removed; b's DELETE failed, c's went through.
+        val now = Watchlist.afterFailedRemove(current = listOf(a, d), failed = b, before = before)
+        assertEquals(listOf(a, b, d), now)
+    }
+
+    @Test
+    fun `a failed remove goes back where it was`() {
+        val (a, b, c) = listOf("a", "b", "c").map(::titled)
+        assertEquals(listOf(a, b, c), Watchlist.afterFailedRemove(listOf(b, c), a, listOf(a, b, c)))
+        assertEquals(listOf(a, b, c), Watchlist.afterFailedRemove(listOf(a, b), c, listOf(a, b, c)))
+        assertEquals(listOf(b), Watchlist.afterFailedRemove(emptyList(), b, listOf(a, b, c)))
+    }
+
+    @Test
+    fun `a failed remove never doubles a title a reload already brought back`() {
+        val (a, b) = listOf("a", "b").map(::titled)
+        assertEquals(listOf(b, a), Watchlist.afterFailedRemove(listOf(b, a), b, listOf(a, b)))
     }
 }

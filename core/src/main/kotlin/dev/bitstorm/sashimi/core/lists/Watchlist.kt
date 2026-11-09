@@ -53,6 +53,24 @@ data class NewWatchlistEntry(
     val imdbId: String? = null,
 )
 
+/** What reading the Watchlist came to. Only [Absent] (a 404) means the server has none. */
+sealed interface WatchlistRead {
+    /** Not answered yet. */
+    data object Pending : WatchlistRead
+
+    data class Ready(
+        val view: WatchlistView,
+    ) : WatchlistRead
+
+    /** 404: the plugin isn't installed (or is too old). */
+    data object Absent : WatchlistRead
+
+    /** A network error or a 5xx: the Watchlist may well be there. */
+    data class Failed(
+        val error: Throwable,
+    ) : WatchlistRead
+}
+
 /** What tapping a Watchlist tile does. */
 sealed interface WatchlistTap {
     /** On the server: its detail page. */
@@ -170,13 +188,12 @@ object Watchlist {
 
     /**
      * Whether Add to List offers the Watchlist. [target] is the library item,
-     * or null for a Seerr title (always a movie or show with a TMDB id). A null
-     * [view] means no plugin, or it couldn't be read: no row then.
+     * or null for a Seerr title (always a movie or show with a TMDB id).
      */
     fun pickerShowsWatchlist(
         target: BaseItemDto?,
-        view: WatchlistView?,
-    ): Boolean = view != null && (target == null || eligible(target))
+        read: WatchlistRead,
+    ): Boolean = read !is WatchlistRead.Absent && (target == null || eligible(target))
 
     /** A Seerr title isn't a library item, so only the Watchlist can take it. */
     fun pickerShowsLists(isSeerr: Boolean): Boolean = !isSeerr
@@ -199,7 +216,13 @@ object Watchlist {
         current: List<WatchlistEntry>,
         failed: WatchlistEntry,
         before: List<WatchlistEntry>,
-    ): List<WatchlistEntry> = before
+    ): List<WatchlistEntry> {
+        if (current.any { it.id == failed.id }) return current
+        // Back after the nearest title that was above it and still shows.
+        val above = before.takeWhile { it.id != failed.id }.map { it.id }
+        val anchor = current.indexOfLast { it.id in above }
+        return current.toMutableList().apply { add(anchor + 1, failed) }
+    }
 
     /** "Use Plex too?": only before a link and until "Not now". */
     fun showsCard(view: WatchlistView): Boolean = view.plex == null && !view.cardDismissed

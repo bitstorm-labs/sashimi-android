@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistEntry
+import dev.bitstorm.sashimi.core.lists.WatchlistPlexLinker
 import dev.bitstorm.sashimi.core.lists.WatchlistService
 import dev.bitstorm.sashimi.core.lists.WatchlistView
 import dev.bitstorm.sashimi.core.model.BaseItemDto
@@ -42,6 +43,7 @@ data class WatchlistUiState(
 class WatchlistViewModel(
     private val service: WatchlistService = ServiceLocator.watchlist,
     private val seerr: SeerrSession = ServiceLocator.seerr,
+    private val linker: WatchlistPlexLinker = ServiceLocator.watchlistLinker,
 ) : ViewModel() {
     private val _state = MutableStateFlow(WatchlistUiState())
     val state: StateFlow<WatchlistUiState> = _state.asStateFlow()
@@ -53,6 +55,8 @@ class WatchlistViewModel(
 
     init {
         load()
+        // Linked, switched (the app-wide Switch prompt) or disconnected, here or in Settings: re-read the Plex line.
+        viewModelScope.launch { linker.changes.collect { load() } }
     }
 
     fun onScreenResumed() {
@@ -129,8 +133,7 @@ class WatchlistViewModel(
 
     fun disconnect() {
         viewModelScope.launch {
-            runCatchingCancellable { service.unlinkPlex() }
-                .onSuccess { load() }
+            runCatchingCancellable { linker.disconnect() }
                 .onFailure { _messages.tryEmit(listErrorMessage(it)) }
         }
     }

@@ -75,12 +75,26 @@ class WatchlistServiceTest {
             } catch (e: JellyfinError) {
                 assertEquals(JellyfinError.HttpError(500), e)
             }
-            val before = stub.calls("GET /SashimiLists/Watchlist").size
-            assertFalse(service.available())
-            val after = stub.calls("GET /SashimiLists/Watchlist").size
-            assertTrue(after > before)
-            stub.routes["GET /SashimiLists/Watchlist"] = 200 to """{"entries":[]}"""
+        }
+
+    @Test
+    fun `a 5xx never hides the watchlist and is asked again`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 500 to ""
             assertTrue(service.available())
+            val first = stub.calls("GET /SashimiLists/Watchlist").size
+            assertTrue(service.available())
+            assertTrue(stub.calls("GET /SashimiLists/Watchlist").size > first)
+            stub.routes["GET /SashimiLists/Watchlist"] = 404 to ""
+            assertFalse(service.available())
+        }
+
+    @Test
+    fun `a network error never hides the watchlist`() =
+        runTest {
+            stub.unreachable += "GET /SashimiLists/Watchlist"
+            assertTrue(service.available())
+            assertTrue(service.read() is WatchlistRead.Failed)
         }
 
     @Test

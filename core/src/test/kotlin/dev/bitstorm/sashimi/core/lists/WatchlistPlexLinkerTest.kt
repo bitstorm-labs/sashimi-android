@@ -136,6 +136,7 @@ class WatchlistPlexLinkerTest {
             assertNull(linker.prompt.value)
             assertTrue(notices.isEmpty())
 
+            var link: kotlinx.coroutines.Job? = null
             val seerr = SeerrStub()
             seerr.on("POST", "/api/v2/pins", status = 201, body = """{"id":42,"code":"K7QF"}""")
             seerr.on("GET", "/api/v2/pins/42", body = """{"id":42,"code":"K7QF","authToken":"plex-token"}""")
@@ -147,11 +148,12 @@ class WatchlistPlexLinkerTest {
                     pollIntervalMillis = 0,
                     clientFactory = { url, cookie -> SeerrClient(url, cookie, seerr.http) },
                     plexFactory = { PlexPinClient(it, "1.0", seerr.http) },
-                    onPlexToken = { linker.autoLink(it) },
+                    onPlexToken = { link = linker.autoLinkInBackground(it) },
                 ).also { it.setServerAddress(SeerrFixtures.SERVER) }
             session.completePlexSignIn(session.beginPlexSignIn()!!)
             assertTrue(session.state.value is SeerrAuthState.SignedIn)
             assertNull(session.errorMessage.value)
+            link!!.join()
             assertEquals(2, stub.calls("GET /SashimiLists/Watchlist").size)
             assertTrue(linkCalls().isEmpty())
         }
@@ -285,4 +287,152 @@ class WatchlistPlexLinkerTest {
             advanceUntilIdle()
             kotlinx.coroutines.yield()
         }
+
+    private val changes = mutableListOf<Unit>()
+
+    private fun TestScope.watchChanges(linker: WatchlistPlexLinker) {
+        backgroundScope.launch { linker.changes.collect { changes += it } }
+        runCurrent()
+    }
+
+    @Test
+    fun `switching accounts tells open screens to re-read`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to linkedAsChad
+            stub.queued["POST /SashimiLists/Watchlist/Plex"] = ArrayDeque(listOf(409 to """{"username":"chad","newUsername":"mondo"}"""))
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"mondo"}"""
+            val linker = linker()
+            watchChanges(linker)
+            linker.autoLink("T")
+            assertTrue("a question is no change", changes.isEmpty())
+            linker.answer(true)!!.join()
+            runCurrent()
+            assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun `connect tells open screens to re-read`() =
+        runTest {
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"mondo"}"""
+            val linker = linker()
+            watchChanges(linker)
+            linker.connect("T")
+            runCurrent()
+            assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun `a silent auto-relink of the same account still tells open screens`() =
+        runTest {
+            // "Plex stopped syncing" goes away once Requests sign-in relinks the same account.
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to """{"plex":{"username":"chad","needsReconnect":true},"entries":[]}"""
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 200 to """{"username":"chad"}"""
+            val linker = linker()
+            watchChanges(linker)
+            linker.autoLink("T")
+            runCurrent()
+            assertTrue(notices.isEmpty())
+            assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun `disconnect tells open screens to re-read`() =
+        runTest {
+            stub.routes["DELETE /SashimiLists/Watchlist/Plex"] = 204 to ""
+            val linker = linker()
+            watchChanges(linker)
+            linker.disconnect()
+            runCurrent()
+            assertEquals(1, changes.size)
+            assertEquals(1, stub.calls("DELETE /SashimiLists/Watchlist/Plex").size)
+        }
+
+    @Test
+    fun `a link that didn't happen changes nothing`() =
+        runTest {
+            stub.routes["POST /SashimiLists/Watchlist/Plex"] = 422 to ""
+            val linker = linker()
+            watchChanges(linker)
+            linker.connect("T")
+            stub.routes["DELETE /SashimiLists/Watchlist/Plex"] = 500 to ""
+            runCatching { linker.disconnect() }
+            runCurrent()
+            assertTrue(changes.isEmpty())
+        }
+
+    /**
+     * Requests sign-in with Plex against [watchlist]'s answers, through the
+     * hand-off the app wires ([WatchlistPlexLinker.autoLinkInBackground]).
+     * Returns whether sign-in finished before the held Watchlist was let go.
+     */
+    private suspend fun signInToRequestsWhile(watchlist: () -> Unit): Boolean {
+        watchlist()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        stub.held["GET /SashimiLists/Watchlist"] = latch
+        stub.held["POST /SashimiLists/Watchlist/Plex"] = latch
+        val released =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
+        Thread {
+            Thread.sleep(1_500)
+            released.set(true)
+            latch.countDown()
+        }.start()
+        // A real background scope: the link really runs, and really hangs on the held Watchlist.
+        val linkScope = CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+        val linker = WatchlistPlexLinker(service, linkScope)
+        val seerr = SeerrStub()
+        seerr.on("POST", "/api/v2/pins", status = 201, body = """{"id":42,"code":"K7QF"}""")
+        seerr.on("GET", "/api/v2/pins/42", body = """{"id":42,"code":"K7QF","authToken":"plex-token"}""")
+        seerr.on("POST", "/api/v1/auth/plex", body = SeerrFixtures.user(), headers = mapOf("Set-Cookie" to SeerrFixtures.SET_COOKIE))
+        val session =
+            SeerrSession(
+                settings = MemorySeerrSettings(),
+                cookies = MemoryTokenStore(),
+                pollIntervalMillis = 0,
+                clientFactory = { url, cookie -> SeerrClient(url, cookie, seerr.http) },
+                plexFactory = { PlexPinClient(it, "1.0", seerr.http) },
+                onPlexToken = linker::autoLinkInBackground,
+            ).also { it.setServerAddress(SeerrFixtures.SERVER) }
+        session.completePlexSignIn(session.beginPlexSignIn()!!)
+        val finishedFirst = !released.get()
+        assertTrue(session.state.value is SeerrAuthState.SignedIn)
+        assertNull(session.errorMessage.value)
+        latch.countDown()
+        linkScope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
+        return finishedFirst
+    }
+
+    @Test
+    fun `requests sign-in finishes while jellyfin is slow`() =
+        runTest {
+            assertTrue(signInToRequestsWhile { stub.routes["GET /SashimiLists/Watchlist"] = 200 to unlinked })
+        }
+
+    @Test
+    fun `requests sign-in finishes when the server has no watchlist`() = runTest { assertTrue(signInToRequestsWhile { }) }
+
+    @Test
+    fun `requests sign-in finishes when the watchlist 5xxs`() =
+        runTest { assertTrue(signInToRequestsWhile { stub.routes["GET /SashimiLists/Watchlist"] = 503 to "" }) }
+
+    @Test
+    fun `requests sign-in finishes when the link 5xxs or plex refuses it`() =
+        runTest {
+            assertTrue(
+                signInToRequestsWhile {
+                    stub.routes["GET /SashimiLists/Watchlist"] = 200 to unlinked
+                    stub.routes["POST /SashimiLists/Watchlist/Plex"] = 502 to ""
+                },
+            )
+            assertTrue(
+                signInToRequestsWhile {
+                    stub.routes["POST /SashimiLists/Watchlist/Plex"] = 422 to ""
+                },
+            )
+        }
+
+    @Test
+    fun `requests sign-in finishes when jellyfin is unreachable`() =
+        runTest { assertTrue(signInToRequestsWhile { stub.unreachable += "GET /SashimiLists/Watchlist" }) }
 }

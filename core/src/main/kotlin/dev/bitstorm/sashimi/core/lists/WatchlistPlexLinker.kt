@@ -34,10 +34,13 @@ class WatchlistPlexLinker(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    private val _linked = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
 
-    /** Fires each time the Watchlist is linked to a Plex account, so an open Watchlist re-reads its Plex line. */
-    val linked: SharedFlow<Unit> = _linked.asSharedFlow()
+    /**
+     * Fires each time the Watchlist's Plex link changes (linked, switched or
+     * disconnected), so the Watchlist screen and Settings re-read it.
+     */
+    val changes: SharedFlow<Unit> = _changes.asSharedFlow()
 
     @Volatile private var heldToken: String? = null
 
@@ -48,7 +51,14 @@ class WatchlistPlexLinker(
     suspend fun connect(token: String): PlexLinkResult {
         val result = service.linkPlex(token, replace = false)
         if (result is PlexLinkResult.ConflictsWith) ask(token, result)
+        if (result is PlexLinkResult.Linked) _changes.tryEmit(Unit)
         return result
+    }
+
+    /** Disconnect Plex. Errors reach the caller, which shows them. */
+    suspend fun disconnect() {
+        service.unlinkPlex()
+        _changes.tryEmit(Unit)
     }
 
     /**
@@ -61,11 +71,15 @@ class WatchlistPlexLinker(
      * Requests sign-in just got [token]. Never fails and never speaks unless
      * something changed: no plugin, an error, or a rejected token are all silent.
      */
-    suspend fun autoLink(token: String) {
+    internal suspend fun autoLink(token: String) {
         try {
             val view = service.view() ?: return
             when (val result = service.linkPlex(token, replace = false)) {
-                is PlexLinkResult.Linked -> if (view.plex == null) _notices.tryEmit(LINKED_NOTICE)
+                is PlexLinkResult.Linked -> {
+                    if (view.plex == null) _notices.tryEmit(LINKED_NOTICE)
+                    // Even a quiet relink of the same account can clear "Plex stopped syncing".
+                    _changes.tryEmit(Unit)
+                }
                 is PlexLinkResult.ConflictsWith -> ask(token, result)
                 PlexLinkResult.Rejected, PlexLinkResult.PlexUnreachable -> Unit
             }
@@ -83,7 +97,10 @@ class WatchlistPlexLinker(
         if (!replace || token == null) return null
         return scope.launch {
             try {
-                if (service.linkPlex(token, replace = true) is PlexLinkResult.Linked) _notices.tryEmit(LINKED_NOTICE)
+                if (service.linkPlex(token, replace = true) is PlexLinkResult.Linked) {
+                    _notices.tryEmit(LINKED_NOTICE)
+                    _changes.tryEmit(Unit)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

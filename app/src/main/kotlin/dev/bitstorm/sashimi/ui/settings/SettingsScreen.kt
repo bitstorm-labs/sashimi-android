@@ -178,6 +178,9 @@ fun SettingsScreen(
                 NavRow(label, onClick = onOpenRequestsSettings)
             }
 
+            // Settings › Plex: the Watchlist's Plex link; absent when the server has no Watchlist.
+            item(key = "plex") { PlexSettingSection(sectionHeader = { SectionHeader(it) }) }
+
             item { SectionHeader("HOME SCREEN") }
             item { NavRow("Home & Side Menu", onClick = onOpenRowOrder) }
 
