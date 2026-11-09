@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -33,26 +34,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.bitstorm.sashimi.core.model.BaseItemDto
+import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 
 /**
- * The Add to List picker: your lists (tap one to add; "Already on this list"
- * where it is), then "New List…" (name and Public switch). [onResult] gets the
- * line to show once the picker closes ("Added to Date Night").
+ * The Add to List picker: the Watchlist first (when the server has one and
+ * the title can go on it), your lists (tap one to add; "Already on this list"
+ * where it is), then "New List…" (name and Public switch). A Seerr title gets
+ * only the Watchlist. [onResult] gets the line to show once the picker closes
+ * ("Added to Date Night").
  */
 @Composable
 fun AddToListDialog(
-    item: BaseItemDto,
+    target: AddToListTarget,
     onDismiss: () -> Unit,
     onResult: (String) -> Unit,
 ) {
-    val vm: AddToListViewModel = viewModel(key = "add-to-list-${item.id}", factory = AddToListViewModel.Factory(item))
+    val vm: AddToListViewModel = viewModel(key = "add-to-list-${target.key}", factory = AddToListViewModel.Factory(target))
     val state by vm.state.collectAsStateWithLifecycle()
     var newList by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(vm) { vm.load() }
-    val title = item.name
+    val title = target.title
 
     if (newList) {
         NewListDialog(
@@ -77,12 +80,45 @@ fun AddToListDialog(
                 when {
                     state.isLoading -> Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() }
                     state.error != null -> Text(state.error.orEmpty(), color = SashimiTextTertiary)
-                    state.rows.isEmpty() ->
+                    state.showsLists && state.rows.isEmpty() && state.watchlist == null ->
                         Text(
                             "You have no lists yet.",
                             color = SashimiTextTertiary,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
+                }
+                state.watchlist?.let { row ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(enabled = !row.alreadyOn && !state.busy) {
+                                vm.addToWatchlist {
+                                    onDismiss()
+                                    onResult(it)
+                                }
+                            }.padding(horizontal = 12.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Bookmark,
+                            contentDescription = null,
+                            tint = if (row.alreadyOn) SashimiTextTertiary else SashimiTextPrimary,
+                        )
+                        Text(
+                            Watchlist.NAME,
+                            color = if (row.alreadyOn) SashimiTextTertiary else SashimiTextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            if (row.alreadyOn) "Already on this list" else "Private \u00b7 ${row.count}",
+                            color = SashimiTextTertiary,
+                            fontSize = 13.sp,
+                        )
+                    }
                 }
                 state.rows.forEach { row ->
                     Row(
@@ -113,7 +149,7 @@ fun AddToListDialog(
                         )
                     }
                 }
-                if (!state.isLoading && state.error == null) {
+                if (!state.isLoading && state.error == null && state.showsLists) {
                     HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     Row(
                         Modifier

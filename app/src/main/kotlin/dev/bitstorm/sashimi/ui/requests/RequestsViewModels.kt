@@ -146,8 +146,13 @@ class SeerrTitleViewModel(
 ) : ViewModel() {
     val model = SeerrTitle(target, session, ::findInLibrary)
 
+    /** Whether this server has a Watchlist, so the page offers Add to List. Asked once. */
+    private val _watchlistAvailable = MutableStateFlow(false)
+    val watchlistAvailable: StateFlow<Boolean> = _watchlistAvailable.asStateFlow()
+
     init {
         viewModelScope.launch { model.load() }
+        viewModelScope.launch { _watchlistAvailable.value = ServiceLocator.watchlist.available() }
     }
 
     fun requestMovie() {

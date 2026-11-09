@@ -987,7 +987,9 @@ private fun ActionButtons(
     var addingToList by remember { mutableStateOf(false) }
     if (addingToList) {
         dev.bitstorm.sashimi.ui.lists.AddToListDialog(
-            item = item,
+            target =
+                dev.bitstorm.sashimi.ui.lists.AddToListTarget
+                    .Library(item),
             onDismiss = { addingToList = false },
             onResult = { message -> scope.launch { snackbar?.showSnackbar(message) } },
         )

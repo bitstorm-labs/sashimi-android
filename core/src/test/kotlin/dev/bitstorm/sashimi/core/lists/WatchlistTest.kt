@@ -133,4 +133,24 @@ class WatchlistTest {
     fun `series entry targets seerr tv`() {
         assertEquals(SeerrMediaKind.TV, Watchlist.seerrTarget(entry(tmdb = "1396", type = "Series"))?.kind)
     }
+
+    @Test
+    fun `picker hides the watchlist for an episode`() {
+        val view = WatchlistView()
+        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.EPISODE, mapOf("Tmdb" to "1")), view))
+        assertTrue(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), view))
+    }
+
+    @Test
+    fun `picker hides the watchlist without the plugin`() {
+        assertFalse(Watchlist.pickerShowsWatchlist(item(ItemType.MOVIE, mapOf("Tmdb" to "1")), null))
+    }
+
+    @Test
+    fun `seerr picker offers only the watchlist`() {
+        assertTrue(Watchlist.pickerShowsWatchlist(null, WatchlistView()))
+        assertFalse(Watchlist.pickerShowsWatchlist(null, null))
+        assertFalse(Watchlist.pickerShowsLists(isSeerr = true))
+        assertTrue(Watchlist.pickerShowsLists(isSeerr = false))
+    }
 }

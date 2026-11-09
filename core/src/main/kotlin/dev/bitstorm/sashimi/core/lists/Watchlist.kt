@@ -148,4 +148,17 @@ object Watchlist {
         val tmdb = entry.tmdbId?.toIntOrNull()?.takeIf { it > 0 } ?: return null
         return SeerrTarget(if (entry.isSeries) SeerrMediaKind.TV else SeerrMediaKind.MOVIE, tmdb, entry.title)
     }
+
+    /**
+     * Whether Add to List offers the Watchlist. [target] is the library item,
+     * or null for a Seerr title (always a movie or show with a TMDB id). A null
+     * [view] means no plugin, or it couldn't be read: no row then.
+     */
+    fun pickerShowsWatchlist(
+        target: BaseItemDto?,
+        view: WatchlistView?,
+    ): Boolean = view != null && (target == null || eligible(target))
+
+    /** A Seerr title isn't a library item, so only the Watchlist can take it. */
+    fun pickerShowsLists(isSeerr: Boolean): Boolean = !isSeerr
 }
