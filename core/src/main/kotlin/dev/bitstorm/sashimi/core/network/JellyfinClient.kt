@@ -975,6 +975,66 @@ class JellyfinClient(
     /** The signed-in user's id, for list calls; throws when signed out. */
     internal fun listsUserId(): String = requireUserId()
 
+    /**
+     * A list call whose error answers carry meaning (the Watchlist's Plex link:
+     * 409 names the linked account, 422 is Plex refusing the token). Every
+     * status comes back as a [RawReply] except 401/403, which act as in
+     * [listsRequest]: a 401 is a dead Jellyfin session, a 403 is [JellyfinError.Forbidden].
+     * A network failure throws [JellyfinError.NetworkError]; GET/DELETE retry as [execute] does.
+     */
+    internal suspend fun listsExchange(
+        method: String,
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+        jsonBody: String? = null,
+        retryCount: Int = 0,
+    ): RawReply {
+        val url = buildUrl(path, query)
+        val auth = authorizationHeader()
+        val mayRetry = method == "GET" || method == "DELETE"
+        val response: Response<okhttp3.ResponseBody> =
+            try {
+                when (method) {
+                    "GET" -> api.get(url, auth)
+                    "DELETE" -> api.delete(url, auth)
+                    "POST" ->
+                        if (jsonBody != null) {
+                            api.post(url, auth, jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+                        } else {
+                            api.postEmpty(url, auth)
+                        }
+                    else -> throw JellyfinError.InvalidResponse
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: JellyfinError) {
+                throw e
+            } catch (e: Exception) {
+                if (mayRetry && retryCount < maxRetries) {
+                    delay(backoffMillis(retryCount))
+                    return listsExchange(method, path, query, jsonBody, retryCount + 1)
+                }
+                throw JellyfinError.NetworkError(e)
+            }
+        val code = response.code()
+        if (code == 403) {
+            response.errorBody()?.close()
+            throw JellyfinError.Forbidden
+        }
+        if (code == 401) {
+            response.errorBody()?.close()
+            serverUrl?.let { sessionExpiredHandler?.invoke(it.toString().trimEnd('/')) }
+            throw JellyfinError.SessionExpired
+        }
+        if (code in 500..599 && mayRetry && retryCount < maxRetries) {
+            response.errorBody()?.close()
+            delay(backoffMillis(retryCount))
+            return listsExchange(method, path, query, jsonBody, retryCount + 1)
+        }
+        val body = (if (response.isSuccessful) response.body() else response.errorBody())?.string() ?: ""
+        return RawReply(code, body)
+    }
+
     // MARK: - Admin dashboard (verified against Jellyfin 12.2, see plans/sashimi-android)
 
     /** `GET /Users/Me`: the signed-in user with their policy (the admin gate). */
@@ -1379,3 +1439,9 @@ class JellyfinClient(
                 .build()
     }
 }
+
+/** A finished list call: its status and body, read whatever the status. */
+internal data class RawReply(
+    val code: Int,
+    val body: String,
+)
