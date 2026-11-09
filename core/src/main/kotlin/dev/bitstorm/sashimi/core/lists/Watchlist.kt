@@ -53,6 +53,25 @@ data class NewWatchlistEntry(
     val imdbId: String? = null,
 )
 
+/** What tapping a Watchlist tile does. */
+sealed interface WatchlistTap {
+    /** On the server: its detail page. */
+    data class Open(
+        val itemId: String,
+    ) : WatchlistTap
+
+    /** Not on the server: its Seerr page, with Request. */
+    data class Seerr(
+        val target: SeerrTarget,
+    ) : WatchlistTap
+
+    /** Signed into Requests, but there's no TMDB id to open a Seerr page with. */
+    data object NotOnServer : WatchlistTap
+
+    /** Not on the server and no Requests sign-in on this device. */
+    data object SignInToRequest : WatchlistTap
+}
+
 /** The pill on a Watchlist tile for a title the server doesn't have. */
 enum class WatchlistTag(
     val label: String,
@@ -161,4 +180,16 @@ object Watchlist {
 
     /** A Seerr title isn't a library item, so only the Watchlist can take it. */
     fun pickerShowsLists(isSeerr: Boolean): Boolean = !isSeerr
+
+    fun tapAction(
+        entry: WatchlistEntry,
+        hasSeerrSession: Boolean,
+    ): WatchlistTap {
+        entry.itemId?.let { return WatchlistTap.Open(it) }
+        if (!hasSeerrSession) return WatchlistTap.SignInToRequest
+        return seerrTarget(entry)?.let { WatchlistTap.Seerr(it) } ?: WatchlistTap.NotOnServer
+    }
+
+    /** "Use Plex too?": only before a link and until "Not now". */
+    fun showsCard(view: WatchlistView): Boolean = view.plex == null && !view.cardDismissed
 }

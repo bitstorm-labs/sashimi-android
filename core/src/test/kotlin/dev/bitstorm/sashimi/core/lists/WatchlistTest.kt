@@ -153,4 +153,33 @@ class WatchlistTest {
         assertFalse(Watchlist.pickerShowsLists(isSeerr = true))
         assertTrue(Watchlist.pickerShowsLists(isSeerr = false))
     }
+
+    @Test
+    fun `tap on an on-server entry opens it`() {
+        assertEquals(WatchlistTap.Open("abc"), Watchlist.tapAction(entry(itemId = "abc", tmdb = "949"), hasSeerrSession = true))
+        assertEquals(WatchlistTap.Open("abc"), Watchlist.tapAction(entry(itemId = "abc"), hasSeerrSession = false))
+    }
+
+    @Test
+    fun `tap without a seerr session asks to sign into requests`() {
+        assertEquals(WatchlistTap.SignInToRequest, Watchlist.tapAction(entry(tmdb = "949"), hasSeerrSession = false))
+    }
+
+    @Test
+    fun `tap with a session opens the seerr page`() {
+        val tap = Watchlist.tapAction(entry(tmdb = "949"), hasSeerrSession = true)
+        assertEquals(949, (tap as WatchlistTap.Seerr).target.tmdbId)
+    }
+
+    @Test
+    fun `tap with a session but no tmdb id explains`() {
+        assertEquals(WatchlistTap.NotOnServer, Watchlist.tapAction(entry(imdb = "tt1"), hasSeerrSession = true))
+    }
+
+    @Test
+    fun `card shows only when unlinked and not dismissed`() {
+        assertTrue(Watchlist.showsCard(WatchlistView()))
+        assertFalse(Watchlist.showsCard(WatchlistView(cardDismissed = true)))
+        assertFalse(Watchlist.showsCard(WatchlistView(plex = PlexLink("chad"))))
+    }
 }

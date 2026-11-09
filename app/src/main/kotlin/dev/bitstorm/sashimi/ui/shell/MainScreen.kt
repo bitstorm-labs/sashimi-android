@@ -80,6 +80,7 @@ import dev.bitstorm.sashimi.ui.library.LibrariesScreen
 import dev.bitstorm.sashimi.ui.library.LibraryBrowseScreen
 import dev.bitstorm.sashimi.ui.lists.ListDetailScreen
 import dev.bitstorm.sashimi.ui.lists.ListsScreen
+import dev.bitstorm.sashimi.ui.lists.WatchlistScreen
 import dev.bitstorm.sashimi.ui.nav.AdminActivityRoute
 import dev.bitstorm.sashimi.ui.nav.AdminHealthRoute
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
@@ -99,6 +100,7 @@ import dev.bitstorm.sashimi.ui.nav.SearchRoute
 import dev.bitstorm.sashimi.ui.nav.SeerrTitleRoute
 import dev.bitstorm.sashimi.ui.nav.ServerDashboardRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
+import dev.bitstorm.sashimi.ui.nav.WatchlistRoute
 import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.remote.RemoteMessageBanner
@@ -317,6 +319,16 @@ private fun AppShell(
                 ListsScreen(
                     isCompact = isCompact,
                     onOpenList = { id -> navController.navigate(ListDetailRoute(id)) },
+                    onOpenWatchlist = { navController.navigate(WatchlistRoute) },
+                )
+            }
+            composable<WatchlistRoute> {
+                WatchlistScreen(
+                    isCompact = isCompact,
+                    onBack = { navController.popBackStack() },
+                    onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
+                    onOpenSeerrTarget = openSeerrTarget,
+                    onOpenRequestsSettings = { navController.navigate(RequestsSettingsRoute) },
                 )
             }
             composable<ListDetailRoute> { entry ->

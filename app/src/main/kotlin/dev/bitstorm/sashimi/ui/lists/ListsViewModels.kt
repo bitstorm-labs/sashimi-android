@@ -6,6 +6,7 @@ import dev.bitstorm.sashimi.core.lists.AddResult
 import dev.bitstorm.sashimi.core.lists.ListItem
 import dev.bitstorm.sashimi.core.lists.NoEpisodesException
 import dev.bitstorm.sashimi.core.lists.SharedList
+import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.lists.SharedListsService
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistService
@@ -50,11 +51,25 @@ data class ListsUiState(
     val mine: List<SharedList> = emptyList(),
     val others: List<SharedList> = emptyList(),
     val subscribed: Set<String> = emptySet(),
+    /** The Watchlist card, first in Your lists. Null: the server has no Watchlist (or not yet loaded). */
+    val watchlist: WatchlistSlot? = null,
 )
 
-/** The Lists page: your lists, then everyone's public lists. */
+/** The Watchlist card's state on the Lists page. */
+sealed interface WatchlistSlot {
+    data class Ready(
+        val view: WatchlistView,
+        val cover: BaseItemDto?,
+    ) : WatchlistSlot
+
+    /** The server has a Watchlist (or may), but reading it failed: the card stays, saying so. */
+    data object Failed : WatchlistSlot
+}
+
+/** The Lists page: the Watchlist and your lists, then everyone's public lists. */
 class ListsViewModel(
     private val service: SharedListsService = ServiceLocator.sharedLists,
+    private val watchlist: WatchlistService = ServiceLocator.watchlist,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ListsUiState())
     val state: StateFlow<ListsUiState> = _state.asStateFlow()
@@ -75,6 +90,7 @@ class ListsViewModel(
     fun load() {
         viewModelScope.launch {
             val subs = async { runCatchingCancellable { service.subscriptions() } }
+            val watchlistSlot = async { loadWatchlistSlot() }
             val lists = runCatchingCancellable { service.allLists() }
             lists
                 .onSuccess { all ->
@@ -90,9 +106,21 @@ class ListsViewModel(
                             mine = all.filter { it.isMine },
                             others = all.filterNot { it.isMine },
                             subscribed = subscribed,
+                            watchlist = watchlistSlot.await(),
                         )
                 }.onFailure { e -> _state.update { it.copy(isLoading = false, error = listErrorMessage(e)) } }
         }
+    }
+
+    /** A 404 means no card. Any other failure keeps the card, reading "Couldn't load". */
+    private suspend fun loadWatchlistSlot(): WatchlistSlot? {
+        val view = runCatchingCancellable { watchlist.view() }.getOrElse { return WatchlistSlot.Failed } ?: return null
+        val newestOnServer = view.entries.firstOrNull { it.itemId != null }?.itemId
+        val cover =
+            newestOnServer?.let { id ->
+                runCatchingCancellable { watchlist.libraryItems(listOf(id)) }.getOrNull()?.get(SharedLists.normalizeId(id))
+            }
+        return WatchlistSlot.Ready(view, cover)
     }
 
     /** A new, empty list; [onCreated] gets its id. */
