@@ -1,8 +1,5 @@
 package dev.bitstorm.sashimi.ui.requests
 
-import android.content.Context
-import android.content.Intent
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.bitstorm.sashimi.core.seerr.SeerrAuthState
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
@@ -129,8 +125,10 @@ fun RequestsSettingsScreen(
                                 // App scope: the poll outlives this screen while the Custom Tab covers it.
                                 ServiceLocator.appScope.launch(Dispatchers.Main) {
                                     val pin = session.beginPlexSignIn(strong = true) ?: return@launch
-                                    openInBrowser(context, session.plexWebSignInUrl(pin))
+                                    openPlexSignIn(context, session.plexWebSignInUrl(pin))
                                     session.completePlexSignIn(pin)
+                                    // Plex's page has no way back to the app, so close it from here.
+                                    if (session.state.value is SeerrAuthState.SignedIn) returnToApp(context)
                                 }
                             },
                             enabled = addressValid,
@@ -172,14 +170,4 @@ fun RequestsSettingsScreen(
             }
         }
     }
-}
-
-/** Plex's sign-in page in a Custom Tab; a plain browser if no Custom Tabs provider is installed. */
-private fun openInBrowser(
-    context: Context,
-    url: String,
-) {
-    val uri = url.toUri()
-    runCatching { CustomTabsIntent.Builder().build().launchUrl(context, uri) }
-        .recoverCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

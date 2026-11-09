@@ -240,7 +240,7 @@ class SeerrSession(
         if (_state.value is SeerrAuthState.AwaitingPlex) _state.value = SeerrAuthState.NotConfigured
     }
 
-    fun plexWebSignInUrl(pin: PlexPin): String = PlexPinClient.webSignInUrl(plexClientIdentifier, pin.code, PLEX_FORWARD_URL)
+    fun plexWebSignInUrl(pin: PlexPin): String = PlexPinClient.webSignInUrl(plexClientIdentifier, pin.code)
 
     private suspend fun exchangePlexToken(token: String) {
         val server =
@@ -338,7 +338,6 @@ class SeerrSession(
     }
 
     companion object {
-        const val PLEX_FORWARD_URL = "sashimi://plex-auth"
         private const val PLEX_TIMEOUT_MILLIS = 15 * 60 * 1000L
 
         const val KEY_SERVER = "seerr.serverURL"

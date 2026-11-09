@@ -337,19 +337,21 @@ class PlexPinClient(
         const val PRODUCT = "Sashimi"
         const val PINS_URL = "https://plex.tv/api/v2/pins"
 
-        /** Plex's own sign-in page for a strong PIN, the way Seerr's website opens it. */
+        /**
+         * Plex's own sign-in page for a strong PIN, the way Seerr's website opens it.
+         * No forwardUrl: Plex accepts only its own app schemes or http(s) there, and with
+         * a custom scheme it jumps to watch.plex.tv without ever linking the PIN (#232).
+         */
         fun webSignInUrl(
             clientIdentifier: String,
             code: String,
-            forwardUrl: String?,
         ): String {
             val params =
-                mutableListOf(
+                listOf(
                     "clientID" to clientIdentifier,
                     "code" to code,
                     "context[device][product]" to PRODUCT,
                 )
-            if (forwardUrl != null) params += "forwardUrl" to forwardUrl
             val query = params.joinToString("&") { (k, v) -> "${SeerrClient.encodeQuery(k)}=${SeerrClient.encodeQuery(v)}" }
             return "https://app.plex.tv/auth/#!?$query"
         }

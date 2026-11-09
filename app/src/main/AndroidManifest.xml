@@ -54,14 +54,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="sashimi" android:host="play" />
             </intent-filter>
-            <!-- sashimi://plex-auth: where Plex's sign-in page sends the browser back
-                 after a Seerr Plex sign-in. It carries nothing; the app polls the PIN. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="sashimi" android:host="plex-auth" />
-            </intent-filter>
         </activity>
 
         <!-- WorkManager hosts our download worker in ITS service, and

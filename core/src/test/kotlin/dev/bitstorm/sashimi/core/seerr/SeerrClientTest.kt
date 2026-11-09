@@ -284,13 +284,13 @@ class SeerrClientTest {
         }
 
     @Test
-    fun `the plex web sign-in url carries client, code and product`() {
-        val url = PlexPinClient.webSignInUrl("install-uuid", "abc123", "sashimi://plex-auth")
+    fun `plex web sign-in url carries no forwardUrl`() {
+        val url = PlexPinClient.webSignInUrl("install-uuid", "abc123")
         assertTrue(url.startsWith("https://app.plex.tv/auth/#!?"))
         assertTrue(url.contains("clientID=install-uuid"))
         assertTrue(url.contains("code=abc123"))
         assertTrue(url.contains("context%5Bdevice%5D%5Bproduct%5D=Sashimi"))
-        assertTrue(url.contains("forwardUrl=sashimi%3A%2F%2Fplex-auth"))
+        assertFalse(url.contains("forwardUrl"))
     }
 
     @Test
