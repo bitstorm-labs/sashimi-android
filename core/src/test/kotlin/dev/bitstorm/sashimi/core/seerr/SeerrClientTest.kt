@@ -294,6 +294,23 @@ class SeerrClientTest {
     }
 
     @Test
+    fun `details read imdb and tvdb from externalIds`() {
+        val d =
+            SeerrTitleDetails.parse(
+                """{"id":1396,"name":"Breaking Bad","externalIds":{"tvdbId":81189,"imdbId":"tt0903747"}}""",
+            )
+        assertEquals("tt0903747", d.imdbId)
+        assertEquals(81189, d.tvdbId)
+    }
+
+    @Test
+    fun `movie details fall back to top-level imdbId`() {
+        val d = SeerrTitleDetails.parse("""{"id":949,"title":"Heat","imdbId":"tt0113277","externalIds":{}}""")
+        assertEquals("tt0113277", d.imdbId)
+        assertNull(d.tvdbId)
+    }
+
+    @Test
     fun `the session cookie is read from Set-Cookie without attributes`() {
         assertEquals(SeerrFixtures.SESSION_COOKIE, SeerrClient.sessionCookie(listOf("other=1; Path=/", SeerrFixtures.SET_COOKIE)))
         assertNull(SeerrClient.sessionCookie(listOf("connect.sid=; Path=/")))
