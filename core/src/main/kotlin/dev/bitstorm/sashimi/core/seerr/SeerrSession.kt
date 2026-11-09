@@ -1,16 +1,12 @@
 package dev.bitstorm.sashimi.core.seerr
 
 import dev.bitstorm.sashimi.core.session.TokenStore
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.yield
-import java.util.UUID
-import kotlin.coroutines.coroutineContext
 
 /** Where the session is. Port of sashimi-apple SeerrAuthState. */
 sealed interface SeerrAuthState {
@@ -68,7 +64,14 @@ class SeerrSession(
     private val clientFactory: (baseUrl: String, cookie: String?) -> SeerrClient = { url, cookie -> SeerrClient(url, cookie) },
     private val plexFactory: (clientId: String) -> PlexPinClient = { PlexPinClient(it, "1.0") },
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Gets the Plex token once Seerr accepted it (the Watchlist links with it).
+     * Its failures are swallowed: it can never change Seerr's state or error.
+     */
+    private val onPlexToken: (suspend (token: String) -> Unit)? = null,
 ) {
+    private val plexSignIn = PlexPinSignIn(settings, plexFactory, pollIntervalMillis, PLEX_TIMEOUT_MILLIS, clock)
+
     private val _state = MutableStateFlow<SeerrAuthState>(SeerrAuthState.NotConfigured)
     val state: StateFlow<SeerrAuthState> = _state.asStateFlow()
 
@@ -197,7 +200,7 @@ class SeerrSession(
             return null
         }
         return try {
-            plexFactory(plexClientIdentifier).createPin(strong).also { _state.value = SeerrAuthState.AwaitingPlex(it.code) }
+            plexSignIn.begin(strong).also { _state.value = SeerrAuthState.AwaitingPlex(it.code) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -212,23 +215,10 @@ class SeerrSession(
      */
     suspend fun completePlexSignIn(pin: PlexPin) {
         val waiting = SeerrAuthState.AwaitingPlex(pin.code)
-        val deadline = clock() + PLEX_TIMEOUT_MILLIS
-        val plex = plexFactory(plexClientIdentifier)
-        while (_state.value == waiting && clock() < deadline) {
-            coroutineContext.ensureActive()
-            val token =
-                try {
-                    plex.checkPin(pin.id).authToken
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    null
-                }
-            if (!token.isNullOrEmpty()) {
-                if (_state.value == waiting) exchangePlexToken(token)
-                return
-            }
-            if (pollIntervalMillis > 0) delay(pollIntervalMillis) else yield()
+        val token = plexSignIn.awaitToken(pin) { _state.value == waiting }
+        if (token != null) {
+            if (_state.value == waiting) exchangePlexToken(token)
+            return
         }
         if (_state.value == waiting) {
             _state.value = SeerrAuthState.NotConfigured
@@ -240,7 +230,7 @@ class SeerrSession(
         if (_state.value is SeerrAuthState.AwaitingPlex) _state.value = SeerrAuthState.NotConfigured
     }
 
-    fun plexWebSignInUrl(pin: PlexPin): String = PlexPinClient.webSignInUrl(plexClientIdentifier, pin.code)
+    fun plexWebSignInUrl(pin: PlexPin): String = plexSignIn.webSignInUrl(pin)
 
     private suspend fun exchangePlexToken(token: String) {
         val server =
@@ -267,17 +257,14 @@ class SeerrSession(
                 } else {
                     e.message
                 }
+            return
         }
+        onPlexToken?.let { handOff -> runCatchingCancellable { handOff(token) } }
     }
 
     private fun noServer() {
         _errorMessage.value = "Enter your server address first."
     }
-
-    /** Stable per install, so plex.tv lists one "Sashimi" device, not one per sign-in. */
-    private val plexClientIdentifier: String
-        get() =
-            settings.getString(KEY_PLEX_CLIENT_ID) ?: UUID.randomUUID().toString().also { settings.putString(KEY_PLEX_CLIENT_ID, it) }
 
     // MARK: Sign out and expiry
 
