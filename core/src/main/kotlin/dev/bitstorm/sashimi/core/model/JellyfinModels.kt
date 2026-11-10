@@ -184,6 +184,8 @@ data class BaseItemDto(
     // on series items without any Fields entry; see SeriesStatusBadge.
     @SerialName("Status") val status: String? = null,
     @SerialName("Genres") val genres: List<String>? = null,
+    // A series' number of seasons on the single-item endpoint (Fields=ChildCount elsewhere).
+    @SerialName("ChildCount") val childCount: Int? = null,
     @SerialName("Taglines") val taglines: List<String>? = null,
     @SerialName("People") val people: List<PersonInfo>? = null,
     @SerialName("CriticRating") val criticRating: Int? = null,

@@ -41,8 +41,6 @@ data class SharedList(
     val ownerName: String?,
     val isMine: Boolean,
     val items: List<ListItem>,
-    /** Jellyfin's generated playlist picture, when it has one. */
-    val imageTag: String?,
 ) {
     val count: Int get() = items.size
     val displayIds: List<String> get() = items.map { it.display.id }
@@ -207,7 +205,6 @@ class SharedListsService(
                 ownerName = plugin?.name ?: ownerId?.let { userName(it) },
                 isMine = isMine,
                 items = items.await(),
-                imageTag = dto.imageTags?.get("Primary"),
             )
         }
 

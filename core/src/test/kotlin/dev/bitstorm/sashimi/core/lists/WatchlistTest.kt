@@ -218,4 +218,12 @@ class WatchlistTest {
         val (a, b) = listOf("a", "b").map(::titled)
         assertEquals(listOf(b, a), Watchlist.afterFailedRemove(listOf(b, a), b, listOf(a, b)))
     }
+
+    @Test
+    fun `the cover is the first three entries, newest first, on the server or not`() {
+        val entries = (1..5).map { entry(itemId = if (it == 2) null else "i$it").copy(id = "e$it") }
+        assertEquals(listOf("e1", "e2", "e3"), Watchlist.cover(WatchlistView(entries = entries)).map { it.id })
+        assertEquals(listOf("e1"), Watchlist.cover(WatchlistView(entries = entries.take(1))).map { it.id })
+        assertEquals(emptyList<WatchlistEntry>(), Watchlist.cover(WatchlistView()))
+    }
 }

@@ -9,7 +9,6 @@ import dev.bitstorm.sashimi.core.lists.AddToListUiState
 import dev.bitstorm.sashimi.core.lists.ListItem
 import dev.bitstorm.sashimi.core.lists.NoEpisodesException
 import dev.bitstorm.sashimi.core.lists.SharedList
-import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.lists.SharedListsService
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistService
@@ -62,7 +61,8 @@ data class ListsUiState(
 sealed interface WatchlistSlot {
     data class Ready(
         val view: WatchlistView,
-        val cover: BaseItemDto?,
+        /** The library items behind the cover's on-server entries ([Watchlist.cover]), by normalized id. */
+        val coverItems: Map<String, BaseItemDto> = emptyMap(),
     ) : WatchlistSlot
 
     /** The server has a Watchlist (or may), but reading it failed: the card stays, saying so. */
@@ -118,12 +118,10 @@ class ListsViewModel(
     /** A 404 means no card. Any other failure keeps the card, reading "Couldn't load". */
     private suspend fun loadWatchlistSlot(): WatchlistSlot? {
         val view = runCatchingCancellable { watchlist.view() }.getOrElse { return WatchlistSlot.Failed } ?: return null
-        val newestOnServer = view.entries.firstOrNull { it.itemId != null }?.itemId
-        val cover =
-            newestOnServer?.let { id ->
-                runCatchingCancellable { watchlist.libraryItems(listOf(id)) }.getOrNull()?.get(SharedLists.normalizeId(id))
-            }
-        return WatchlistSlot.Ready(view, cover)
+        val onServer = Watchlist.cover(view).mapNotNull { it.itemId }
+        // Without them the cover still draws: those posters fall back to the entry's own.
+        val items = runCatchingCancellable { watchlist.libraryItems(onServer) }.getOrNull().orEmpty()
+        return WatchlistSlot.Ready(view, items)
     }
 
     /** A new, empty list; [onCreated] gets its id. */
@@ -171,8 +169,21 @@ class ListDetailViewModel(
 
     private val resumeGate = ResumeRefreshGate()
 
+    /** The title in the spotlight (#244). A card's key and library id are both its display id. */
+    val spotlight = SpotlightController(viewModelScope)
+
     init {
         load(markSeen = true)
+    }
+
+    /** Plays the spotlit title ([onPlay] gets the id), or says there's nothing to play. */
+    fun play(
+        item: BaseItemDto,
+        onPlay: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            spotlight.playTarget(item)?.let(onPlay) ?: _messages.tryEmit("Nothing to play yet.")
+        }
     }
 
     fun onScreenResumed() {
@@ -203,6 +214,7 @@ class ListDetailViewModel(
             _state.update {
                 it.copy(isLoading = false, list = list, error = null, subscribed = sub != null, newIds = newIds)
             }
+            spotlight.sync(list.displayIds) { it }
             // Opening a subscribed list means what it shows now has been seen.
             if (markSeen && sub != null && newIds.isNotEmpty()) {
                 ServiceLocator.appScope.launch { runCatchingCancellable { service.markSeen(list) } }

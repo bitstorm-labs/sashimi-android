@@ -1,16 +1,21 @@
 package dev.bitstorm.sashimi.ui.lists
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,7 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,9 +52,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.lists.ListCover
+import dev.bitstorm.sashimi.core.lists.PosterStack
 import dev.bitstorm.sashimi.core.lists.SharedList
+import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.lists.Watchlist
-import dev.bitstorm.sashimi.core.model.ImageRef
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
@@ -86,66 +97,124 @@ internal fun NewPill(count: Int) {
 }
 
 /**
- * A list's cover ([SharedList.cover]): a 2x2 collage of its first four
- * different titles, the first poster full-bleed when it has fewer, Jellyfin's
- * generated playlist picture when the viewer can see no titles.
+ * How a title the server doesn't have is drawn (the mockups' grayscale(1)
+ * brightness(.55)): grey and dark, so it reads as "not here" at a glance. An
+ * alpha alone left it looking ordinary on the dark background.
+ */
+internal val NotOnServerFilter: ColorFilter =
+    ColorFilter.colorMatrix(
+        ColorMatrix().apply {
+            setToSaturation(0f)
+            timesAssign(ColorMatrix().apply { setToScale(0.55f, 0.55f, 0.55f, 1f) })
+        },
+    )
+
+/** One poster of a cover stack: its picture, and whether it's dimmed (a Watchlist title not on the server). */
+internal data class StackPoster(
+    val model: String?,
+    val dimmed: Boolean = false,
+)
+
+/** The posters a list's cover stacks ([SharedList.cover]). */
+@Composable
+internal fun listStackPosters(
+    list: SharedList,
+    posterWidth: Dp,
+): List<StackPoster> {
+    val px = rememberImageWidth(posterWidth)
+    return when (val cover = list.cover) {
+        is ListCover.Stack -> cover.posters.map { StackPoster(ImageUrls.cardPoster(it, px)) }
+        ListCover.Empty -> emptyList()
+    }
+}
+
+/** The Watchlist's cover: its first three entries, library posters where it has them, dimmed where not on the server. */
+@Composable
+internal fun watchlistStackPosters(
+    slot: WatchlistSlot,
+    posterWidth: Dp,
+): List<StackPoster> {
+    val ready = slot as? WatchlistSlot.Ready ?: return emptyList()
+    val px = rememberImageWidth(posterWidth)
+    return Watchlist.cover(ready.view).map { entry ->
+        val item = entry.itemId?.let { ready.coverItems[SharedLists.normalizeId(it)] }
+        StackPoster(
+            model = item?.let { ImageUrls.cardPoster(it, px) } ?: entry.posterUrl,
+            dimmed = entry.itemId == null,
+        )
+    }
+}
+
+/** The front poster's width in a cover [width] wide. */
+internal fun stackPosterWidth(width: Dp): Dp = width / PosterStack.WIDTH_IN_POSTERS
+
+/**
+ * A list's cover (watchlist v2 §6, list-covers option A): the first poster
+ * full size, the next two fanned behind it ([PosterStack]); [fanned] spreads
+ * them a little (focus or hover). No posters: one placeholder poster with
+ * [placeholder] on it.
  */
 @Composable
-internal fun ListCoverImage(
-    list: SharedList,
+internal fun PosterStackCover(
+    posters: List<StackPoster>,
     width: Dp,
+    fanned: Boolean,
+    placeholder: ImageVector,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier
-            .width(width)
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(10.dp))
-            .background(SashimiCard),
-    ) {
-        when (val cover = list.cover) {
-            is ListCover.Collage -> {
-                val tileWidth = rememberImageWidth(width / 2)
-                Column(Modifier.fillMaxSize()) {
-                    cover.tiles.chunked(2).forEach { row ->
-                        Row(Modifier.weight(1f).fillMaxWidth()) {
-                            row.forEach { item ->
-                                AsyncImage(
-                                    model = ImageUrls.cardPoster(item, tileWidth),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            is ListCover.Single ->
-                AsyncImage(
-                    model = ImageUrls.cardPoster(cover.item, rememberImageWidth(width)),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            ListCover.Empty ->
-                if (list.imageTag != null) {
+    val posterWidth = stackPosterWidth(width)
+    val posterHeight = posterWidth * 1.5f
+    val fan by animateFloatAsState(if (fanned) 1f else 0f, label = "cover-fan")
+    val rest = PosterStack.layers(posters.size, fanned = false)
+    val open = PosterStack.layers(posters.size, fanned = true)
+    // Room under the stack for the back posters' drop and turn.
+    Box(modifier.width(width).height(posterHeight * 1.12f)) {
+        rest.zip(open).forEach { (from, to) ->
+            val x = lerp(from.offsetX, to.offsetX, fan)
+            val turn = lerp(from.rotation, to.rotation, fan)
+            val poster = posters.getOrNull(from.depth)
+            val shape = RoundedCornerShape(6.dp)
+            Box(
+                Modifier
+                    .offset(x = posterWidth * x, y = posterHeight * from.offsetY + 4.dp)
+                    .size(posterWidth * from.scale, posterHeight * from.scale)
+                    .graphicsLayer {
+                        rotationZ = turn
+                        alpha = from.alpha
+                    }.then(if (from.depth == 0) Modifier.shadow(10.dp, shape) else Modifier)
+                    .clip(shape)
+                    .background(SashimiCard),
+                Alignment.Center,
+            ) {
+                if (poster == null) {
+                    Icon(placeholder, contentDescription = null, tint = SashimiTextTertiary, modifier = Modifier.size(32.dp))
+                } else {
                     AsyncImage(
-                        model = ImageUrls.url(ImageRef(list.id, "Primary", list.imageTag), rememberImageWidth(width)),
+                        model = poster.model,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
+                        colorFilter = if (poster.dimmed) NotOnServerFilter else null,
                         modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    Icon(
-                        Icons.AutoMirrored.Filled.PlaylistPlay,
-                        contentDescription = null,
-                        tint = SashimiTextTertiary,
-                        modifier = Modifier.align(Alignment.Center).size(36.dp),
-                    )
                 }
+            }
         }
     }
+}
+
+private fun lerp(
+    a: Float,
+    b: Float,
+    t: Float,
+): Float = a + (b - a) * t
+
+/** Whether a cover's card is focused, hovered or pressed: the stack fans out. */
+@Composable
+private fun MutableInteractionSource.fanned(): Boolean {
+    val focused by collectIsFocusedAsState()
+    val hovered by collectIsHoveredAsState()
+    val pressed by collectIsPressedAsState()
+    return focused || hovered || pressed
 }
 
 /** A card on the Lists page. */
@@ -156,12 +225,22 @@ internal fun ListCard(
     subscribed: Boolean,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = Modifier.width(width).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+        modifier =
+            Modifier
+                .width(width)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box {
-            ListCoverImage(list, width)
+            PosterStackCover(
+                listStackPosters(list, stackPosterWidth(width)),
+                width,
+                fanned = interaction.fanned(),
+                placeholder = Icons.AutoMirrored.Filled.PlaylistPlay,
+            )
             if (subscribed) {
                 Text(
                     "✓ Subscribed",
@@ -183,45 +262,33 @@ internal fun ListCard(
     }
 }
 
-/** The Watchlist's card, first in Your lists: the newest on-server title's poster, else a bookmark. */
+/** The Watchlist's card, first in Your lists: a stack of its first three titles, else a bookmark. */
 @Composable
 internal fun WatchlistCard(
     slot: WatchlistSlot,
     width: Dp,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = Modifier.width(width).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Box(
+        modifier =
             Modifier
                 .width(width)
-                .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(10.dp))
-                .background(SashimiCard),
-        ) {
-            val cover = (slot as? WatchlistSlot.Ready)?.cover
-            if (cover != null) {
-                AsyncImage(
-                    model = ImageUrls.cardPoster(cover, rememberImageWidth(width)),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Filled.Bookmark,
-                    contentDescription = null,
-                    tint = SashimiTextTertiary,
-                    modifier = Modifier.align(Alignment.Center).size(36.dp),
-                )
-            }
-        }
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        PosterStackCover(
+            watchlistStackPosters(slot, stackPosterWidth(width)),
+            width,
+            fanned = interaction.fanned(),
+            placeholder = Icons.Filled.Bookmark,
+        )
         Text(Watchlist.NAME, color = SashimiTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(
             when (slot) {
-                is WatchlistSlot.Ready -> "Private \u00b7 ${slot.view.entries.size}"
+                is WatchlistSlot.Ready ->
+                    "Private \u00b7 " + if (slot.view.entries.size == 1) "1 title" else "${slot.view.entries.size} titles"
                 WatchlistSlot.Failed -> "Couldn't load"
             },
             color = SashimiTextTertiary,
@@ -240,7 +307,7 @@ internal fun NewListCard(
     Box(
         Modifier
             .width(width)
-            .aspectRatio(16f / 9f)
+            .height(stackPosterWidth(width) * 1.5f * 1.12f)
             .clip(RoundedCornerShape(10.dp))
             .border(2.dp, Color(0xFF4A4856), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
