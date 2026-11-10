@@ -293,4 +293,89 @@ class SeerrSessionTest {
     fun `cookies are scoped per server`() {
         assertNotEquals(SeerrSession.cookieKey("https://requests.example.com"), SeerrSession.cookieKey("http://192.168.1.10:5055"))
     }
+
+    // MARK: - Requests address set by the server (watchlist v2 §4)
+
+    private val serverSet = "https://requests.server-set.test"
+
+    @Test
+    fun `an address the server sets wins, locked, and the device's own is kept for later`() =
+        runTest {
+            val session = session()
+            session.useServerSetAddress("$serverSet/")
+            assertEquals(serverSet, session.serverUrl.value)
+            assertTrue(session.isServerSet)
+            assertEquals(serverSet, session.serverSetUrl.value)
+            assertEquals("the device's own stays stored", SeerrFixtures.SERVER, settings.getString(SeerrSession.KEY_SERVER))
+            session.useServerSetAddress(null)
+            assertFalse(session.isServerSet)
+            assertEquals("cleared on the server: the device's own comes back", SeerrFixtures.SERVER, session.serverUrl.value)
+        }
+
+    @Test
+    fun `an invalid server-set address counts as none`() =
+        runTest {
+            val session = session()
+            session.useServerSetAddress("ftp://nope")
+            assertFalse(session.isServerSet)
+            assertEquals(SeerrFixtures.SERVER, session.serverUrl.value)
+        }
+
+    @Test
+    fun `typing an address while the server sets one only stores it`() =
+        runTest {
+            val session = sessionWithoutServer()
+            session.useServerSetAddress(serverSet)
+            assertTrue(session.setServerAddress("typed.example.com"))
+            assertEquals(serverSet, session.serverUrl.value)
+            assertEquals("https://typed.example.com", settings.getString(SeerrSession.KEY_SERVER))
+            session.useServerSetAddress(null)
+            assertEquals("https://typed.example.com", session.serverUrl.value)
+        }
+
+    @Test
+    fun `switching to the server's address drops a session from the device's own server`() =
+        runTest {
+            val session = SeerrFixtures.signedIn(stub, cookies = cookies, settings = settings)
+            assertTrue(session.isActive)
+            session.useServerSetAddress(serverSet)
+            assertFalse("that sign-in belonged to the other server", session.isActive)
+            assertNull(session.client)
+            assertEquals(SeerrAuthState.NotConfigured, session.state.value)
+            assertNotNull("the old server's cookie is kept for if it comes back", cookies.get(cookieKey))
+        }
+
+    @Test
+    fun `switching to the server's address restores this device's sign-in there`() =
+        runTest {
+            cookies.save(SeerrFixtures.SESSION_COOKIE, SeerrSession.cookieKey(serverSet))
+            stub.on("GET", "/api/v1/auth/me", body = SeerrFixtures.user(9, "chad"))
+            val session = session()
+            session.useServerSetAddress(serverSet)
+            assertTrue(session.isActive)
+            assertEquals(9, session.user?.id)
+            assertTrue(stub.requests("GET", "/api/v1/auth/me").all { it.url.host == "requests.server-set.test" })
+        }
+
+    @Test
+    fun `the same server-set address again changes nothing`() =
+        runTest {
+            val session = SeerrFixtures.signedIn(stub, cookies = cookies, settings = settings)
+            session.useServerSetAddress(SeerrFixtures.SERVER)
+            assertTrue("same address as the device's own: the session stays", session.isActive)
+            session.useServerSetAddress(SeerrFixtures.SERVER)
+            assertTrue(session.isActive)
+            assertTrue(stub.requests.isEmpty())
+        }
+
+    @Test
+    fun `a failed read of the server's address counts as none`() =
+        runTest {
+            val session = session()
+            session.syncServerSetAddress { serverSet }
+            assertTrue(session.isServerSet)
+            session.syncServerSetAddress { error("offline") }
+            assertFalse(session.isServerSet)
+            assertEquals(SeerrFixtures.SERVER, session.serverUrl.value)
+        }
 }

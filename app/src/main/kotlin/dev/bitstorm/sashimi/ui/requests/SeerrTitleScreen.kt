@@ -137,7 +137,7 @@ fun SeerrTitleScreen(
                         }
                     }
                 }
-                ActionArea(state, onRequestMovie = vm::requestMovie, onChooseSeasons = { picking = vm.model.seasonPlan() })
+                SeerrActionArea(state, onRequestMovie = vm::requestMovie, onChooseSeasons = { picking = vm.model.seasonPlan() })
                 state.quotaNote?.let { Text(it, color = SashimiTextTertiary, style = MaterialTheme.typography.bodySmall) }
                 state.errorMessage?.let { Text(it, color = SeerrBadge.DECLINED.color()) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -196,7 +196,7 @@ fun SeerrTitleScreen(
 }
 
 @Composable
-private fun ActionArea(
+internal fun SeerrActionArea(
     state: SeerrTitle.State,
     onRequestMovie: () -> Unit,
     onChooseSeasons: () -> Unit,
@@ -218,7 +218,7 @@ private fun ActionArea(
 
 /** The season picker (Apple mockup D): missing seasons ticked, the server's seasons listed but locked. */
 @Composable
-private fun SeasonPickerDialog(
+internal fun SeasonPickerDialog(
     initial: SeerrSeasonPlan,
     title: String,
     onDismiss: () -> Unit,

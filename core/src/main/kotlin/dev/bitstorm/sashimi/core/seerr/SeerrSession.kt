@@ -1,6 +1,7 @@
 package dev.bitstorm.sashimi.core.seerr
 
 import dev.bitstorm.sashimi.core.session.TokenStore
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,9 +78,19 @@ class SeerrSession(
     private val _state = MutableStateFlow<SeerrAuthState>(SeerrAuthState.NotConfigured)
     val state: StateFlow<SeerrAuthState> = _state.asStateFlow()
 
-    /** Null until the person enters an address: there is no default server. */
-    private val _serverUrl = MutableStateFlow(settings.getString(KEY_SERVER)?.let(::normalizedServerUrl))
+    /** The address the person typed on this device. Kept while the server sets one, so it comes back if that's cleared. */
+    private var storedUrl: String? = settings.getString(KEY_SERVER)?.let(::normalizedServerUrl)
+
+    /** The address the Jellyfin server sets (Sashimi Lists 0.3.0 `requestsUrl`); it wins over [storedUrl]. */
+    private val _serverSetUrl = MutableStateFlow<String?>(null)
+    val serverSetUrl: StateFlow<String?> = _serverSetUrl.asStateFlow()
+
+    /** The address in use. Null until one is entered or set by the server: there is no default server. */
+    private val _serverUrl = MutableStateFlow(storedUrl)
     val serverUrl: StateFlow<String?> = _serverUrl.asStateFlow()
+
+    /** The server sets the address: Requests settings show it locked, with only the sign-in buttons. */
+    val isServerSet: Boolean get() = _serverSetUrl.value != null
 
     /** Without an address nothing talks to Seerr or Plex, and no request UI appears. */
     val hasServer: Boolean get() = _serverUrl.value != null
@@ -115,16 +126,54 @@ class SeerrSession(
         _errorMessage.value = null
     }
 
-    /** Only while signed out: a session belongs to the server that issued it. */
+    /**
+     * Only while signed out: a session belongs to the server that issued it.
+     * While the server sets the address this one is stored for later and
+     * changes nothing now.
+     */
     fun setServerAddress(text: String): Boolean {
         if (isActive) return false
         val url = normalizedServerUrl(text) ?: return false
-        if (url != _serverUrl.value) {
-            _serverUrl.value = url
+        if (url != storedUrl) {
+            storedUrl = url
             settings.putString(KEY_SERVER, url)
+        }
+        if (!isServerSet && url != _serverUrl.value) {
+            _serverUrl.value = url
             if (_state.value == SeerrAuthState.Expired) _state.value = SeerrAuthState.NotConfigured
         }
         return true
+    }
+
+    /**
+     * The address the Jellyfin server sets (null: none, the plugin is too old,
+     * or it couldn't be read; an invalid one counts as none). When the address
+     * in use changes, the session goes with it: the new server's own sign-in
+     * on this device is restored if there is one, else it's signed out.
+     */
+    suspend fun useServerSetAddress(url: String?) {
+        applyServerSetAddress(url)
+    }
+
+    /**
+     * Reads the server's address with [fetch] and uses it. A failure counts as
+     * none (the contract's rule): the device's own address and box come back.
+     */
+    suspend fun syncServerSetAddress(fetch: suspend () -> String?) {
+        applyServerSetAddress(runCatchingCancellable { fetch() }.getOrNull())
+    }
+
+    private suspend fun applyServerSetAddress(url: String?) {
+        val set = url?.let(::normalizedServerUrl)
+        if (set == _serverSetUrl.value) return
+        _serverSetUrl.value = set
+        val effective = set ?: storedUrl
+        if (effective == _serverUrl.value) return
+        _serverUrl.value = effective
+        client = null
+        _errorMessage.value = null
+        _state.value = SeerrAuthState.NotConfigured
+        restore()
     }
 
     // MARK: Launch

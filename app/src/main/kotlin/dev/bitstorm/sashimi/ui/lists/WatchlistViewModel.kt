@@ -77,8 +77,19 @@ class WatchlistViewModel(
         viewModelScope.launch { linker.changes.collect { load() } }
     }
 
+    /** ＋ Add: only with Sashimi Lists 0.3.0 (asked once per server and user). */
+    private val _canAdd = MutableStateFlow(false)
+    val canAdd: StateFlow<Boolean> = _canAdd.asStateFlow()
+
+    init {
+        // After _canAdd exists: init blocks run in declaration order.
+        viewModelScope.launch { _canAdd.value = service.v2Available() }
+    }
+
     fun onScreenResumed() {
         if (resumeGate.onResume()) load()
+        // A failed ask (offline, say) is asked again; a real answer is kept by the service.
+        if (!_canAdd.value) viewModelScope.launch { _canAdd.value = service.v2Available() }
     }
 
     fun load() {

@@ -80,16 +80,24 @@ sealed interface WatchlistTap {
         val itemId: String,
     ) : WatchlistTap
 
-    /** Not on the server: its Seerr page, with Request. */
+    /** Not on the server: its title page (watchlist v2 §3), with the Watchlist toggle and Request. */
+    data class Details(
+        val ref: WatchlistTitleRef,
+    ) : WatchlistTap
+}
+
+/** How a title the server doesn't have can be asked for. */
+sealed interface WatchlistRequest {
+    /** Signed into Requests: its Seerr page, with Request. */
     data class Seerr(
         val target: SeerrTarget,
-    ) : WatchlistTap
+    ) : WatchlistRequest
 
-    /** Signed into Requests, but there's no TMDB id to open a Seerr page with. */
-    data object NotOnServer : WatchlistTap
+    /** Signed into Requests, but there's no TMDB id to ask Seerr with. */
+    data object Unavailable : WatchlistRequest
 
-    /** Not on the server and no Requests sign-in on this device. */
-    data object SignInToRequest : WatchlistTap
+    /** No Requests sign-in on this device. */
+    data object SignIn : WatchlistRequest
 }
 
 /** The pill on a Watchlist tile for a title the server doesn't have. */
@@ -183,10 +191,7 @@ object Watchlist {
         }
 
     /** The Seerr page for a title; null without a numeric TMDB id, so nothing ever opens tmdb 0. */
-    fun seerrTarget(entry: WatchlistEntry): SeerrTarget? {
-        val tmdb = entry.tmdbId?.toIntOrNull()?.takeIf { it > 0 } ?: return null
-        return SeerrTarget(if (entry.isSeries) SeerrMediaKind.TV else SeerrMediaKind.MOVIE, tmdb, entry.title)
-    }
+    fun seerrTarget(entry: WatchlistEntry): SeerrTarget? = WatchlistTitleRef.of(entry).seerrTarget()
 
     /**
      * Whether Add to List offers the Watchlist. [target] is the library item,
@@ -200,13 +205,17 @@ object Watchlist {
     /** A Seerr title isn't a library item, so only the Watchlist can take it. */
     fun pickerShowsLists(isSeerr: Boolean): Boolean = !isSeerr
 
-    fun tapAction(
-        entry: WatchlistEntry,
+    /** A title on the server opens its page; one that isn't opens its title page (replacing v1's Seerr page or note). */
+    fun tapAction(entry: WatchlistEntry): WatchlistTap =
+        entry.itemId?.let { WatchlistTap.Open(it) } ?: WatchlistTap.Details(WatchlistTitleRef.of(entry))
+
+    /** Request, or Sign in to Requests, for a title the server doesn't have. */
+    fun requestAction(
+        ref: WatchlistTitleRef,
         hasSeerrSession: Boolean,
-    ): WatchlistTap {
-        entry.itemId?.let { return WatchlistTap.Open(it) }
-        if (!hasSeerrSession) return WatchlistTap.SignInToRequest
-        return seerrTarget(entry)?.let { WatchlistTap.Seerr(it) } ?: WatchlistTap.NotOnServer
+    ): WatchlistRequest {
+        if (!hasSeerrSession) return WatchlistRequest.SignIn
+        return ref.seerrTarget()?.let { WatchlistRequest.Seerr(it) } ?: WatchlistRequest.Unavailable
     }
 
     /**

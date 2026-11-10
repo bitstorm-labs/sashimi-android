@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -64,7 +65,9 @@ import dev.bitstorm.sashimi.core.lists.ListSpotlight
 import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistEntry
+import dev.bitstorm.sashimi.core.lists.WatchlistRequest
 import dev.bitstorm.sashimi.core.lists.WatchlistTap
+import dev.bitstorm.sashimi.core.lists.WatchlistTitleRef
 import dev.bitstorm.sashimi.core.lists.WatchlistView
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
 import dev.bitstorm.sashimi.core.seerr.SeerrTarget
@@ -80,16 +83,11 @@ import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 
-/** A not-on-server tile's dialog: the title, and what can be done. */
-private data class NotOnServerNote(
-    val title: String,
-    val signIn: Boolean,
-)
-
 /**
  * The Watchlist (watchlist design, 2026-11-09): laid out like a list's page.
  * On-server titles are ordinary posters; missing ones are dimmed and tagged
- * Not on server / Requested, and open their Seerr page. It can't be renamed,
+ * Not on server / Requested, and open their title page (v2 §3). ＋ Add
+ * searches for titles to add (plugin 0.3.0). It can't be renamed,
  * deleted or shared. Plex: a "Use Plex too?" card until linked or dismissed,
  * then a synced line, with Connect / Disconnect / Reconnect in the ⋯ menu.
  */
@@ -101,6 +99,8 @@ fun WatchlistScreen(
     onPlay: (String) -> Unit,
     onOpenSeerrTarget: (SeerrTarget) -> Unit,
     onOpenRequestsSettings: () -> Unit,
+    onOpenTitle: (WatchlistTitleRef) -> Unit,
+    onAdd: () -> Unit,
 ) {
     val vm: WatchlistViewModel = viewModel()
     val state by vm.state.collectAsStateWithLifecycle()
@@ -108,7 +108,6 @@ fun WatchlistScreen(
     var removing by remember { mutableStateOf(false) }
     // Saved: Connect Plex comes back if Android kills the app behind Plex's page.
     var connecting by rememberSaveable { mutableStateOf(false) }
-    var note by remember { mutableStateOf<NotOnServerNote?>(null) }
 
     LifecycleResumeEffect(Unit) {
         vm.onScreenResumed()
@@ -117,11 +116,9 @@ fun WatchlistScreen(
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     val onTap: (WatchlistEntry) -> Unit = { entry ->
-        when (val tap = Watchlist.tapAction(entry, ServiceLocator.seerr.isActive)) {
+        when (val tap = Watchlist.tapAction(entry)) {
             is WatchlistTap.Open -> onOpenDetail(tap.itemId)
-            is WatchlistTap.Seerr -> onOpenSeerrTarget(tap.target)
-            WatchlistTap.NotOnServer -> note = NotOnServerNote(entry.title, signIn = false)
-            WatchlistTap.SignInToRequest -> note = NotOnServerNote(entry.title, signIn = true)
+            is WatchlistTap.Details -> onOpenTitle(tap.ref)
         }
     }
 
@@ -155,6 +152,8 @@ fun WatchlistScreen(
                         onPlay = onPlay,
                         onOpenSeerrTarget = onOpenSeerrTarget,
                         onOpenRequestsSettings = onOpenRequestsSettings,
+                        onOpenTitle = onOpenTitle,
+                        onAdd = onAdd,
                         onConnect = { connecting = true },
                         onRemove = { removing = true },
                     )
@@ -167,28 +166,6 @@ fun WatchlistScreen(
             onDismiss = { connecting = false },
             // The linker's change signal reloads the Watchlist.
             onLinked = { connecting = false },
-        )
-    }
-
-    note?.let { n ->
-        AlertDialog(
-            onDismissRequest = { note = null },
-            title = { Text(n.title) },
-            text = {
-                Text(if (n.signIn) "This isn't on your server. Sign into Requests to ask for this." else "This isn't on your server.")
-            },
-            confirmButton = { TextButton(onClick = { note = null }) { Text("OK") } },
-            dismissButton =
-                if (n.signIn) {
-                    {
-                        TextButton(onClick = {
-                            note = null
-                            onOpenRequestsSettings()
-                        }) { Text("Requests Settings") }
-                    }
-                } else {
-                    null
-                },
         )
     }
 }
@@ -209,9 +186,12 @@ private fun WatchlistGrid(
     onPlay: (String) -> Unit,
     onOpenSeerrTarget: (SeerrTarget) -> Unit,
     onOpenRequestsSettings: () -> Unit,
+    onOpenTitle: (WatchlistTitleRef) -> Unit,
+    onAdd: () -> Unit,
     onConnect: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val canAdd by vm.canAdd.collectAsStateWithLifecycle()
     val selectedKey by vm.spotlight.selected.collectAsStateWithLifecycle()
     val loaded by vm.spotlight.loaded.collectAsStateWithLifecycle()
     val selected = view.entries.firstOrNull { it.id == selectedKey }
@@ -245,13 +225,18 @@ private fun WatchlistGrid(
             },
         onSelect = { key -> vm.spotlight.select(key, view.entries.firstOrNull { it.id == key }?.itemId) },
         onOpen = onTap,
-        emptyText = "Nothing here yet. Use Add to List on a movie or show.",
+        emptyText =
+            if (canAdd) {
+                "Nothing here yet. Use ＋ Add, or Add to List on a movie or show."
+            } else {
+                "Nothing here yet. Use Add to List on a movie or show."
+            },
         actions = {
             selected?.let { entry ->
-                SpotlightActions(entry, selectedItem, vm, onOpenDetail, onPlay, onOpenSeerrTarget, onOpenRequestsSettings)
+                SpotlightActions(entry, selectedItem, vm, onOpenDetail, onPlay, onOpenSeerrTarget, onOpenRequestsSettings, onOpenTitle)
             }
         },
-        listControls = { Header(view, vm, onOpenDetail, onConnect, onRemove) },
+        listControls = { Header(view, vm, canAdd, onOpenDetail, onAdd, onConnect, onRemove) },
         extras = {
             if (Watchlist.showsCard(view)) PlexCard(onConnect = onConnect, onNotNow = vm::dismissCard)
         },
@@ -275,6 +260,7 @@ private fun SpotlightActions(
     onPlay: (String) -> Unit,
     onOpenSeerrTarget: (SeerrTarget) -> Unit,
     onOpenRequestsSettings: () -> Unit,
+    onOpenTitle: (WatchlistTitleRef) -> Unit,
 ) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (item != null) {
@@ -288,12 +274,15 @@ private fun SpotlightActions(
             }
             return@FlowRow
         }
-        when (val tap = Watchlist.tapAction(entry, ServiceLocator.seerr.isActive)) {
-            is WatchlistTap.Seerr -> Button(onClick = { onOpenSeerrTarget(tap.target) }) { Text("Request") }
-            WatchlistTap.SignInToRequest -> FilledTonalButton(onClick = onOpenRequestsSettings) { Text("Sign in to Requests") }
-            // On the server after all (the list is still loading its library items), or no TMDB id to request by.
-            is WatchlistTap.Open -> FilledTonalButton(onClick = { onOpenDetail(tap.itemId) }) { Text("Details") }
-            WatchlistTap.NotOnServer -> Text("Not on your server", color = SashimiTextTertiary)
+        val ref = WatchlistTitleRef.of(entry)
+        when (val request = Watchlist.requestAction(ref, ServiceLocator.seerr.isActive)) {
+            is WatchlistRequest.Seerr -> Button(onClick = { onOpenSeerrTarget(request.target) }) { Text("Request") }
+            WatchlistRequest.SignIn -> Button(onClick = onOpenRequestsSettings) { Text("Sign in to Requests") }
+            WatchlistRequest.Unavailable -> Unit
+        }
+        FilledTonalButton(onClick = { onOpenTitle(ref) }) {
+            Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text("Details", modifier = Modifier.padding(start = 4.dp))
         }
     }
 }
@@ -303,7 +292,9 @@ private fun SpotlightActions(
 private fun Header(
     view: WatchlistView,
     vm: WatchlistViewModel,
+    canAdd: Boolean,
     onOpenDetail: (String) -> Unit,
+    onAdd: () -> Unit,
     onConnect: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -321,6 +312,12 @@ private fun Header(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
+            if (canAdd) {
+                OutlinedButton(onClick = onAdd) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Add", modifier = Modifier.padding(start = 4.dp))
+                }
+            }
             if (view.entries.any { it.itemId != null }) {
                 OutlinedButton(onClick = { vm.shuffleTarget()?.let(onOpenDetail) }) {
                     Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
