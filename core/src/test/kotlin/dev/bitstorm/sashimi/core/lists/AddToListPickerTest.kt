@@ -5,9 +5,13 @@ import dev.bitstorm.sashimi.core.model.ItemType
 import dev.bitstorm.sashimi.core.network.JellyfinClient
 import dev.bitstorm.sashimi.core.seerr.SeerrMediaKind
 import dev.bitstorm.sashimi.core.seerr.SeerrTitleDetails
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,15 +77,24 @@ class AddToListPickerTest {
         }
 
     @Test
-    fun `your lists show without waiting out the watchlist's retries`() =
+    fun `your lists show without waiting for the watchlist read`() =
         runTest {
             noLists()
+            // The Watchlist read hangs (a slow plugin, or one retrying a 5xx) until the lists have shown.
+            val held = java.util.concurrent.CountDownLatch(1)
+            stub.held["GET /SashimiLists/Watchlist"] = held
             stub.routes["GET /SashimiLists/Watchlist"] = 503 to ""
-            val shown = states(heat)
-            val firstReady = shown.first { !it.state.isLoading }
-            // The retries back off 1 s + 2 s + 4 s: lists must not wait for them.
-            assertTrue("lists shown at ${firstReady.at} ms", firstReady.at < 1_000)
-            assertNotNull(firstReady.state.watchlist)
+            try {
+                val first =
+                    withContext(Dispatchers.Default) {
+                        withTimeout(5_000) { picker.load(heat).first { !it.isLoading } }
+                    }
+                assertNull(first.error)
+                assertNotNull("the row stays while the read is pending", first.watchlist)
+                assertNull(first.watchlist!!.count)
+            } finally {
+                held.countDown()
+            }
         }
 
     @Test

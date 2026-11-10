@@ -374,7 +374,7 @@ class WatchlistPlexLinkerTest {
             java.util.concurrent.atomic
                 .AtomicBoolean(false)
         Thread {
-            Thread.sleep(1_500)
+            Thread.sleep(5_000)
             released.set(true)
             latch.countDown()
         }.start()
