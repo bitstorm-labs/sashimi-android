@@ -67,6 +67,17 @@ data class SpotlightInfo(
     val overview: String?,
 )
 
+/** The Spotlight for a Watchlist title the server doesn't have ([ListSpotlight.missing]). */
+data class MissingSpotlight(
+    val info: SpotlightInfo,
+    /** The provider's backdrop; null: [poster] stands in. */
+    val backdrop: String?,
+    val poster: String?,
+) {
+    /** A poster standing in for a backdrop is drawn dimmed. */
+    val dimmed: Boolean get() = backdrop == null
+}
+
 /**
  * The Spotlight list page (watchlist v2 §6, list-layouts mockup option A):
  * the selected title fills the top with its backdrop, details and actions;
@@ -110,11 +121,47 @@ object ListSpotlight {
             overview = null,
         )
 
-    /** "3h 13m", or "50 min" under an hour. */
-    fun runtime(ticks: Long): String {
-        val minutes = ticks / TICKS_PER_MINUTE
-        return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "$minutes min"
+    /**
+     * A Watchlist title the server doesn't have, once `/Watchlist/Details`
+     * answers (watchlist v2 §3): the provider's backdrop, line and overview.
+     * No backdrop (or no answer yet): its poster stands in, dimmed.
+     */
+    fun missing(
+        entry: WatchlistEntry,
+        details: WatchlistTitleDetails?,
+    ): MissingSpotlight {
+        val poster = entry.posterUrl?.takeIf { it.isNotBlank() } ?: details?.posterUrl?.takeIf { it.isNotBlank() }
+        val backdrop = details?.backdropUrl?.takeIf { it.isNotBlank() }
+        val info = details?.let { info(entry, it) } ?: info(entry)
+        return MissingSpotlight(info, backdrop, poster)
     }
+
+    private fun info(
+        entry: WatchlistEntry,
+        details: WatchlistTitleDetails,
+    ): SpotlightInfo {
+        val facts =
+            buildList {
+                (details.year ?: entry.year)?.let { add(it.toString()) }
+                if (entry.isSeries) {
+                    details.seasonCount?.takeIf { it > 0 }?.let { add(if (it == 1) "1 season" else "$it seasons") }
+                } else {
+                    details.runtimeMinutes?.takeIf { it > 0 }?.let { add(runtimeMinutes(it.toLong())) }
+                }
+                details.officialRating?.takeIf { it.isNotBlank() }?.let { add(it) }
+                details.genres
+                    ?.filter { it.isNotBlank() }
+                    ?.take(GENRES)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { add(it.joinToString(", ")) }
+            }
+        return SpotlightInfo(entry.title, facts, details.overview?.takeIf { it.isNotBlank() })
+    }
+
+    /** "3h 13m", or "50 min" under an hour. */
+    fun runtime(ticks: Long): String = runtimeMinutes(ticks / TICKS_PER_MINUTE)
+
+    private fun runtimeMinutes(minutes: Long): String = if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "$minutes min"
 
     /** The title in the spotlight: [current] while it's still on the list, else the first. */
     fun selected(
@@ -150,5 +197,33 @@ class SpotlightDetails(
         val item = runCatchingCancellable { fetch(id) }.getOrNull() ?: return null
         cache[id] = item
         return item
+    }
+}
+
+/**
+ * `/Watchlist/Details` for each Watchlist title the server doesn't have, by
+ * entry id, asked once: an answer, or a 404 (no provider knows it, or the
+ * plugin is older than 0.3.0), is kept so moving focus never asks again; a
+ * failure isn't, so the next look tries again.
+ */
+class MissingTitleDetails(
+    private val fetch: suspend (WatchlistTitleRef) -> WatchlistTitleDetails?,
+) {
+    private class Known(
+        val details: WatchlistTitleDetails?,
+    )
+
+    private val cache = ConcurrentHashMap<String, Known>()
+
+    fun isKnown(entryId: String): Boolean = cache.containsKey(entryId)
+
+    fun cached(entryId: String): WatchlistTitleDetails? = cache[entryId]?.details
+
+    suspend fun load(entry: WatchlistEntry): WatchlistTitleDetails? {
+        cache[entry.id]?.let { return it.details }
+        val result = runCatchingCancellable { fetch(WatchlistTitleRef.of(entry)) }
+        val details = result.getOrElse { return null }
+        cache[entry.id] = Known(details)
+        return details
     }
 }

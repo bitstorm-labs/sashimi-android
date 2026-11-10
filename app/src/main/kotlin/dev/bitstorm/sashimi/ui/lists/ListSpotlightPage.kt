@@ -53,7 +53,7 @@ internal data class SpotlightContent(
     /** A wide picture; null falls back to [poster]. */
     val backdrop: String?,
     val poster: String?,
-    /** A Watchlist title the server doesn't have. */
+    /** Drawn dimmed: a not-on-server title's poster standing in for a backdrop. */
     val dimmed: Boolean = false,
     /** "Not on server" / "Requested", over the facts. */
     val tag: String? = null,
