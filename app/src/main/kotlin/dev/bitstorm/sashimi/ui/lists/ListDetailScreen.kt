@@ -1,10 +1,8 @@
 package dev.bitstorm.sashimi.ui.lists
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,9 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -28,16 +23,18 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -54,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,13 +61,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.lists.ListItem
+import dev.bitstorm.sashimi.core.lists.ListSpotlight
 import dev.bitstorm.sashimi.core.lists.SharedList
 import dev.bitstorm.sashimi.ui.components.BackTopBar
 import dev.bitstorm.sashimi.ui.components.PosterCard
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
-import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 import dev.bitstorm.sashimi.ui.util.ImageUrls
 import dev.bitstorm.sashimi.ui.util.rememberImageWidth
@@ -89,6 +87,7 @@ fun ListDetailScreen(
     isCompact: Boolean,
     onBack: () -> Unit,
     onOpenDetail: (String) -> Unit,
+    onPlay: (String) -> Unit,
 ) {
     val vm: ListDetailViewModel = viewModel(key = "list-$listId", factory = ListDetailViewModel.Factory(listId))
     val state by vm.state.collectAsStateWithLifecycle()
@@ -115,7 +114,7 @@ fun ListDetailScreen(
                 editMode != EditMode.NONE ->
                     EditTitles(list, editMode, isCompact, vm, onDone = { editMode = EditMode.NONE })
                 else ->
-                    ListGrid(list, state, isCompact, vm, onOpenDetail, onEdit = { editMode = it })
+                    ListBody(list, state, isCompact, vm, onOpenDetail, onPlay, onEdit = { editMode = it })
             }
         }
     }
@@ -127,49 +126,60 @@ private fun Message(text: String) {
 }
 
 @Composable
-private fun ListGrid(
+private fun ListBody(
     list: SharedList,
     state: ListDetailUiState,
     isCompact: Boolean,
     vm: ListDetailViewModel,
     onOpenDetail: (String) -> Unit,
+    onPlay: (String) -> Unit,
     onEdit: (EditMode) -> Unit,
 ) {
-    val sidePadding = if (isCompact) 16.dp else 48.dp
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Three across a phone (the approved mockup); about 150 dp posters when wide.
-        val spacing = 16.dp
-        val avail = maxWidth - sidePadding * 2
-        val target = if (isCompact) 104.dp else 150.dp
-        val columns = maxOf(3, ((avail + spacing) / (target + spacing)).toInt())
-        val cardWidth = (avail - spacing * (columns - 1)) / columns
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            contentPadding = PaddingValues(horizontal = sidePadding, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Header(list, state, vm, onOpenDetail, onEdit)
-            }
-            if (list.items.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        if (list.isMine) "Nothing here yet. Use Add to List on a movie or show." else "This list is empty.",
-                        color = SashimiTextTertiary,
-                    )
+    val selectedKey by vm.spotlight.selected.collectAsStateWithLifecycle()
+    val loaded by vm.spotlight.loaded.collectAsStateWithLifecycle()
+    val selectedCard = list.items.firstOrNull { it.display.id == selectedKey }
+    // The full item once it arrives: a series card is only its first episode's outline.
+    val spotlitItem = selectedCard?.let { loaded[it.item.id] ?: it.item }
+    val imageWidth = rememberImageWidth(LocalConfiguration.current.screenWidthDp.dp)
+    val titles = if (list.count == 1) "1 title" else "${list.count} titles"
+    SpotlightPage(
+        isCompact = isCompact,
+        overline = "${list.name} · $titles",
+        entries = list.items,
+        key = { it.display.id },
+        selectedKey = selectedKey,
+        spotlight =
+            spotlitItem?.let { item ->
+                SpotlightContent(
+                    info = ListSpotlight.info(item),
+                    backdrop = ImageUrls.detailBackdrop(item, isYouTubeSeries = false, widthPx = imageWidth),
+                    poster = ImageUrls.cardPoster(item, imageWidth),
+                )
+            },
+        onSelect = { key -> vm.spotlight.select(key, key) },
+        onOpen = { onOpenDetail(it.item.id) },
+        emptyText = if (list.isMine) "Nothing here yet. Use Add to List on a movie or show." else "This list is empty.",
+        actions = {
+            spotlitItem?.let { item ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.play(item, onPlay) }) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Play", modifier = Modifier.padding(start = 4.dp))
+                    }
+                    FilledTonalButton(onClick = { onOpenDetail(item.id) }) {
+                        Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Details", modifier = Modifier.padding(start = 4.dp))
+                    }
                 }
             }
-            items(list.items, key = { it.display.id }) { card ->
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).clickable { onOpenDetail(card.item.id) }) {
-                    PosterCard(item = card.item, width = cardWidth, isNew = card.display.id in state.newIds)
-                }
-            }
-        }
+        },
+        listControls = { Header(list, state, vm, onOpenDetail, onEdit) },
+    ) { card, width ->
+        PosterCard(item = card.item, width = width, isNew = card.display.id in state.newIds)
     }
 }
 
+/** The list's own line and buttons, under the spotlight: who made it, Subscribe, Shuffle, Edit List. */
 @Composable
 private fun Header(
     list: SharedList,
@@ -178,31 +188,26 @@ private fun Header(
     onOpenDetail: (String) -> Unit,
     onEdit: (EditMode) -> Unit,
 ) {
-    Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!list.isMine && list.ownerName != null) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(Color(0xFF8A5A9E)), Alignment.Center) {
-                    Text(list.ownerName!!.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFF8A5A9E)), Alignment.Center) {
+                    Text(list.ownerName!!.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
-            Text(listByline(list), color = SashimiTextSecondary)
+            Text(listOfNotNull(listByline(list), countLine(list, state)).joinToString(" · "), color = SashimiTextTertiary, fontSize = 13.sp)
         }
-        Text(list.name, color = SashimiTextPrimary, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp)
-        Text(countLine(list, state), color = SashimiTextTertiary, fontSize = 14.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.subscribed) {
-                Button(
-                    onClick = vm::toggleSubscribe,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF111111)),
-                ) {
+                OutlinedButton(onClick = vm::toggleSubscribe) {
                     Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("Subscribed", modifier = Modifier.padding(start = 4.dp))
                 }
             } else {
-                Button(onClick = vm::toggleSubscribe) { Text("Subscribe") }
+                OutlinedButton(onClick = vm::toggleSubscribe) { Text("Subscribe") }
             }
             if (list.items.isNotEmpty()) {
-                FilledTonalButton(onClick = { vm.shuffleTarget()?.let(onOpenDetail) }) {
+                OutlinedButton(onClick = { vm.shuffleTarget()?.let(onOpenDetail) }) {
                     Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("Shuffle", modifier = Modifier.padding(start = 4.dp))
                 }
@@ -215,22 +220,19 @@ private fun Header(
 private fun countLine(
     list: SharedList,
     state: ListDetailUiState,
-): String {
-    val titles = if (list.count == 1) "1 title" else "${list.count} titles"
-    return when {
-        state.subscribed && state.newIds.isNotEmpty() -> "$titles · ${state.newIds.size} new since you last looked"
+): String? =
+    when {
+        state.subscribed && state.newIds.isNotEmpty() -> "${state.newIds.size} new since you last looked"
         list.isMine ->
-            "$titles · " +
-                if (state.publicSaving) {
-                    "Saving…"
-                } else if (list.isPublic) {
-                    "Public: everyone on the server can see and subscribe"
-                } else {
-                    "Private: only you can see it"
-                }
-        else -> titles
+            if (state.publicSaving) {
+                "Saving…"
+            } else if (list.isPublic) {
+                "Public: everyone on the server can see and subscribe"
+            } else {
+                "Private: only you can see it"
+            }
+        else -> null
     }
-}
 
 @Composable
 private fun OwnerMenu(
@@ -243,7 +245,7 @@ private fun OwnerMenu(
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     Box {
-        FilledTonalButton(onClick = { open = true }) {
+        OutlinedButton(onClick = { open = true }) {
             Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
             Text("Edit List", modifier = Modifier.padding(start = 4.dp))
         }

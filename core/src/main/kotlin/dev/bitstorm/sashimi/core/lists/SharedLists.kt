@@ -42,19 +42,14 @@ data class ListOwner(
     @SerialName("OwnerName") val name: String? = null,
 )
 
-/** How a list's cover is drawn. */
+/** How a list's cover is drawn: the poster stack (list-covers mockup option A, #244). */
 sealed interface ListCover {
-    /** Four different titles, 2x2, in list order (left to right, then down). */
-    data class Collage(
-        val tiles: List<BaseItemDto>,
+    /** One to three different titles, front poster first. */
+    data class Stack(
+        val posters: List<BaseItemDto>,
     ) : ListCover
 
-    /** Fewer than four different titles: the first one's poster, full-bleed. */
-    data class Single(
-        val item: BaseItemDto,
-    ) : ListCover
-
-    /** Nothing the viewer can see. */
+    /** Nothing the viewer can see: a placeholder poster. */
     data object Empty : ListCover
 }
 
@@ -77,16 +72,13 @@ object SharedLists {
 
     /**
      * A list's cover, from its cards in display order (after the S1:E1 and
-     * repeat rules). Two cards from the same show are the same title: an
-     * episode card counts as its series, so the collage never repeats a poster.
+     * repeat rules): the first three different titles, front first. Two cards
+     * from the same show are the same title: an episode card counts as its
+     * series, so the stack never repeats a poster.
      */
     fun cover(cards: List<ListItem>): ListCover {
         val titles = cards.distinctBy { titleKey(it) }
-        return when {
-            titles.size >= 4 -> ListCover.Collage(titles.take(4).map { it.item })
-            titles.isNotEmpty() -> ListCover.Single(titles.first().item)
-            else -> ListCover.Empty
-        }
+        return if (titles.isEmpty()) ListCover.Empty else ListCover.Stack(titles.take(PosterStack.MAX).map { it.item })
     }
 
     private fun titleKey(card: ListItem): String = card.item.seriesId?.takeIf { card.item.type == ItemType.EPISODE } ?: card.display.id

@@ -331,6 +331,10 @@ private fun AppShell(
                     isCompact = isCompact,
                     onBack = { navController.popBackStack() },
                     onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
+                    onPlay = { id ->
+                        DetailAmbience.stopForPlayback()
+                        navController.navigate(PlayerRoute(itemId = id))
+                    },
                     onOpenSeerrTarget = openSeerrTarget,
                     onOpenRequestsSettings = { navController.navigate(RequestsSettingsRoute) },
                 )
@@ -341,6 +345,10 @@ private fun AppShell(
                     isCompact = isCompact,
                     onBack = { navController.popBackStack() },
                     onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
+                    onPlay = { id ->
+                        DetailAmbience.stopForPlayback()
+                        navController.navigate(PlayerRoute(itemId = id))
+                    },
                 )
             }
             composable<SearchRoute> {

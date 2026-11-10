@@ -1,10 +1,8 @@
 package dev.bitstorm.sashimi.ui.lists
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,16 +14,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +31,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -48,10 +46,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +60,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import dev.bitstorm.sashimi.core.lists.ListSpotlight
 import dev.bitstorm.sashimi.core.lists.SharedLists
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistEntry
@@ -99,6 +98,7 @@ fun WatchlistScreen(
     isCompact: Boolean,
     onBack: () -> Unit,
     onOpenDetail: (String) -> Unit,
+    onPlay: (String) -> Unit,
     onOpenSeerrTarget: (SeerrTarget) -> Unit,
     onOpenRequestsSettings: () -> Unit,
 ) {
@@ -152,6 +152,9 @@ fun WatchlistScreen(
                         vm = vm,
                         onTap = onTap,
                         onOpenDetail = onOpenDetail,
+                        onPlay = onPlay,
+                        onOpenSeerrTarget = onOpenSeerrTarget,
+                        onOpenRequestsSettings = onOpenRequestsSettings,
                         onConnect = { connecting = true },
                         onRemove = { removing = true },
                     )
@@ -203,51 +206,99 @@ private fun WatchlistGrid(
     vm: WatchlistViewModel,
     onTap: (WatchlistEntry) -> Unit,
     onOpenDetail: (String) -> Unit,
+    onPlay: (String) -> Unit,
+    onOpenSeerrTarget: (SeerrTarget) -> Unit,
+    onOpenRequestsSettings: () -> Unit,
     onConnect: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val sidePadding = if (isCompact) 16.dp else 48.dp
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The same column rule as a list's page.
-        val spacing = 16.dp
-        val avail = maxWidth - sidePadding * 2
-        val target = if (isCompact) 104.dp else 150.dp
-        val columns = maxOf(3, ((avail + spacing) / (target + spacing)).toInt())
-        val cardWidth = (avail - spacing * (columns - 1)) / columns
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            contentPadding = PaddingValues(horizontal = sidePadding, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Header(view, vm, onOpenDetail, onConnect, onRemove)
-            }
-            if (Watchlist.showsCard(view)) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    PlexCard(onConnect = onConnect, onNotNow = vm::dismissCard)
+    val selectedKey by vm.spotlight.selected.collectAsStateWithLifecycle()
+    val loaded by vm.spotlight.loaded.collectAsStateWithLifecycle()
+    val selected = view.entries.firstOrNull { it.id == selectedKey }
+    // The full item once it arrives, else the outline the page already has.
+    val selectedItem = selected?.itemId?.let { loaded[it] ?: state.items[SharedLists.normalizeId(it)] }
+    val imageWidth = rememberImageWidth(LocalConfiguration.current.screenWidthDp.dp)
+    val count = view.entries.size
+    SpotlightPage(
+        isCompact = isCompact,
+        overline = "${Watchlist.NAME} · ${if (count == 1) "1 title" else "$count titles"}",
+        entries = view.entries,
+        key = { it.id },
+        selectedKey = selectedKey,
+        spotlight =
+            selected?.let { entry ->
+                if (selectedItem != null) {
+                    SpotlightContent(
+                        info = ListSpotlight.info(selectedItem),
+                        backdrop = ImageUrls.detailBackdrop(selectedItem, isYouTubeSeries = false, widthPx = imageWidth),
+                        poster = ImageUrls.cardPoster(selectedItem, imageWidth),
+                    )
+                } else {
+                    SpotlightContent(
+                        info = ListSpotlight.info(entry),
+                        backdrop = null,
+                        poster = entry.posterUrl,
+                        dimmed = entry.itemId == null,
+                        tag = Watchlist.tag(entry, state.badges[entry.id])?.label,
+                    )
                 }
+            },
+        onSelect = { key -> vm.spotlight.select(key, view.entries.firstOrNull { it.id == key }?.itemId) },
+        onOpen = onTap,
+        emptyText = "Nothing here yet. Use Add to List on a movie or show.",
+        actions = {
+            selected?.let { entry ->
+                SpotlightActions(entry, selectedItem, vm, onOpenDetail, onPlay, onOpenSeerrTarget, onOpenRequestsSettings)
             }
-            if (view.entries.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text("Nothing here yet. Use Add to List on a movie or show.", color = SashimiTextTertiary)
-                }
-            }
-            items(view.entries, key = { it.id }) { entry ->
-                val item = entry.itemId?.let { state.items[SharedLists.normalizeId(it)] }
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).clickable { onTap(entry) }) {
-                    if (item != null) {
-                        PosterCard(item = item, width = cardWidth)
-                    } else {
-                        MissingTile(entry, Watchlist.tag(entry, state.badges[entry.id]), cardWidth)
-                    }
-                }
-            }
+        },
+        listControls = { Header(view, vm, onOpenDetail, onConnect, onRemove) },
+        extras = {
+            if (Watchlist.showsCard(view)) PlexCard(onConnect = onConnect, onNotNow = vm::dismissCard)
+        },
+    ) { entry, width ->
+        val item = entry.itemId?.let { state.items[SharedLists.normalizeId(it)] }
+        if (item != null) {
+            PosterCard(item = item, width = width)
+        } else {
+            MissingTile(entry, Watchlist.tag(entry, state.badges[entry.id]), width)
         }
     }
 }
 
+/** Play and Details for a title on the server; Request or Sign in to Requests for one that isn't. */
+@Composable
+private fun SpotlightActions(
+    entry: WatchlistEntry,
+    item: dev.bitstorm.sashimi.core.model.BaseItemDto?,
+    vm: WatchlistViewModel,
+    onOpenDetail: (String) -> Unit,
+    onPlay: (String) -> Unit,
+    onOpenSeerrTarget: (SeerrTarget) -> Unit,
+    onOpenRequestsSettings: () -> Unit,
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (item != null) {
+            Button(onClick = { vm.play(item, onPlay) }) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Play", modifier = Modifier.padding(start = 4.dp))
+            }
+            FilledTonalButton(onClick = { onOpenDetail(item.id) }) {
+                Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Details", modifier = Modifier.padding(start = 4.dp))
+            }
+            return@FlowRow
+        }
+        when (val tap = Watchlist.tapAction(entry, ServiceLocator.seerr.isActive)) {
+            is WatchlistTap.Seerr -> Button(onClick = { onOpenSeerrTarget(tap.target) }) { Text("Request") }
+            WatchlistTap.SignInToRequest -> FilledTonalButton(onClick = onOpenRequestsSettings) { Text("Sign in to Requests") }
+            // On the server after all (the list is still loading its library items), or no TMDB id to request by.
+            is WatchlistTap.Open -> FilledTonalButton(onClick = { onOpenDetail(tap.itemId) }) { Text("Details") }
+            WatchlistTap.NotOnServer -> Text("Not on your server", color = SashimiTextTertiary)
+        }
+    }
+}
+
+/** The Watchlist's own line and buttons, under the spotlight: private, the Plex line, Shuffle, ⋯. */
 @Composable
 private fun Header(
     view: WatchlistView,
@@ -256,15 +307,8 @@ private fun Header(
     onConnect: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val count = view.entries.size
-    Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Your list", color = SashimiTextSecondary)
-        Text(Watchlist.NAME, color = SashimiTextPrimary, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp)
-        Text(
-            "${if (count == 1) "1 title" else "$count titles"} · Private: only you can see it",
-            color = SashimiTextTertiary,
-            fontSize = 14.sp,
-        )
+    Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Your list · Private: only you can see it", color = SashimiTextTertiary, fontSize = 13.sp)
         view.plex?.let { link ->
             if (link.needsReconnect) {
                 Text("Plex stopped syncing. Reconnect to pick it up again.", color = SeerrBadge.PENDING.color(), fontSize = 14.sp)
@@ -278,7 +322,7 @@ private fun Header(
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             if (view.entries.any { it.itemId != null }) {
-                FilledTonalButton(onClick = { vm.shuffleTarget()?.let(onOpenDetail) }) {
+                OutlinedButton(onClick = { vm.shuffleTarget()?.let(onOpenDetail) }) {
                     Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("Shuffle", modifier = Modifier.padding(start = 4.dp))
                 }
@@ -377,7 +421,6 @@ private fun MissingTile(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .alpha(if (entry.itemId == null) 0.45f else 1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(SashimiCard),
                 Alignment.Center,
@@ -387,6 +430,7 @@ private fun MissingTile(
                         model = entry.posterUrl,
                         contentDescription = entry.title,
                         contentScale = ContentScale.Crop,
+                        colorFilter = if (entry.itemId == null) NotOnServerFilter else null,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {

@@ -53,6 +53,24 @@ class WatchlistViewModel(
 
     private val resumeGate = ResumeRefreshGate()
 
+    /** The title in the spotlight (#244), keyed by entry id; only on-server entries have details to fetch. */
+    val spotlight = SpotlightController(viewModelScope)
+
+    /** Plays an on-server title ([onPlay] gets the id), or says there's nothing to play. */
+    fun play(
+        item: BaseItemDto,
+        onPlay: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            spotlight.playTarget(item)?.let(onPlay) ?: _messages.tryEmit("Nothing to play yet.")
+        }
+    }
+
+    private fun syncSpotlight(view: WatchlistView) {
+        val byId = view.entries.associateBy { it.id }
+        spotlight.sync(view.entries.map { it.id }) { byId[it]?.itemId }
+    }
+
     init {
         load()
         // Linked, switched (the app-wide Switch prompt) or disconnected, here or in Settings: re-read the Plex line.
@@ -76,6 +94,7 @@ class WatchlistViewModel(
                 return@launch
             }
             _state.update { it.copy(isLoading = false, error = null, view = view, gone = false) }
+            syncSpotlight(view)
             val ids = view.entries.mapNotNull { it.itemId }
             val items = runCatchingCancellable { service.libraryItems(ids) }.getOrNull()
             if (items != null) _state.update { it.copy(items = items) }
@@ -109,6 +128,7 @@ class WatchlistViewModel(
     fun remove(entry: WatchlistEntry) {
         val before = _state.value.view ?: return
         _state.update { it.copy(view = before.copy(entries = before.entries.filterNot { e -> e.id == entry.id })) }
+        _state.value.view?.let(::syncSpotlight)
         viewModelScope.launch {
             runCatchingCancellable { service.remove(entry.id) }.onFailure { e ->
                 _state.update { s ->
