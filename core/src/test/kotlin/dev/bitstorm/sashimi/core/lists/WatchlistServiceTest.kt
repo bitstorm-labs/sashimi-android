@@ -51,8 +51,16 @@ class WatchlistServiceTest {
             assertNull(view.entries[0].itemId)
             assertEquals("abc123def", view.entries[1].itemId)
             assertEquals("tt0113277", view.entries[1].imdbId)
+            assertFalse("absent means not opted out", view.plexOptedOut)
             assertTrue(service.available())
             assertEquals(1, stub.calls("GET /SashimiLists/Watchlist").size)
+        }
+
+    @Test
+    fun `plexOptedOut is read when the plugin sends it`() =
+        runTest {
+            stub.routes["GET /SashimiLists/Watchlist"] = 200 to """{"plex":null,"plexOptedOut":true,"entries":[]}"""
+            assertTrue(service.view()!!.plexOptedOut)
         }
 
     @Test
