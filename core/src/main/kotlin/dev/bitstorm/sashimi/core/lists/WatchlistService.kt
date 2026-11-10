@@ -180,6 +180,54 @@ class WatchlistService(
         client.listsRequest("POST", "/SashimiLists/Watchlist/DismissCard")
     }
 
+    // MARK: - Watchlist v2 (plugin 0.3.0)
+
+    /** Server|user → whether the plugin has the v2 routes. Only real answers (200 or 404) are cached. */
+    private val v2 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    /** A GET on a v2 route: null on a 404 (the plugin is missing or older than 0.3.0). */
+    private suspend fun v2Get(
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+    ): String? {
+        val key = key()
+        return try {
+            client.listsRequest("GET", path, query).also { v2[key] = true }
+        } catch (e: JellyfinError.HttpError) {
+            if (e.statusCode == 404 && path == CONFIG) v2[key] = false
+            if (e.statusCode == 404) null else throw e
+        }
+    }
+
+    /**
+     * The server's settings for the apps, null when the plugin is too old.
+     * Failures throw: the caller treats them like null (the address box stays).
+     */
+    suspend fun config(): SashimiServerConfig? = v2Get(CONFIG)?.let { decode<SashimiServerConfig>(it) }
+
+    /**
+     * Whether the server has Watchlist v2 (＋ Add, the details page). Asks
+     * once per server and user; a failure answers false and is asked again.
+     */
+    suspend fun v2Available(): Boolean {
+        v2[key()]?.let { return it }
+        return try {
+            config() != null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** ＋ Add's search; null when the plugin is too old. [text] is trimmed and must be [WatchlistV2.searchable]. */
+    suspend fun search(text: String): WatchlistSearchResult? =
+        v2Get("/SashimiLists/Watchlist/Search", listOf("q" to text.trim()))?.let { decode<WatchlistSearchResult>(it) }
+
+    /** A title not on the server, from the server's metadata providers. Null: no provider knows it, or the plugin is too old. */
+    suspend fun details(ref: WatchlistTitleRef): WatchlistTitleDetails? =
+        v2Get("/SashimiLists/Watchlist/Details", ref.query())?.let { decode<WatchlistTitleDetails>(it) }
+
     private inline fun <reified T> decode(body: String): T =
         try {
             json.decodeFromString<T>(body)
@@ -189,5 +237,6 @@ class WatchlistService(
 
     private companion object {
         const val LIBRARY_BATCH = 100
+        const val CONFIG = "/SashimiLists/Config"
     }
 }

@@ -260,6 +260,15 @@ object ServiceLocator {
             )
         // Checks a stored cookie with the server; stays off the network without one.
         appScope.launch(Dispatchers.Main) { seerr.restore() }
+        // The Requests address the Jellyfin server sets (Sashimi Lists 0.3.0), read
+        // for each server and account; none when signed out or the plugin is older.
+        appScope.launch(Dispatchers.Main) {
+            combine(session.isAuthenticated, session.activeServerId, session.currentUser) { auth, server, user ->
+                Triple(auth, server, user?.id)
+            }.distinctUntilChanged().collectLatest { (auth, _, _) ->
+                seerr.syncServerSetAddress { if (auth) watchlist.config()?.requestsUrl else null }
+            }
+        }
         networkMonitor = NetworkMonitor(app)
         startRemoteControl()
         playbackEngine =

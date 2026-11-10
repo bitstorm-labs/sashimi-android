@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.ui.requests
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,15 +11,19 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,19 +61,25 @@ fun RequestsSettingsScreen(
     val session = ServiceLocator.seerr
     val state by session.state.collectAsStateWithLifecycle()
     val server by session.serverUrl.collectAsStateWithLifecycle()
+    // Set by the Jellyfin server (Sashimi Lists 0.3.0): shown locked, and the address box goes.
+    val serverSet by session.serverSetUrl.collectAsStateWithLifecycle()
     val appTitle by session.applicationTitle.collectAsStateWithLifecycle()
     val error by session.errorMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Re-read on open: the admin can change it at any time, no restart.
+    LaunchedEffect(session) { session.syncServerSetAddress { ServiceLocator.watchlist.config()?.requestsUrl } }
 
     var address by rememberSaveable(server) { mutableStateOf(server.orEmpty()) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var addressError by remember { mutableStateOf<String?>(null) }
     // No default server: sign-in stays off until the field holds a real address.
-    val addressValid = SeerrSession.normalizedServerUrl(address) != null
+    val addressValid = serverSet != null || SeerrSession.normalizedServerUrl(address) != null
 
     fun applyAddress(): Boolean {
+        if (serverSet != null) return true
         val ok = session.setServerAddress(address)
         addressError = if (ok) null else "That doesn't look like a server address."
         return ok
@@ -92,7 +103,7 @@ fun RequestsSettingsScreen(
                 when (val s = state) {
                     is SeerrAuthState.SignedIn -> {
                         Text("Signed in as ${s.account.name}", style = MaterialTheme.typography.titleMedium)
-                        server?.let { Text(it, color = SashimiTextTertiary) }
+                        if (serverSet != null) ServerSetRow() else server?.let { Text(it, color = SashimiTextTertiary) }
                         OutlinedButton(onClick = { scope.launch { session.signOut() } }) { Text("Sign Out") }
                     }
                     is SeerrAuthState.AwaitingPlex -> {
@@ -105,20 +116,24 @@ fun RequestsSettingsScreen(
                         if (s == SeerrAuthState.Expired) {
                             Text("Your $appTitle sign-in has expired. Sign in again.", color = SeerrBadge.PENDING.color())
                         }
-                        OutlinedTextField(
-                            value = address,
-                            onValueChange = {
-                                address = it
-                                addressError = null
-                            },
-                            label = { Text("Server address") },
-                            placeholder = { Text("https://requests.example.com") },
-                            singleLine = true,
-                            isError = addressError != null,
-                            supportingText = addressError?.let { { Text(it) } },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        if (serverSet != null) {
+                            ServerSetRow()
+                        } else {
+                            OutlinedTextField(
+                                value = address,
+                                onValueChange = {
+                                    address = it
+                                    addressError = null
+                                },
+                                label = { Text("Server address") },
+                                placeholder = { Text("https://requests.example.com") },
+                                singleLine = true,
+                                isError = addressError != null,
+                                supportingText = addressError?.let { { Text(it) } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         Button(
                             onClick = {
                                 if (!applyAddress()) return@Button
@@ -169,5 +184,20 @@ fun RequestsSettingsScreen(
                 error?.let { Text(it, color = SeerrBadge.DECLINED.color()) }
             }
         }
+    }
+}
+
+/** "Requests server · Set by your server", locked: the address itself is never shown (it's the admin's). */
+@Composable
+private fun ServerSetRow() {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Requests server", style = MaterialTheme.typography.titleMedium)
+            Text("Set by your server", color = SashimiTextTertiary)
+        }
+        Icon(Icons.Filled.Lock, contentDescription = "Locked", tint = SashimiTextTertiary)
     }
 }

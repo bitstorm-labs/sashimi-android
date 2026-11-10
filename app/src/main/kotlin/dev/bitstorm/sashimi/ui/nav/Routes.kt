@@ -30,6 +30,31 @@ object ListsRoute
 @Serializable
 object WatchlistRoute
 
+/** ＋ Add on the Watchlist: search the library and the server's metadata providers (plugin 0.3.0). */
+@Serializable
+object WatchlistAddRoute
+
+/** A title the server doesn't have: its details from the server's metadata providers (plugin 0.3.0). */
+@Serializable
+data class WatchlistTitleRoute(
+    val type: String,
+    val title: String,
+    val year: Int? = null,
+    val posterUrl: String? = null,
+    val tmdbId: String? = null,
+    val tvdbId: String? = null,
+    val imdbId: String? = null,
+) {
+    fun ref() =
+        dev.bitstorm.sashimi.core.lists
+            .WatchlistTitleRef(type, title, year, posterUrl, tmdbId, tvdbId, imdbId)
+
+    companion object {
+        fun of(ref: dev.bitstorm.sashimi.core.lists.WatchlistTitleRef) =
+            WatchlistTitleRoute(ref.type, ref.title, ref.year, ref.posterUrl, ref.tmdbId, ref.tvdbId, ref.imdbId)
+    }
+}
+
 /** One shared list (subscriber or owner view). */
 @Serializable
 data class ListDetailRoute(

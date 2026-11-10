@@ -81,7 +81,9 @@ import dev.bitstorm.sashimi.ui.library.LibrariesScreen
 import dev.bitstorm.sashimi.ui.library.LibraryBrowseScreen
 import dev.bitstorm.sashimi.ui.lists.ListDetailScreen
 import dev.bitstorm.sashimi.ui.lists.ListsScreen
+import dev.bitstorm.sashimi.ui.lists.WatchlistAddScreen
 import dev.bitstorm.sashimi.ui.lists.WatchlistScreen
+import dev.bitstorm.sashimi.ui.lists.WatchlistTitleScreen
 import dev.bitstorm.sashimi.ui.nav.AdminActivityRoute
 import dev.bitstorm.sashimi.ui.nav.AdminHealthRoute
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
@@ -101,7 +103,9 @@ import dev.bitstorm.sashimi.ui.nav.SearchRoute
 import dev.bitstorm.sashimi.ui.nav.SeerrTitleRoute
 import dev.bitstorm.sashimi.ui.nav.ServerDashboardRoute
 import dev.bitstorm.sashimi.ui.nav.SettingsRoute
+import dev.bitstorm.sashimi.ui.nav.WatchlistAddRoute
 import dev.bitstorm.sashimi.ui.nav.WatchlistRoute
+import dev.bitstorm.sashimi.ui.nav.WatchlistTitleRoute
 import dev.bitstorm.sashimi.ui.person.PersonScreen
 import dev.bitstorm.sashimi.ui.player.PlayerScreen
 import dev.bitstorm.sashimi.ui.remote.RemoteMessageBanner
@@ -336,6 +340,28 @@ private fun AppShell(
                         navController.navigate(PlayerRoute(itemId = id))
                     },
                     onOpenSeerrTarget = openSeerrTarget,
+                    onOpenRequestsSettings = { navController.navigate(RequestsSettingsRoute) },
+                    onOpenTitle = { ref -> navController.navigate(WatchlistTitleRoute.of(ref)) },
+                    onAdd = { navController.navigate(WatchlistAddRoute) },
+                )
+            }
+            composable<WatchlistAddRoute> {
+                WatchlistAddScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
+                    onOpenTitle = { ref -> navController.navigate(WatchlistTitleRoute.of(ref)) },
+                )
+            }
+            composable<WatchlistTitleRoute> { entry ->
+                WatchlistTitleScreen(
+                    ref = entry.toRoute<WatchlistTitleRoute>().ref(),
+                    onBack = { navController.popBackStack() },
+                    // On the server after all: the library page replaces this one.
+                    onOpenLibraryItem = { id ->
+                        navController.navigate(DetailRoute(id)) {
+                            popUpTo<WatchlistTitleRoute> { inclusive = true }
+                        }
+                    },
                     onOpenRequestsSettings = { navController.navigate(RequestsSettingsRoute) },
                 )
             }

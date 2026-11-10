@@ -167,24 +167,25 @@ class WatchlistTest {
 
     @Test
     fun `tap on an on-server entry opens it`() {
-        assertEquals(WatchlistTap.Open("abc"), Watchlist.tapAction(entry(itemId = "abc", tmdb = "949"), hasSeerrSession = true))
-        assertEquals(WatchlistTap.Open("abc"), Watchlist.tapAction(entry(itemId = "abc"), hasSeerrSession = false))
+        assertEquals(WatchlistTap.Open("abc"), Watchlist.tapAction(entry(itemId = "abc", tmdb = "949")))
     }
 
     @Test
-    fun `tap without a seerr session asks to sign into requests`() {
-        assertEquals(WatchlistTap.SignInToRequest, Watchlist.tapAction(entry(tmdb = "949"), hasSeerrSession = false))
+    fun `tap on a title the server lacks opens its title page, signed into Requests or not`() {
+        val tap = Watchlist.tapAction(entry(tmdb = "949", imdb = "tt0113277"))
+        assertEquals(WatchlistTap.Details(WatchlistTitleRef("Movie", "Heat", tmdbId = "949", imdbId = "tt0113277")), tap)
+        assertEquals("no TMDB id still opens the page", WatchlistTap.Details::class, Watchlist.tapAction(entry(imdb = "tt1"))::class)
     }
 
     @Test
-    fun `tap with a session opens the seerr page`() {
-        val tap = Watchlist.tapAction(entry(tmdb = "949"), hasSeerrSession = true)
-        assertEquals(949, (tap as WatchlistTap.Seerr).target.tmdbId)
-    }
-
-    @Test
-    fun `tap with a session but no tmdb id explains`() {
-        assertEquals(WatchlistTap.NotOnServer, Watchlist.tapAction(entry(imdb = "tt1"), hasSeerrSession = true))
+    fun `request asks to sign in without a session, else opens Seerr by TMDB id`() {
+        val ref = WatchlistTitleRef.of(entry(tmdb = "949"))
+        assertEquals(WatchlistRequest.SignIn, Watchlist.requestAction(ref, hasSeerrSession = false))
+        assertEquals(949, (Watchlist.requestAction(ref, hasSeerrSession = true) as WatchlistRequest.Seerr).target.tmdbId)
+        assertEquals(
+            WatchlistRequest.Unavailable,
+            Watchlist.requestAction(WatchlistTitleRef.of(entry(imdb = "tt1")), hasSeerrSession = true),
+        )
     }
 
     @Test
