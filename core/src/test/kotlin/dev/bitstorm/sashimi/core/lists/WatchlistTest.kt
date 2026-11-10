@@ -222,9 +222,35 @@ class WatchlistTest {
 
     @Test
     fun `the cover is the first three entries, newest first, on the server or not`() {
-        val entries = (1..5).map { entry(itemId = if (it == 2) null else "i$it").copy(id = "e$it") }
+        val entries =
+            (1..5).map {
+                if (it ==
+                    2
+                ) {
+                    entry().copy(id = "e2", posterUrl = "https://image.tmdb.org/t/p/w342/e2.jpg")
+                } else {
+                    entry("i$it").copy(id = "e$it")
+                }
+            }
         assertEquals(listOf("e1", "e2", "e3"), Watchlist.cover(WatchlistView(entries = entries)).map { it.id })
         assertEquals(listOf("e1"), Watchlist.cover(WatchlistView(entries = entries.take(1))).map { it.id })
         assertEquals(emptyList<WatchlistEntry>(), Watchlist.cover(WatchlistView()))
+    }
+
+    @Test
+    fun `the cover skips titles with no poster at all, as Apple and Roku do`() {
+        // e2 is not on the server and was saved without a poster: nothing to draw.
+        val entries = (1..5).map { entry(itemId = if (it == 2) null else "i$it").copy(id = "e$it") }
+        val withPoster =
+            entries.map {
+                if (it.id ==
+                    "e3"
+                ) {
+                    it.copy(itemId = null, posterUrl = "https://image.tmdb.org/t/p/w342/x.jpg")
+                } else {
+                    it
+                }
+            }
+        assertEquals(listOf("e1", "e3", "e4"), Watchlist.cover(WatchlistView(entries = withPoster)).map { it.id })
     }
 }

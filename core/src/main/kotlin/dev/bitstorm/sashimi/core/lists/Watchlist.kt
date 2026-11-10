@@ -235,8 +235,13 @@ object Watchlist {
         return current.toMutableList().apply { add(anchor + 1, failed) }
     }
 
-    /** The Lists page cover: the first three entries (newest first); the app dims those not on the server. */
-    fun cover(view: WatchlistView): List<WatchlistEntry> = view.entries.take(PosterStack.MAX)
+    /**
+     * The Lists page cover: the first three entries (newest first) with a
+     * poster to draw, so a title not on the server and saved without one is
+     * skipped (as on Apple and Roku); the app dims those not on the server.
+     */
+    fun cover(view: WatchlistView): List<WatchlistEntry> =
+        view.entries.filter { it.itemId != null || !it.posterUrl.isNullOrBlank() }.take(PosterStack.MAX)
 
     /** "Use Plex too?": only before a link and until "Not now". */
     fun showsCard(view: WatchlistView): Boolean = view.plex == null && !view.cardDismissed

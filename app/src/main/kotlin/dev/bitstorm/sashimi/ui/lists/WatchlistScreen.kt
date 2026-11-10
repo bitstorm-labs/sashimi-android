@@ -194,6 +194,7 @@ private fun WatchlistGrid(
     val canAdd by vm.canAdd.collectAsStateWithLifecycle()
     val selectedKey by vm.spotlight.selected.collectAsStateWithLifecycle()
     val loaded by vm.spotlight.loaded.collectAsStateWithLifecycle()
+    val missing by vm.missing.collectAsStateWithLifecycle()
     val selected = view.entries.firstOrNull { it.id == selectedKey }
     // The full item once it arrives, else the outline the page already has.
     val selectedItem = selected?.itemId?.let { loaded[it] ?: state.items[SharedLists.normalizeId(it)] }
@@ -213,17 +214,26 @@ private fun WatchlistGrid(
                         backdrop = ImageUrls.detailBackdrop(selectedItem, isYouTubeSeries = false, widthPx = imageWidth),
                         poster = ImageUrls.cardPoster(selectedItem, imageWidth),
                     )
+                } else if (entry.itemId == null) {
+                    // Not on the server: the provider's backdrop once Details answers, else the poster, dimmed.
+                    val spot = ListSpotlight.missing(entry, missing[entry.id])
+                    SpotlightContent(
+                        info = spot.info,
+                        backdrop = spot.backdrop,
+                        poster = spot.poster,
+                        dimmed = spot.dimmed,
+                        tag = Watchlist.tag(entry, state.badges[entry.id])?.label,
+                    )
                 } else {
                     SpotlightContent(
                         info = ListSpotlight.info(entry),
                         backdrop = null,
                         poster = entry.posterUrl,
-                        dimmed = entry.itemId == null,
                         tag = Watchlist.tag(entry, state.badges[entry.id])?.label,
                     )
                 }
             },
-        onSelect = { key -> vm.spotlight.select(key, view.entries.firstOrNull { it.id == key }?.itemId) },
+        onSelect = { key -> view.entries.firstOrNull { it.id == key }?.let(vm::select) },
         onOpen = onTap,
         emptyText =
             if (canAdd) {

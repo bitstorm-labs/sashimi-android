@@ -2,10 +2,12 @@ package dev.bitstorm.sashimi.ui.lists
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.bitstorm.sashimi.core.lists.MissingTitleDetails
 import dev.bitstorm.sashimi.core.lists.Watchlist
 import dev.bitstorm.sashimi.core.lists.WatchlistEntry
 import dev.bitstorm.sashimi.core.lists.WatchlistPlexLinker
 import dev.bitstorm.sashimi.core.lists.WatchlistService
+import dev.bitstorm.sashimi.core.lists.WatchlistTitleDetails
 import dev.bitstorm.sashimi.core.lists.WatchlistView
 import dev.bitstorm.sashimi.core.model.BaseItemDto
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
@@ -69,6 +71,33 @@ class WatchlistViewModel(
     private fun syncSpotlight(view: WatchlistView) {
         val byId = view.entries.associateBy { it.id }
         spotlight.sync(view.entries.map { it.id }) { byId[it]?.itemId }
+        spotlight.selected.value
+            ?.let { byId[it] }
+            ?.let(::loadMissing)
+    }
+
+    private val missingDetails = MissingTitleDetails { service.details(it) }
+    private val asking = mutableSetOf<String>()
+
+    /** Not-on-server titles' provider details (backdrop, line, overview), by entry id, as they arrive. */
+    private val _missing = MutableStateFlow<Map<String, WatchlistTitleDetails>>(emptyMap())
+    val missing: StateFlow<Map<String, WatchlistTitleDetails>> = _missing.asStateFlow()
+
+    /** Moves the spotlight to [entry]: the library item for an on-server title, the provider's details for one that isn't. */
+    fun select(entry: WatchlistEntry) {
+        spotlight.select(entry.id, entry.itemId)
+        loadMissing(entry)
+    }
+
+    private fun loadMissing(entry: WatchlistEntry) {
+        if (entry.itemId != null || missingDetails.isKnown(entry.id) || !asking.add(entry.id)) return
+        viewModelScope.launch {
+            try {
+                missingDetails.load(entry)?.let { d -> _missing.update { it + (entry.id to d) } }
+            } finally {
+                asking.remove(entry.id)
+            }
+        }
     }
 
     init {
