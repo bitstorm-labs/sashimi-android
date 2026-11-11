@@ -216,6 +216,9 @@ class PlayerViewModel(
             .setId("sashimi-player-${sessionCounter.incrementAndGet()}")
             .build()
 
+    /** Lets go of each stream before the next is negotiated; see [StreamHandoff]. */
+    private val handoff = StreamHandoff(player) { engine.stopTranscode(it) }
+
     private val _trickplay = MutableStateFlow<TrickplayTrack?>(null)
 
     /** Scrub-thumbnail geometry for the current item, or null (show nothing). */
@@ -318,7 +321,9 @@ class PlayerViewModel(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) onPlaybackEnded()
+                // An empty player reaches ENDED too, when a media button
+                // prepares it between streams; that is not the item ending.
+                if (playbackState == Player.STATE_ENDED && player.mediaItemCount > 0) onPlaybackEnded()
             }
 
             override fun onPositionDiscontinuity(
@@ -443,15 +448,17 @@ class PlayerViewModel(
                     return
                 }
         currentItem = item
-        // Auto-play-next from a stream onto a download: the stream's server
-        // transcode is no longer anyone's, so end it now.
-        currentSource?.let { prior -> if (prior.isTranscoding) prior.playSessionId?.let { engine.stopTranscode(it) } }
-        currentSource = null
         stallDetector.reset()
 
         val serverTicks = if (startFromBeginning) 0 else item.userData?.playbackPositionTicks ?: 0
         val localTicks = downloads.offlinePlaybackPositionTicks(key) ?: 0
         val startTicks = startTicksOverride ?: if (!startFromBeginning && localTicks > serverTicks) localTicks else serverTicks
+
+        // Auto-play-next from a stream onto a download: the stream's server
+        // transcode is no longer anyone's, so end it now.
+        val prior = currentSource
+        currentSource = null
+        handoff.retire(prior?.takeIf { it.isTranscoding }?.playSessionId, startTicks / TICKS_PER_MS)
 
         // Side-load any subtitles that were downloaded alongside the video as
         // local VTT tracks (Swift MobilePlayerView local subtitle configs).
@@ -485,6 +492,7 @@ class PlayerViewModel(
                 .setSubtitleConfigurations(subConfigs)
                 .setMediaMetadata(mediaMetadataFor(item))
                 .build()
+        handoff.handOver()
         player.setMediaItem(mediaItem, startTicks / TICKS_PER_MS)
         player.prepare()
 
@@ -579,9 +587,7 @@ class PlayerViewModel(
         // the source being torn down is unambiguously the one this call saw.
         val priorSource = currentSource
         currentSource = null
-        priorSource?.let { prior ->
-            if (prior.isTranscoding) prior.playSessionId?.let { engine.stopTranscode(it) }
-        }
+        handoff.retire(priorSource?.takeIf { it.isTranscoding }?.playSessionId, startTicks / TICKS_PER_MS)
 
         val settingsCap = settings.maxBitrate.value
         val maxBitrate = BitrateResolver.effectiveMaxBitrate(quality.maxBitrate, settingsCap)
@@ -645,6 +651,7 @@ class PlayerViewModel(
         // A progressive direct play holds one transfer open and stops reading
         // when the buffer is full; HLS segments are fetched whole.
         throughputMeter.reset(cutOnLoadPause = !source.isTranscoding)
+        handoff.handOver()
         player.setMediaItem(mediaItem, source.playerStartPositionMs)
         player.prepare()
         applyTrackSelections()
@@ -899,7 +906,7 @@ class PlayerViewModel(
      * discarding 85 minutes for every client.
      */
     val absolutePositionMs: Long
-        get() = ResumeTimeline.absoluteMs(timelineOffsetMs, player.currentPosition)
+        get() = handoff.heldPositionMs ?: ResumeTimeline.absoluteMs(timelineOffsetMs, player.currentPosition)
 
     /**
      * Runtime of the ITEM in milliseconds. For an offset transcode

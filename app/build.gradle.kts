@@ -69,6 +69,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Robolectric needs the merged resources and manifest.
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildFeatures {
         compose = true
         // VERSION_NAME goes to the server as the client version (#163).
@@ -111,6 +116,10 @@ dependencies {
     implementation(libs.media3.session)
 
     testImplementation(libs.junit)
+    // Robolectric: StreamHandoffTest drives a real ExoPlayer on the JVM.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 // MainActivityLaunchModeTest reads the source manifest; declare it so a manifest

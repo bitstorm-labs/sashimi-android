@@ -18,9 +18,11 @@ the other two — several have been found in all three.
   tests live here.**
 - **`:app`** — Compose UI, ViewModels, navigation, the Media3 player and its
   MediaSession/PiP glue. A small JVM test set lives in `app/src/test/` for pure
-  logic pulled out of the player (`NowPlaying`, `PipActions`); keep anything
-  touching `android.net.Uri` or Media3 builders out of it, since unit tests run
-  against the stubbed android.jar.
+  logic pulled out of the player (`NowPlaying`, `PipActions`). Plain JVM tests
+  run against the stubbed android.jar, so anything touching `android.net.Uri`
+  or a real ExoPlayer needs Robolectric (`@Config(sdk = [34], application =
+  android.app.Application::class)`, as in `StreamHandoffTest`; the app's own
+  Application class wants WorkManager).
 
 `:core` must stay TV-ready: no phone-only assumptions, since a TV client would
 reuse it. No Android TV layout ships today (no Leanback declaration, touch-first
