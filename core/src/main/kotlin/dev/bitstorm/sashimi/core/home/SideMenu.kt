@@ -4,8 +4,9 @@ import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 
 /**
  * What the side menu (the nav rail on wide layouts) lists, in order (#187,
- * parity with sashimi-apple RailOrder): Home, then each library in the Home
- * row order, then Search, Downloads and Settings. Pure, so the rule is
+ * parity with sashimi-apple RailOrder):
+ * Home, Search, then each destination in the Home row order (the Watchlist
+ * first by default), then Downloads and Settings. Pure, so the rule is
  * unit-tested; the rail is only a view of it.
  */
 sealed interface SideMenuItem {
@@ -39,6 +40,11 @@ sealed interface SideMenuItem {
         override val key = "dashboard"
     }
 
+    /** The signed-in user's Watchlist, opening its Spotlight page (owner, 2026-11-11). */
+    data object Watchlist : SideMenuItem {
+        override val key = "watchlist"
+    }
+
     data object Search : SideMenuItem {
         override val key = "search"
     }
@@ -64,8 +70,10 @@ object SideMenu {
     /**
      * The menu for [rows] (the user's Home row order and toggles) and
      * [libraries] (what the server reports now, in its order). Every
-     * destination between Home and Search is listed in exactly the rows'
-     * relative order (2026-11-07 parity brief, A).
+     * destination after Home and Search is listed in exactly the rows'
+     * relative order (2026-11-07 parity brief, A), then Downloads and
+     * Settings. Search sits right under Home, as on the Apple rail, so the
+     * Watchlist's default first place puts it directly under Search.
      *
      * - A library row is listed where it sits; one the rows don't mention yet
      *   (added on the server since) follows the last listed library, shown.
@@ -77,8 +85,11 @@ object SideMenu {
      *   no say: hiding a row on Home is a statement about Home. Lists keeps its
      *   own switch, [showLists], which also drives the phone tab bar.
      * - A row naming a library the server no longer has is ignored.
+     * - The Watchlist row carries the Watchlist entry; its side-menu toggle
+     *   hides it ([showsWatchlist] also drives the phone tab bar).
      * - An entry the rows don't place (an order saved before it existed and
-     *   never normalised) trails, Lists then Requests then Dashboard.
+     *   never normalised) trails, Lists then Requests then Dashboard; an
+     *   unplaced Watchlist leads, where a normalised order puts it.
      * - [online] false (the offline library) lists Home, Downloads, Settings:
      *   nothing else works without the server.
      */
@@ -110,6 +121,8 @@ object SideMenu {
                     if (placedKinds.add(row.kind) && showLists) shown += SideMenuItem.Lists
                 HomeRowConfig.Kind.DASHBOARD ->
                     if (placedKinds.add(row.kind) && showDashboard && row.showInSideMenu) shown += SideMenuItem.Dashboard
+                HomeRowConfig.Kind.WATCHLIST ->
+                    if (placedKinds.add(row.kind) && row.showInSideMenu) shown += SideMenuItem.Watchlist
                 HomeRowConfig.Kind.CONTINUE_WATCHING, HomeRowConfig.Kind.LIST -> Unit
             }
         }
@@ -118,7 +131,8 @@ object SideMenu {
         if (HomeRowConfig.Kind.LISTS !in placedKinds && showLists) shown += SideMenuItem.Lists
         if (HomeRowConfig.Kind.REQUESTS !in placedKinds && showRequests) shown += SideMenuItem.Requests
         if (HomeRowConfig.Kind.DASHBOARD !in placedKinds && showDashboard) shown += SideMenuItem.Dashboard
-        return listOf(SideMenuItem.Home) + shown + listOf(SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
+        if (HomeRowConfig.Kind.WATCHLIST !in placedKinds) shown.add(0, SideMenuItem.Watchlist)
+        return listOf(SideMenuItem.Home, SideMenuItem.Search) + shown + listOf(SideMenuItem.Downloads, SideMenuItem.Settings)
     }
 
     /**
@@ -129,6 +143,10 @@ object SideMenu {
         val type = collectionType?.lowercase() ?: return true
         return type in setOf("movies", "tvshows", "music", "mixed", "homevideos")
     }
+
+    /** The Watchlist row's side-menu switch; shown when the rows don't mention it yet. */
+    fun showsWatchlist(rows: List<HomeRowConfig>): Boolean =
+        rows.firstOrNull { it.kind == HomeRowConfig.Kind.WATCHLIST }?.showInSideMenu ?: true
 
     private fun JellyfinLibrary.asItem() = SideMenuItem.Library(id, name, collectionType)
 }

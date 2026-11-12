@@ -58,6 +58,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import dev.bitstorm.sashimi.core.deeplink.DeepLinkResolver
 import dev.bitstorm.sashimi.core.deeplink.DeepLinkTarget
+import dev.bitstorm.sashimi.core.home.SideMenu
 import dev.bitstorm.sashimi.core.home.SideMenuItem
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.di.ServiceLocator
@@ -224,12 +225,11 @@ private fun AppShell(
     // Home for the local-only offline variant.
     val isOnline by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val showLists by ServiceLocator.appSettings.showLists.collectAsStateWithLifecycle()
+    val homeRows by ServiceLocator.homeRowSettings.rows.collectAsStateWithLifecycle()
     val destinations =
-        if (isOnline) {
-            Destination.entries.filter { it != Destination.LISTS || showLists }
-        } else {
-            listOf(Destination.HOME, Destination.DOWNLOADS, Destination.SETTINGS)
-        }
+        dev.bitstorm.sashimi.core.home.PrimaryTab
+            .phoneTabs(isOnline, showLists, SideMenu.showsWatchlist(homeRows))
+            .map(Destination::of)
 
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
@@ -331,9 +331,13 @@ private fun AppShell(
                 )
             }
             composable<WatchlistRoute> {
+                // A primary destination (side menu, phone bar) with no Back;
+                // opened from the Lists page, it goes back there.
+                val fromLists =
+                    navController.previousBackStackEntry?.destination?.hasRoute(ListsRoute::class) == true
                 WatchlistScreen(
                     isCompact = isCompact,
-                    onBack = { navController.popBackStack() },
+                    onBack = if (fromLists) ({ navController.popBackStack() }) else null,
                     onOpenDetail = { id -> navController.navigate(DetailRoute(id)) },
                     onPlay = { id ->
                         DetailAmbience.stopForPlayback()
@@ -355,6 +359,7 @@ private fun AppShell(
             composable<WatchlistTitleRoute> { entry ->
                 WatchlistTitleScreen(
                     ref = entry.toRoute<WatchlistTitleRoute>().ref(),
+                    isCompact = isCompact,
                     onBack = { navController.popBackStack() },
                     // On the server after all: the library page replaces this one.
                     onOpenLibraryItem = { id ->
@@ -505,8 +510,8 @@ private fun AppShell(
         host(Modifier.fillMaxSize())
     } else if (expanded) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // The side menu (#187): Home, each library in Home row order, then
-            // Search, Downloads, Settings. No separate Libraries entry here; the
+            // The side menu (#187): Home, Search, the Watchlist and each library
+            // in Home row order, then Downloads, Settings. No separate Libraries entry here; the
             // phone bottom bar below keeps it.
             val sideMenu: SideMenuViewModel = viewModel()
             val items by sideMenu.items.collectAsStateWithLifecycle()
@@ -591,7 +596,7 @@ private fun AppShell(
                             selected = currentDestination.isOnTab(dest),
                             onClick = { navigateToTab(dest) },
                             icon = { DestinationIcon(dest) },
-                            // Six tabs with Lists: a smaller label keeps "Downloads" whole on a phone.
+                            // Six or seven tabs with Lists and the Watchlist: a smaller label keeps "Downloads" whole on a phone.
                             label = { NavLabel(dest.label, small = destinations.size > 5) },
                         )
                     }
@@ -643,6 +648,7 @@ private val SideMenuItem.destination: Destination?
             SideMenuItem.Downloads -> Destination.DOWNLOADS
             SideMenuItem.Settings -> Destination.SETTINGS
             SideMenuItem.Lists -> Destination.LISTS
+            SideMenuItem.Watchlist -> Destination.WATCHLIST
             is SideMenuItem.Library, SideMenuItem.Requests, SideMenuItem.Dashboard -> null
         }
 
@@ -665,6 +671,7 @@ private fun androidx.navigation.NavDestination?.isOnTab(dest: Destination): Bool
             Destination.LIBRARIES -> navDest.hasRoute(LibrariesRoute::class)
             Destination.LISTS -> navDest.hasRoute(ListsRoute::class)
             Destination.SEARCH -> navDest.hasRoute(SearchRoute::class)
+            Destination.WATCHLIST -> navDest.hasRoute(WatchlistRoute::class)
             Destination.DOWNLOADS -> navDest.hasRoute(DownloadsRoute::class)
             Destination.SETTINGS -> navDest.hasRoute(SettingsRoute::class)
         }

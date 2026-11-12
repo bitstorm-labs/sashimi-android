@@ -60,8 +60,10 @@ private val RowHeight = 56.dp
 /**
  * Home & Side Menu (#187): long-press-drag to reorder (the order drives both
  * Home and the side menu), and two independent toggles per row: shown on Home,
- * and shown in the side menu. Only libraries are side-menu destinations; other
- * rows show "—". A library hidden from both says it is only reachable from
+ * and shown in the side menu. Libraries, Requests, Lists, the Dashboard and the
+ * Watchlist are side-menu destinations (the menu-only ones show "—" for Home);
+ * other rows show "—" for the side menu. The Watchlist's switch also decides
+ * the phone tab bar, as Lists' does. A library hidden from both says it is only reachable from
  * Search. Built on a plain scrollable [Column] with fixed-height rows so the
  * drag arithmetic is simple and reliable for the handful of rows involved.
  */

@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -42,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import dev.bitstorm.sashimi.core.lists.SpotlightInfo
+import dev.bitstorm.sashimi.ui.components.SpotlightBottomFade
+import dev.bitstorm.sashimi.ui.components.SpotlightWashes
 import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
@@ -160,16 +161,7 @@ private fun <T> WideSpotlight(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         spotlight?.let { Backdrop(it) }
         // The mockup's two washes: dark from the left behind the text, dark from the bottom behind the row.
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.horizontalGradient(0.3f to SashimiBackground, 0.75f to Color.Transparent),
-            ),
-        )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0.4f to Color.Transparent, 0.75f to SashimiBackground),
-            ),
-        )
+        SpotlightWashes()
         val posterWidth = (maxWidth * 0.09f).coerceIn(96.dp, 150.dp)
         // A short screen (a phone on its side) keeps Play in view above the poster row.
         val short = maxHeight < 480.dp
@@ -242,7 +234,7 @@ private fun Backdrop(
             colorFilter = if (content.dimmed) NotOnServerFilter else null,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to SashimiBackground)))
+        SpotlightBottomFade()
     }
 }
 

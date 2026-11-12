@@ -4,18 +4,26 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -49,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -71,11 +78,13 @@ import dev.bitstorm.sashimi.core.model.ImageRef
 import dev.bitstorm.sashimi.core.seerr.SeerrBadge
 import dev.bitstorm.sashimi.core.seerr.SeerrSeasonPlan
 import dev.bitstorm.sashimi.ui.components.BackTopBar
+import dev.bitstorm.sashimi.ui.components.SpotlightBottomFade
+import dev.bitstorm.sashimi.ui.components.SpotlightTopScrim
+import dev.bitstorm.sashimi.ui.components.SpotlightWashes
 import dev.bitstorm.sashimi.ui.requests.SeasonPickerDialog
 import dev.bitstorm.sashimi.ui.requests.SeerrActionArea
 import dev.bitstorm.sashimi.ui.requests.color
 import dev.bitstorm.sashimi.ui.theme.SashimiAccent
-import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 import dev.bitstorm.sashimi.ui.theme.SashimiCard
 import dev.bitstorm.sashimi.ui.theme.SashimiTextPrimary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
@@ -251,6 +260,7 @@ private fun Note(text: String) {
 @Composable
 fun WatchlistTitleScreen(
     ref: WatchlistTitleRef,
+    isCompact: Boolean,
     onBack: () -> Unit,
     onOpenLibraryItem: (String) -> Unit,
     onOpenRequestsSettings: () -> Unit,
@@ -274,54 +284,61 @@ fun WatchlistTitleScreen(
     val title = details?.title ?: ref.title
     val poster = details?.posterUrl ?: ref.posterUrl
 
+    // A poster standing in for a missing backdrop is dimmed, as in the Spotlight list.
+    val backdrop = details?.backdropUrl
+    val picture = backdrop ?: poster
+    val dimmed = backdrop == null
+    val body: @Composable ColumnScope.() -> Unit = {
+        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = SashimiTextPrimary)
+        val facts = details?.let(WatchlistV2::facts) ?: listOfNotNull(ref.year?.toString())
+        if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = SashimiTextSecondary)
+        Text("Not on your server", color = SashimiTextTertiary)
+        when (val d = state.details) {
+            TitleDetailsState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            TitleDetailsState.Unavailable -> Text("Details aren't available.", color = SashimiTextTertiary)
+            is TitleDetailsState.Failed ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.message, color = SashimiTextTertiary, modifier = Modifier.weight(1f))
+                    TextButton(onClick = vm::load) { Text("Try Again", color = SashimiAccent) }
+                }
+            is TitleDetailsState.Ready -> d.details.overview?.let { Text(it, color = SashimiTextSecondary) }
+        }
+        Actions(vm, state, onOpenRequestsSettings, onChooseSeasons = { picking = it })
+        details?.source?.let { Text("Details from $it", color = SashimiTextTertiary, fontSize = 12.sp) }
+        Box(Modifier.height(24.dp))
+    }
+
+    // The Spotlight page's backdrop (owner, 2026-11-11), with no poster beside the title.
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Box(Modifier.fillMaxWidth().height(240.dp)) {
-                AsyncImage(
-                    model = details?.backdropUrl ?: poster,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, SashimiBackground))))
-            }
-            Column(
-                Modifier.fillMaxWidth().widthIn(max = 720.dp).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Bottom) {
-                    AsyncImage(
-                        model = poster,
-                        contentDescription = title,
-                        contentScale = ContentScale.Crop,
-                        modifier =
-                            Modifier
-                                .width(110.dp)
-                                .aspectRatio(2f / 3f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(SashimiCard),
-                    )
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, style = MaterialTheme.typography.headlineSmall, color = SashimiTextPrimary)
-                        val facts = details?.let(WatchlistV2::facts) ?: listOfNotNull(ref.year?.toString())
-                        if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = SashimiTextSecondary)
+        if (isCompact) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val underBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp
+                    Box(Modifier.fillMaxWidth().height(maxWidth * 9f / 16f + underBar)) {
+                        SpotlightPicture(picture, dimmed)
+                        SpotlightTopScrim()
+                        SpotlightBottomFade()
                     }
                 }
-                Text("Not on your server", color = SashimiTextTertiary)
-                when (val d = state.details) {
-                    TitleDetailsState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                    TitleDetailsState.Unavailable -> Text("Details aren't available.", color = SashimiTextTertiary)
-                    is TitleDetailsState.Failed ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(d.message, color = SashimiTextTertiary, modifier = Modifier.weight(1f))
-                            TextButton(onClick = vm::load) { Text("Try Again", color = SashimiAccent) }
-                        }
-                    is TitleDetailsState.Ready -> d.details.overview?.let { Text(it, color = SashimiTextSecondary) }
-                }
-                Actions(vm, state, onOpenRequestsSettings, onChooseSeasons = { picking = it })
-                details?.source?.let { Text("Details from $it", color = SashimiTextTertiary, fontSize = 12.sp) }
-                Box(Modifier.height(24.dp))
+                Column(
+                    Modifier.offset(y = (-56).dp).fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    content = body,
+                )
             }
+        } else {
+            SpotlightPicture(picture, dimmed)
+            SpotlightWashes()
+            Column(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.5f)
+                    .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(start = 48.dp, end = 16.dp, top = 64.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = body,
+            )
         }
         BackTopBar(title = "", onBack = onBack, containerColor = Color.Transparent)
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
@@ -371,4 +388,19 @@ private fun Actions(
             seerrState.errorMessage?.let { Text(it, color = SeerrBadge.DECLINED.color()) }
         }
     }
+}
+
+@Composable
+private fun SpotlightPicture(
+    model: String?,
+    dimmed: Boolean,
+) {
+    AsyncImage(
+        model = model,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        colorFilter = if (dimmed) NotOnServerFilter else null,
+        modifier = Modifier.fillMaxSize(),
+    )
 }

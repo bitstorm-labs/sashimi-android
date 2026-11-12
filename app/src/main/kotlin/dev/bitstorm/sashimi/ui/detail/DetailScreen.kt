@@ -2,6 +2,7 @@ package dev.bitstorm.sashimi.ui.detail
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,12 +11,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -128,6 +132,9 @@ import dev.bitstorm.sashimi.di.ServiceLocator
 import dev.bitstorm.sashimi.herotrailer.HeroTrailerBackdrop
 import dev.bitstorm.sashimi.herotrailer.rememberHeroTrailerOwner
 import dev.bitstorm.sashimi.ui.components.BackTopBar
+import dev.bitstorm.sashimi.ui.components.SpotlightBottomFade
+import dev.bitstorm.sashimi.ui.components.SpotlightTopScrim
+import dev.bitstorm.sashimi.ui.components.SpotlightWashes
 import dev.bitstorm.sashimi.ui.components.isYouTube
 import dev.bitstorm.sashimi.ui.nav.DetailRoute
 import dev.bitstorm.sashimi.ui.nav.PersonRoute
@@ -231,6 +238,13 @@ fun DetailScreen(
             hasTrailerLayer = HeroTrailerPolicy.hasTrailerLayer(item, isYouTube(libraryName, item?.path)),
         )
 
+    // Portrait: the Spotlight picture runs up under a transparent top bar that
+    // turns solid as the page scrolls over it. A YouTube channel keeps its banner.
+    val compactScroll = rememberScrollState()
+    val heroUnderBar = isCompact && item != null && !(isYouTube(libraryName, item.path) && item.type == ItemType.SERIES)
+    val barSolidAfterPx = with(LocalDensity.current) { 160.dp.toPx() }
+    val barAlpha = if (heroUnderBar) (compactScroll.value / barSolidAfterPx).coerceIn(0f, 1f) else 1f
+
     val openPerson: (PersonInfo) -> Unit = { person ->
         item?.let { current -> onOpenPerson(personRoute(person, current, serverId ?: activeServerId)) }
     }
@@ -264,19 +278,27 @@ fun DetailScreen(
             topBar = {
                 // Overflow actions now live in the detail action row's single labeled
                 // menu (iOS PhoneDetailView parity), so the top bar is just Back.
-                // Wide: transparent, so the picture behind it reaches the top edge.
+                // Transparent over the Spotlight picture, so it reaches the top edge.
                 BackTopBar(
                     title = "",
                     onBack = onBack,
-                    containerColor = if (isCompact) SashimiBackground else Color.Transparent,
+                    containerColor = if (isCompact) SashimiBackground.copy(alpha = barAlpha) else Color.Transparent,
                 )
             },
         ) { padding ->
             Box(Modifier.fillMaxSize()) {
-                // Wide: the picture ignores the Scaffold's padding so it runs flush to
-                // the top and right edges, under the transparent top bar.
-                if (!isCompact && item != null) ExpandedBackdrop(item, libraryName, heroOwner)
-                Box(Modifier.fillMaxSize().padding(padding)) {
+                // Wide: the picture ignores the Scaffold's padding so it fills the
+                // page under the transparent top bar (the Spotlight page's coverage).
+                if (!isCompact && item != null) {
+                    if (isYouTube(libraryName, item.path) && item.type == ItemType.SERIES) {
+                        ExpandedBackdrop(item, heroOwner)
+                    } else {
+                        WideSpotlightBackdrop(item, heroOwner)
+                    }
+                }
+                // Portrait: the content starts at the top edge; its hero sits under the bar.
+                val contentPadding = if (heroUnderBar) PaddingValues(bottom = padding.calculateBottomPadding()) else padding
+                Box(Modifier.fillMaxSize().padding(contentPadding)) {
                     when {
                         item == null && state.isLoading ->
                             Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
@@ -285,9 +307,9 @@ fun DetailScreen(
                                 Text("Could not load item.", color = SashimiTextSecondary)
                             }
                         item.type == ItemType.SEASON ->
-                            SeasonContent(state, item, isCompact, vm, onOpenDetail, libraryName, onPlayMain, heroOwner)
+                            SeasonContent(state, item, isCompact, vm, onOpenDetail, libraryName, onPlayMain, heroOwner, compactScroll)
                         isCompact ->
-                            CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner)
+                            CompactLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer, heroOwner, compactScroll)
                         else ->
                             ExpandedLayout(state, item, libraryName, vm, onOpenDetail, onPlayMain, onTrailer)
                     }
@@ -367,66 +389,93 @@ private fun CompactLayout(
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
     heroOwner: String,
+    scroll: ScrollState,
 ) {
     val yt = isYouTube(libraryName, item.path)
     val ytSeries = yt && item.type == ItemType.SERIES
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(scroll)) {
         if (ytSeries) {
             // YouTube channel page: a compact banner with the circular channel
             // avatar overlapping its bottom edge (iOS PhoneDetailView youtube
             // backdropSection) instead of the regular 220dp backdrop.
             YouTubeChannelBanner(item)
+            DetailContent(
+                state,
+                item,
+                libraryName,
+                vm,
+                onOpenDetail,
+                onPlay,
+                onTrailer,
+                isCompact = true,
+                modifier = Modifier.padding(16.dp),
+            )
         } else {
             CompactHero(item, heroOwner)
+            // The title sits over the hero's faded lower edge, as on the Spotlight page.
+            DetailContent(
+                state,
+                item,
+                libraryName,
+                vm,
+                onOpenDetail,
+                onPlay,
+                onTrailer,
+                isCompact = true,
+                modifier = Modifier.offset(y = -CompactHeroOverlap).padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            )
         }
-        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = true, modifier = Modifier.padding(16.dp))
     }
 }
 
 /**
- * The phone hero: full width x 220dp, the picture (and the trailer under it)
- * fading only at the bottom into the content below. Shared by the movie /
- * series / episode page and the season page (#201).
+ * The phone hero in the Spotlight page's portrait form: the picture (and the
+ * trailer in the same frame) covers the top of the page, up under the
+ * transparent top bar, and fades into the content below it. 16:9 below the
+ * bar. Shared by the movie / series / episode page and the season page (#201).
  */
 @Composable
 private fun CompactHero(
     item: BaseItemDto,
     heroOwner: String,
 ) {
-    // Cropping a portrait poster into this 220dp frame shows an ugly middle
-    // slice. Blur + darken that fallback so it reads as an intentional ambient
+    // Cropping a portrait poster into this frame shows an ugly middle slice.
+    // Blur + darken that fallback so it reads as an intentional ambient
     // backdrop instead of a sliced poster.
     val posterFallback = isPosterFallback(item)
-    // Full width on a phone (the half-width hero is a wide-layout idea), so
-    // only the bottom edge fades, into the content below.
-    HeroTrailerBackdrop(
-        heroOwner,
-        Modifier
-            .fillMaxWidth()
-            .height(220.dp)
-            .heroEdgeFade(fadeLeft = false, fadeTop = true)
-            .background(SashimiCard),
-    ) { fade ->
-        // The picture fades out over the trailer and back in after it.
-        Box(Modifier.matchParentSize().then(fade)) {
-            AsyncImage(
-                // Full screen width x 220dp, a 16:9 picture cropped into it.
-                model =
-                    LocalImageUrls.current.detailBackdrop(
-                        item,
-                        false,
-                        rememberImageWidth(screenWidth(), 220.dp, ImageSizing.LANDSCAPE_ASPECT),
-                    ),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
-            )
-            if (posterFallback) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+    val width = screenWidth()
+    val underBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight
+    val height = width / ImageSizing.LANDSCAPE_ASPECT + underBar
+    Box(Modifier.fillMaxWidth().height(height).background(SashimiCard)) {
+        HeroTrailerBackdrop(heroOwner, Modifier.matchParentSize()) { fade ->
+            // The picture fades out over the trailer and back in after it.
+            Box(Modifier.matchParentSize().then(fade)) {
+                AsyncImage(
+                    model =
+                        LocalImageUrls.current.detailBackdrop(
+                            item,
+                            false,
+                            rememberImageWidth(width, height, ImageSizing.LANDSCAPE_ASPECT),
+                        ),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
+                )
+                if (posterFallback) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+                }
             }
         }
+        SpotlightTopScrim()
+        SpotlightBottomFade()
     }
 }
+
+/** How far the title block rides up over the portrait hero's faded lower edge. */
+private val CompactHeroOverlap = 56.dp
+
+/** Material's small top app bar. */
+private val TopBarHeight = 64.dp
 
 /**
  * iOS parity (PhoneDetailView backdropSection, YouTube-series branch): a compact
@@ -472,43 +521,47 @@ private fun YouTubeChannelBanner(item: BaseItemDto) {
 }
 
 /**
- * The wide layout's picture, laid out like the Apple TV and iPad home hero:
- * about half the screen, flush to the top and right edges, fading only into the
- * info column on its left and the rows below. The trailer plays in the same
- * frame, so the fade applies to it as well.
+ * The wide layout's picture, with the Spotlight page's coverage (owner,
+ * 2026-11-11): it fills the page, bright across the right two-thirds, and the
+ * Spotlight washes fade it into the text on the left and the rows at the
+ * bottom. The trailer plays in the same frame, under the same washes.
+ */
+@Composable
+private fun WideSpotlightBackdrop(
+    item: BaseItemDto,
+    heroOwner: String,
+) {
+    val posterFallback = isPosterFallback(item)
+    Box(Modifier.fillMaxSize()) {
+        HeroTrailerBackdrop(heroOwner, Modifier.matchParentSize()) { fade ->
+            Box(Modifier.matchParentSize().then(fade)) {
+                AsyncImage(
+                    model = LocalImageUrls.current.detailBackdrop(item, false, rememberImageWidth(screenWidth())),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    // A portrait poster blown up to the page is mush: blur and darken it, as on a phone.
+                    modifier = Modifier.fillMaxSize().then(if (posterFallback) Modifier.blur(28.dp) else Modifier),
+                )
+                if (posterFallback) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+            }
+        }
+        SpotlightWashes()
+    }
+}
+
+/**
+ * A YouTube channel's wide picture: its banner, about two-thirds of the
+ * screen, flush to the top and right edges, fading only into the info column
+ * on its left and the rows below (a banner cropped to the whole page would be
+ * a sliver). It has no trailer layer, so the frame only ever shows the banner.
  */
 @Composable
 private fun BoxScope.ExpandedBackdrop(
     item: BaseItemDto,
-    libraryName: String?,
     heroOwner: String,
 ) {
-    val ytSeries = isYouTube(libraryName, item.path) && item.type == ItemType.SERIES
-    val heroFraction = if (ytSeries) 0.65f else 0.55f
-    if (!ytSeries && isPosterFallback(item)) {
-        // A portrait poster fitted to the hero width would run far down the
-        // page, under the text column now that the left fade is light (#203).
-        // Crop it to a backdrop-shaped frame, blurred and darkened, as on a phone.
-        HeroTrailerBackdrop(
-            heroOwner,
-            Modifier
-                .fillMaxWidth(heroFraction)
-                .aspectRatio(ImageSizing.LANDSCAPE_ASPECT)
-                .align(Alignment.TopEnd)
-                .heroEdgeFade(fadeLeft = true),
-        ) { fade ->
-            Box(Modifier.matchParentSize().then(fade)) {
-                AsyncImage(
-                    model = LocalImageUrls.current.detailBackdrop(item, false, rememberImageWidth(screenWidth() * heroFraction)),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().blur(28.dp),
-                )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
-            }
-        }
-        return
-    }
+    val heroFraction = 0.65f
     // Sized by the image; the trailer layer underneath matches it.
     HeroTrailerBackdrop(
         heroOwner,
@@ -519,7 +572,7 @@ private fun BoxScope.ExpandedBackdrop(
     ) { fade ->
         AsyncImage(
             // Fit to a fraction of the screen width (slightly over: the rail is ignored).
-            model = LocalImageUrls.current.detailBackdrop(item, ytSeries, rememberImageWidth(screenWidth() * heroFraction)),
+            model = LocalImageUrls.current.detailBackdrop(item, true, rememberImageWidth(screenWidth() * heroFraction)),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             alignment = Alignment.TopEnd,
@@ -584,18 +637,36 @@ private fun ExpandedLayout(
     onPlay: (Boolean) -> Unit,
     onTrailer: () -> Unit,
 ) {
-    // The picture is drawn by DetailScreen, outside the Scaffold padding.
-    Column(
-        modifier =
-            Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(0.6f)
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-    ) {
-        DetailContent(state, item, libraryName, vm, onOpenDetail, onPlay, onTrailer, isCompact = false)
+    // The picture is drawn by DetailScreen, outside the Scaffold padding. As on
+    // the Spotlight page, the title, facts and buttons sit on the dark left
+    // side, and the rows (episodes, cast) run across the faded lower part.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val pageHeight = maxHeight
+        DetailContent(
+            state,
+            item,
+            libraryName,
+            vm,
+            onOpenDetail,
+            onPlay,
+            onTrailer,
+            isCompact = false,
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = WideSideMargin, end = 24.dp, top = 8.dp, bottom = 24.dp),
+            headerModifier = Modifier.fillMaxWidth(WIDE_TEXT_FRACTION).heightIn(min = pageHeight * WIDE_HEADER_MIN_FRACTION),
+        )
     }
 }
+
+/** The Spotlight page's text column: its left margin and share of the width. */
+private val WideSideMargin = 48.dp
+private const val WIDE_TEXT_FRACTION = 0.5f
+
+/** The rows start at least this far down, over the picture's faded lower part. */
+private const val WIDE_HEADER_MIN_FRACTION = 0.5f
 
 @Composable
 private fun DetailContent(
@@ -608,15 +679,19 @@ private fun DetailContent(
     onTrailer: () -> Unit,
     isCompact: Boolean,
     modifier: Modifier = Modifier,
+    /** The title-to-overview block; wide, it keeps to the dark left side. */
+    headerModifier: Modifier = Modifier,
 ) {
     val yt = isYouTube(libraryName, item.path)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TitleBlock(item, yt, isCompact)
-        MetadataRow(item)
-        RatingsAndMedia(state, item)
-        if (item.type == ItemType.MOVIE) GenresCert(item)
-        ActionButtons(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer)
-        OverviewSection(item)
+        Column(headerModifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            TitleBlock(item, yt, isCompact)
+            MetadataRow(item)
+            RatingsAndMedia(state, item)
+            if (item.type == ItemType.MOVIE) GenresCert(item)
+            ActionButtons(state, item, vm, onOpenDetail, libraryName, onPlay, onTrailer)
+            OverviewSection(item)
+        }
         if (state.isSeries || state.isEpisode) SeasonsSection(state, vm, onOpenDetail, libraryName)
         CastSection(item)
     }
@@ -1461,6 +1536,7 @@ private fun SeasonContent(
     libraryName: String?,
     onPlay: (Boolean) -> Unit,
     heroOwner: String,
+    compactScroll: ScrollState,
 ) {
     val online by ServiceLocator.networkMonitor.isOnline.collectAsStateWithLifecycle()
     val episodes = state.episodes
@@ -1498,17 +1574,38 @@ private fun SeasonContent(
         }
     }
     // The series hero sits behind the header like on the series page (#201):
-    // above it on a phone; on the right, under the transparent top bar, when
-    // wide (drawn by DetailScreen), with the content column on its left.
-    Column(
-        modifier =
+    // above it, up under the top bar, on a phone; filling the page behind it
+    // when wide (drawn by DetailScreen), with the text on the dark left side.
+    if (isCompact) {
+        Column(Modifier.fillMaxSize().verticalScroll(compactScroll)) {
+            CompactHero(season, heroOwner)
+            SeasonBody(
+                state,
+                season,
+                isCompact,
+                episodes,
+                target,
+                actions,
+                onOpenDetail,
+                libraryName,
+                Modifier.offset(y = -CompactHeroOverlap).padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            )
+        }
+    } else {
+        SeasonBody(
+            state,
+            season,
+            isCompact,
+            episodes,
+            target,
+            actions,
+            onOpenDetail,
+            libraryName,
             Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(if (isCompact) 1f else 0.6f)
-                .verticalScroll(rememberScrollState()),
-    ) {
-        if (isCompact) CompactHero(season, heroOwner)
-        SeasonBody(state, season, isCompact, episodes, target, actions, onOpenDetail, libraryName)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = WideSideMargin, end = 24.dp, top = 8.dp, bottom = 24.dp),
+        )
     }
 }
 
@@ -1522,25 +1619,15 @@ private fun SeasonBody(
     actions: @Composable () -> Unit,
     onOpenDetail: (String, String?) -> Unit,
     libraryName: String?,
+    modifier: Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(if (isCompact) 16.dp else 24.dp),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        val posterWidth = if (isCompact) 110.dp else 160.dp
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            AsyncImage(
-                model = LocalImageUrls.current.seasonPoster(season, rememberImageWidth(posterWidth)),
-                contentDescription = season.name,
-                contentScale = ContentScale.Crop,
-                modifier =
-                    Modifier
-                        .width(posterWidth)
-                        .height(posterWidth * 1.5f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(SashimiCard),
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // No poster beside the title: the Spotlight picture behind is the art (owner, 2026-11-11).
+        Column(Modifier.fillMaxWidth(if (isCompact) 1f else WIDE_TEXT_FRACTION), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     season.seriesName ?: season.name,
                     color = SashimiTextPrimary,
@@ -1555,10 +1642,9 @@ private fun SeasonBody(
                     fontSize = 14.sp,
                 )
                 SeasonInfoRow(state, season)
-                if (!isCompact) actions()
             }
+            actions()
         }
-        if (isCompact) actions()
         Text("Episodes", color = SashimiTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         if (state.isLoadingEpisodes && episodes.isEmpty()) {
             Box(Modifier.fillMaxWidth().height(120.dp), Alignment.Center) { CircularProgressIndicator() }
