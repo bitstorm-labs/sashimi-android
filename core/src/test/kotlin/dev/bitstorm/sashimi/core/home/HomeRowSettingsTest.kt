@@ -24,11 +24,14 @@ private fun library(
 
 class HomeRowSettingsTest {
     @Test
-    fun `first launch defaults to continue watching, requests, then the menu-only entries`() {
+    fun `first launch defaults to Search, Watchlist, Continue Watching, then the trailing entries`() {
         val settings = HomeRowSettings(FakeHomeRowStore(saved = null))
         val rows = settings.rows.value
-        assertEquals(listOf("menu:watchlist", "continue_watching", "requests", "menu:lists", "menu:dashboard"), rows.map { it.id })
-        assertEquals(HomeRowConfig.Kind.CONTINUE_WATCHING, rows[1].kind)
+        assertEquals(
+            listOf("menu:search", "menu:watchlist", "continue_watching", "menu:lists", "requests", "menu:dashboard", "menu:downloads"),
+            rows.map { it.id },
+        )
+        assertEquals(HomeRowConfig.Kind.CONTINUE_WATCHING, rows[2].kind)
     }
 
     @Test
@@ -43,7 +46,19 @@ class HomeRowSettingsTest {
             )
         val settings = HomeRowSettings(store)
         val rows = settings.rows.value
-        assertEquals(listOf("menu:watchlist", "L1", "continue_watching", "requests", "menu:lists", "menu:dashboard"), rows.map { it.id })
+        assertEquals(
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "L1",
+                "continue_watching",
+                "requests",
+                "menu:lists",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
+            rows.map { it.id },
+        )
         assertFalse(rows.first { it.id == "L1" }.isEnabled)
     }
 
@@ -56,7 +71,17 @@ class HomeRowSettingsTest {
 
         val rows = settings.rows.value
         assertEquals(
-            listOf("menu:watchlist", "continue_watching", "requests", "L1", "L2", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "continue_watching",
+                "L1",
+                "L2",
+                "menu:lists",
+                "requests",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             rows.map { it.id },
         )
         assertEquals(rows, store.saved)
@@ -70,7 +95,19 @@ class HomeRowSettingsTest {
         settings.updateLibraries(listOf(library("L2", "Shows")))
 
         val ids = settings.rows.value.map { it.id }
-        assertEquals(listOf("menu:watchlist", HomeRowConfig.CONTINUE_WATCHING_ID, "requests", "L2", "menu:lists", "menu:dashboard"), ids)
+        assertEquals(
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                HomeRowConfig.CONTINUE_WATCHING_ID,
+                "L2",
+                "menu:lists",
+                "requests",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
+            ids,
+        )
     }
 
     @Test
@@ -152,10 +189,22 @@ class HomeRowSideMenuToggleTest {
         settings.updateListRows(listOf("a" to "From Marge: Xmas", "b" to "Mine"))
 
         assertEquals(
-            listOf("menu:watchlist", "lib1", "continue_watching", "list:a", "list:b", "requests", "lib2", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "lib1",
+                "continue_watching",
+                "list:a",
+                "list:b",
+                "requests",
+                "lib2",
+                "menu:lists",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
-        assertEquals("From Marge: Xmas", settings.rows.value[3].displayName)
+        assertEquals("From Marge: Xmas", settings.rows.value[4].displayName)
         assertEquals(settings.rows.value, store.saved)
     }
 
@@ -169,10 +218,10 @@ class HomeRowSideMenuToggleTest {
 
         val row = settings.rows.value.first { it.kind == HomeRowConfig.Kind.LIST }
         assertEquals(
-            listOf("menu:watchlist", "continue_watching", "requests", "lib1", "list:a"),
+            listOf("menu:search", "menu:watchlist", "continue_watching", "requests", "lib1", "list:a"),
             settings.rows.value
                 .map { it.id }
-                .take(5),
+                .take(6),
         )
         assertFalse(row.isEnabled)
         assertEquals("From Marge: Renamed", row.displayName)
@@ -192,12 +241,14 @@ class HomeRowSideMenuToggleTest {
 
         assertEquals(
             listOf(
+                "menu:search",
                 "menu:watchlist",
                 "continue_watching",
                 "requests",
                 "lib1",
                 "menu:lists",
                 "menu:dashboard",
+                "menu:downloads",
             ),
             settings.rows.value.map {
                 it.id

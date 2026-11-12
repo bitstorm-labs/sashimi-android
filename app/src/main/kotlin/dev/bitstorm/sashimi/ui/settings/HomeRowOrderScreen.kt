@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,8 +61,9 @@ private val RowHeight = 56.dp
 /**
  * Home & Side Menu (#187): long-press-drag to reorder (the order drives both
  * Home and the side menu), and two independent toggles per row: shown on Home,
- * and shown in the side menu. Libraries, Requests, Lists, the Dashboard and the
- * Watchlist are side-menu destinations (the menu-only ones show "—" for Home);
+ * and shown in the side menu. Libraries, Requests, Lists, the Dashboard, the
+ * Watchlist, Search and Downloads are side-menu destinations (the menu-only
+ * ones show "—" for Home); Home and Settings are pinned and not listed;
  * other rows show "—" for the side menu. The Watchlist's switch also decides
  * the phone tab bar, as Lists' does. A library hidden from both says it is only reachable from
  * Search. Built on a plain scrollable [Column] with fixed-height rows so the
@@ -116,99 +118,103 @@ fun HomeRowOrderScreen(
         }
 
         rows.forEach { row ->
-            val isDragging = draggingId == row.id
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(RowHeight)
-                        .zIndex(if (isDragging) 1f else 0f)
-                        .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(SashimiCard)
-                        .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        // A library row is about the library in both places now ("Movies").
-                        if (row.isSideMenuDestination) row.libraryName ?: row.displayName else row.displayName,
-                        color = SashimiTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (row.isOnlyReachableFromSearch) {
+            // Keyed by id: a drag moves the row, and without the key its slot (and the
+            // pointerInput below) would pass to the next row, ending the drag after one step.
+            key(row.id) {
+                val isDragging = draggingId == row.id
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(RowHeight)
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SashimiCard)
+                            .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            SideMenu.ONLY_FROM_SEARCH_NOTE,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SashimiTextTertiary,
+                            // A library row is about the library in both places now ("Movies").
+                            if (row.isSideMenuDestination) row.libraryName ?: row.displayName else row.displayName,
+                            color = SashimiTextPrimary,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (row.isOnlyReachableFromSearch) {
+                            Text(
+                                SideMenu.ONLY_FROM_SEARCH_NOTE,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SashimiTextTertiary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    if (row.isMenuOnly) {
+                        Box(Modifier.width(ToggleColumnWidth), Alignment.Center) { Text("\u2014", color = SashimiTextTertiary) }
+                    } else {
+                        ToggleCell(
+                            on = row.isEnabled,
+                            description = "${row.displayName} on Home",
+                            onToggle = { settings.toggleRow(row.id) },
                         )
                     }
-                }
-                if (row.isMenuOnly) {
-                    Box(Modifier.width(ToggleColumnWidth), Alignment.Center) { Text("\u2014", color = SashimiTextTertiary) }
-                } else {
-                    ToggleCell(
-                        on = row.isEnabled,
-                        description = "${row.displayName} on Home",
-                        onToggle = { settings.toggleRow(row.id) },
-                    )
-                }
-                if (row.kind == HomeRowConfig.Kind.LISTS) {
-                    // Lists keeps its own switch: it also decides the phone tab bar.
-                    ToggleCell(
-                        on = showLists,
-                        description = "Lists in the side menu",
-                        onToggle = { ServiceLocator.appSettings.setShowLists(!showLists) },
-                    )
-                } else if (row.isSideMenuDestination) {
-                    ToggleCell(
-                        on = row.showInSideMenu,
-                        description = "${row.displayName} in the side menu",
-                        onToggle = { settings.toggleSideMenu(row.id) },
-                    )
-                } else {
-                    Box(Modifier.width(ToggleColumnWidth), Alignment.Center) {
-                        Text("\u2014", color = SashimiTextTertiary)
+                    if (row.kind == HomeRowConfig.Kind.LISTS) {
+                        // Lists keeps its own switch: it also decides the phone tab bar.
+                        ToggleCell(
+                            on = showLists,
+                            description = "Lists in the side menu",
+                            onToggle = { ServiceLocator.appSettings.setShowLists(!showLists) },
+                        )
+                    } else if (row.isSideMenuDestination) {
+                        ToggleCell(
+                            on = row.showInSideMenu,
+                            description = "${row.displayName} in the side menu",
+                            onToggle = { settings.toggleSideMenu(row.id) },
+                        )
+                    } else {
+                        Box(Modifier.width(ToggleColumnWidth), Alignment.Center) {
+                            Text("\u2014", color = SashimiTextTertiary)
+                        }
                     }
+                    Icon(
+                        Icons.Filled.DragHandle,
+                        contentDescription = "Reorder",
+                        tint = SashimiTextTertiary,
+                        modifier =
+                            Modifier.size(24.dp).pointerInput(row.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        draggingId = row.id
+                                        dragOffset = 0f
+                                    },
+                                    onDragEnd = {
+                                        draggingId = null
+                                        dragOffset = 0f
+                                    },
+                                    onDragCancel = {
+                                        draggingId = null
+                                        dragOffset = 0f
+                                    },
+                                    onDrag = { change, delta ->
+                                        change.consume()
+                                        dragOffset += delta.y
+                                        val current = rowsState.value.indexOfFirst { it.id == draggingId }
+                                        if (current < 0) return@detectDragGesturesAfterLongPress
+                                        val shift = (dragOffset / rowHeightPx).roundToInt()
+                                        val target = current + shift
+                                        if (shift != 0 && target in rowsState.value.indices) {
+                                            // By id: rows that don't apply now are not on screen.
+                                            settings.moveRow(fromId = rowsState.value[current].id, toId = rowsState.value[target].id)
+                                            dragOffset -= shift * rowHeightPx
+                                        }
+                                    },
+                                )
+                            },
+                    )
                 }
-                Icon(
-                    Icons.Filled.DragHandle,
-                    contentDescription = "Reorder",
-                    tint = SashimiTextTertiary,
-                    modifier =
-                        Modifier.size(24.dp).pointerInput(row.id) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    draggingId = row.id
-                                    dragOffset = 0f
-                                },
-                                onDragEnd = {
-                                    draggingId = null
-                                    dragOffset = 0f
-                                },
-                                onDragCancel = {
-                                    draggingId = null
-                                    dragOffset = 0f
-                                },
-                                onDrag = { change, delta ->
-                                    change.consume()
-                                    dragOffset += delta.y
-                                    val current = rowsState.value.indexOfFirst { it.id == draggingId }
-                                    if (current < 0) return@detectDragGesturesAfterLongPress
-                                    val shift = (dragOffset / rowHeightPx).roundToInt()
-                                    val target = current + shift
-                                    if (shift != 0 && target in rowsState.value.indices) {
-                                        // By id: rows that don't apply now are not on screen.
-                                        settings.moveRow(fromId = rowsState.value[current].id, toId = rowsState.value[target].id)
-                                        dragOffset -= shift * rowHeightPx
-                                    }
-                                },
-                            )
-                        },
-                )
             }
         }
         Text(

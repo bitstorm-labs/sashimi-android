@@ -57,8 +57,10 @@ class SideMenuTest {
     }
 
     @Test
-    fun `Home, Search, Downloads and Settings are always there, even with everything else hidden`() {
-        val rows = listOf(row(movies, menu = false), row(tv, menu = false), HomeRowConfig.watchlist().copy(showInSideMenu = false))
+    fun `Home and Settings are always there, even with everything else hidden`() {
+        val rows =
+            listOf(row(movies, menu = false), row(tv, menu = false)) +
+                listOf(HomeRowConfig.watchlist(), HomeRowConfig.search(), HomeRowConfig.downloads()).map { it.copy(showInSideMenu = false) }
         val items = SideMenu.items(rows, listOf(movies, tv))
         assertEquals(SideMenu.ALWAYS_SHOWN, items)
         assertFalse(items.any { it is SideMenuItem.Library })

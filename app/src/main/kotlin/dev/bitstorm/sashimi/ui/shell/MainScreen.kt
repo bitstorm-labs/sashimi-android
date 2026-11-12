@@ -510,9 +510,9 @@ private fun AppShell(
         host(Modifier.fillMaxSize())
     } else if (expanded) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // The side menu (#187): Home, Search, the Watchlist and each library
-            // in Home row order, then Downloads, Settings. No separate Libraries entry here; the
-            // phone bottom bar below keeps it.
+            // The side menu (#187): Home, every destination in Home & Side Menu
+            // order (Search and Downloads included), then Settings. No separate
+            // Libraries entry here; the phone bottom bar below keeps it.
             val sideMenu: SideMenuViewModel = viewModel()
             val items by sideMenu.items.collectAsStateWithLifecycle()
             val openLibraryId =

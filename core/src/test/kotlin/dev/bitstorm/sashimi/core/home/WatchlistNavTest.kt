@@ -42,7 +42,17 @@ class WatchlistNavTest {
         val settings = HomeRowSettings(WatchlistRowStore(saved = null))
         settings.updateLibraries(listOf(movies, tv))
         assertEquals(
-            listOf("menu:watchlist", "continue_watching", "requests", "movies", "tv", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "continue_watching",
+                "movies",
+                "tv",
+                "menu:lists",
+                "requests",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
         assertEquals(
@@ -52,7 +62,7 @@ class WatchlistNavTest {
     }
 
     @Test
-    fun `a saved order from before the Watchlist existed gains it first and nothing else moves`() {
+    fun `a saved order from before the Watchlist existed gains it under Search and nothing else moves`() {
         val saved =
             listOf(
                 HomeRowConfig.library("tv", "TV Shows"),
@@ -65,7 +75,17 @@ class WatchlistNavTest {
         val store = WatchlistRowStore(saved)
         val settings = HomeRowSettings(store)
         assertEquals(
-            listOf("menu:watchlist", "tv", "continue_watching", "requests", "menu:lists", "movies", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "tv",
+                "continue_watching",
+                "requests",
+                "menu:lists",
+                "movies",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
         assertFalse(
