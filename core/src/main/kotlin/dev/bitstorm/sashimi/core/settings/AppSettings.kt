@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.core.settings
 import android.content.Context
 import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
 import dev.bitstorm.sashimi.core.playback.ViewModeDefaultPersistence
+import dev.bitstorm.sashimi.core.settingssync.SettingsSyncSuppression
 import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,16 @@ class AppSettings(
     context: Context,
 ) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * Told the shared key of every synced setting the user changes on this
+     * device (settings sync, WORK-106). Not told about a value being applied
+     * from the server ([SettingsSyncSuppression]), nor about device-only settings.
+     */
+    @Volatile var onSyncedSettingChanged: ((String) -> Unit)? = null
+
+    /** Whether [key] was ever written on this device, as opposed to still at its default. */
+    fun isStored(key: String): Boolean = prefs.contains(key)
 
     private val _showQualityBadges = MutableStateFlow(prefs.getBoolean(KEY_QUALITY_BADGES, true))
     val showQualityBadges: StateFlow<Boolean> = _showQualityBadges.asStateFlow()
@@ -99,6 +110,7 @@ class AppSettings(
 
                 override fun save(key: String) {
                     prefs.edit().putString(KEY_DEFAULT_VIEW_MODE, key).apply()
+                    changed(KEY_DEFAULT_VIEW_MODE)
                 }
             },
         )
@@ -123,6 +135,7 @@ class AppSettings(
     fun setResumeThresholdSeconds(value: Int) {
         _resumeThresholdSeconds.value = value
         prefs.edit().putInt(KEY_RESUME_THRESHOLD, value).apply()
+        changed(KEY_RESUME_THRESHOLD)
     }
 
     fun setForceDirectPlay(value: Boolean) = putBoolean(_forceDirectPlay, KEY_FORCE_DIRECT_PLAY, value)
@@ -147,6 +160,7 @@ class AppSettings(
     fun setTvShuffleMode(value: TvShuffleMode) {
         _tvShuffleMode.value = value
         prefs.edit().putString(KEY_TV_SHUFFLE_MODE, value.key).apply()
+        changed(KEY_TV_SHUFFLE_MODE)
     }
 
     private fun putBoolean(
@@ -156,6 +170,7 @@ class AppSettings(
     ) {
         flow.value = value
         prefs.edit().putBoolean(key, value).apply()
+        changed(key)
     }
 
     private fun putString(
@@ -165,10 +180,15 @@ class AppSettings(
     ) {
         flow.value = value
         prefs.edit().putString(key, value).apply()
+        changed(key)
+    }
+
+    private fun changed(key: String) {
+        if (key in SYNCED_KEYS && !SettingsSyncSuppression.isApplyingRemote) onSyncedSettingChanged?.invoke(key)
     }
 
     companion object {
-        private const val PREFS = "sashimi_settings"
+        const val PREFS = "sashimi_settings"
         private const val KEY_QUALITY_BADGES = "showQualityBadges"
         private const val KEY_REVIEW_RATINGS = "showReviewRatings"
         private const val KEY_USE_EPISODE_RATINGS = "useEpisodeRatings"
@@ -187,6 +207,25 @@ class AppSettings(
         private const val KEY_TV_SHUFFLE_MODE = "tvShuffleMode"
         private const val KEY_SHOW_LISTS = "showListsInSideMenu"
         private const val KEY_DEFAULT_VIEW_MODE = "defaultViewMode"
+
+        /** Local keys that are synced; on Android each equals its shared key. */
+        private val SYNCED_KEYS =
+            setOf(
+                KEY_QUALITY_BADGES,
+                KEY_REVIEW_RATINGS,
+                KEY_USE_EPISODE_RATINGS,
+                KEY_AUTO_PLAY_NEXT,
+                KEY_AUTO_SKIP_INTRO,
+                KEY_AUTO_SKIP_CREDITS,
+                KEY_RESUME_THRESHOLD,
+                KEY_FORCE_DIRECT_PLAY,
+                KEY_SUBTITLES_ENABLED,
+                KEY_PREF_AUDIO_LANG,
+                KEY_PREF_SUB_LANG,
+                KEY_USE_24_HOUR_TIME,
+                KEY_TV_SHUFFLE_MODE,
+                KEY_DEFAULT_VIEW_MODE,
+            )
 
         /**
          * Sentinel for "send no meaningful ceiling". Distinct from 0, which

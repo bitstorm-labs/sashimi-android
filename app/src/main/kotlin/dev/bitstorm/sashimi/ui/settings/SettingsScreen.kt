@@ -57,7 +57,8 @@ import dev.bitstorm.sashimi.ui.theme.SashimiAccent
 import dev.bitstorm.sashimi.ui.theme.SashimiTextSecondary
 import dev.bitstorm.sashimi.ui.theme.SashimiTextTertiary
 
-private val ResumeThresholdOptions =
+// The same list on every platform (settings sync): values one device writes, the others can show.
+internal val ResumeThresholdOptions =
     linkedMapOf(
         "Always (0s)" to 0,
         "10 seconds" to 10,
@@ -65,6 +66,7 @@ private val ResumeThresholdOptions =
         "1 minute" to 60,
         "2 minutes" to 120,
         "5 minutes" to 300,
+        "10 minutes" to 600,
     )
 
 // What a TV library's Shuffle plays. A series' own Shuffle is always random.
@@ -73,8 +75,8 @@ private val TvShuffleOptions = TvShuffleMode.entries.associateBy { it.label }
 // Normal / Zoom / Stretch, in the same order as the player and the other clients.
 private val ViewModeOptions = VideoViewMode.entries.associateBy { it.label }
 
-// Empty string = "Device default" (no preference).
-private val LanguageOptions =
+// Empty string = "Device default" (no preference). The 18 languages every platform offers.
+internal val LanguageOptions =
     linkedMapOf(
         "Device default" to "",
         "English" to "en",
@@ -86,6 +88,15 @@ private val LanguageOptions =
         "Japanese" to "ja",
         "Korean" to "ko",
         "Chinese" to "zh",
+        "Russian" to "ru",
+        "Arabic" to "ar",
+        "Hindi" to "hi",
+        "Dutch" to "nl",
+        "Polish" to "pl",
+        "Swedish" to "sv",
+        "Danish" to "da",
+        "Norwegian" to "no",
+        "Finnish" to "fi",
     )
 
 /** Also the URL filed in Play Console (App content → Privacy policy). */
@@ -189,6 +200,13 @@ fun SettingsScreen(
 
             item { SectionHeader("GENERAL") }
             item {
+                val syncOn by ServiceLocator.settingsSync.enabled.collectAsStateWithLifecycle()
+                SwitchRow(
+                    "Sync settings across devices",
+                    syncOn,
+                    { ServiceLocator.settingsSync.setEnabled(it) },
+                    subtitle = "Playback, display and Home rows follow you to every Sashimi app on this server",
+                )
                 val showBadges by settings.showQualityBadges.collectAsStateWithLifecycle()
                 SwitchRow("Show quality badges", showBadges, settings::setShowQualityBadges)
                 val showRatings by settings.showReviewRatings.collectAsStateWithLifecycle()

@@ -2,6 +2,9 @@ package dev.bitstorm.sashimi.di
 
 import android.content.Context
 import androidx.core.content.edit
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
 import dev.bitstorm.sashimi.BuildConfig
 import dev.bitstorm.sashimi.core.admin.AdminGate
@@ -41,6 +44,13 @@ import dev.bitstorm.sashimi.core.session.PrefsServerStore
 import dev.bitstorm.sashimi.core.session.ServerScopedClients
 import dev.bitstorm.sashimi.core.session.SessionManager
 import dev.bitstorm.sashimi.core.settings.AppSettings
+import dev.bitstorm.sashimi.core.settingssync.AppSyncedSettings
+import dev.bitstorm.sashimi.core.settingssync.JellyfinSettingsSyncTransport
+import dev.bitstorm.sashimi.core.settingssync.PrefsSettingsSyncState
+import dev.bitstorm.sashimi.core.settingssync.SettingsSyncSchema
+import dev.bitstorm.sashimi.core.settingssync.SettingsSyncService
+import dev.bitstorm.sashimi.core.settingssync.SyncingHomeRowStore
+import dev.bitstorm.sashimi.core.util.runCatchingCancellable
 import dev.bitstorm.sashimi.herotrailer.HeroTrailerController
 import dev.bitstorm.sashimi.themesong.ThemeSongService
 import kotlinx.coroutines.CoroutineScope
@@ -121,6 +131,14 @@ object ServiceLocator {
         private set
 
     lateinit var appSettings: AppSettings
+        private set
+
+    /**
+     * Playback, display and Home row settings synced across the user's
+     * devices on the active server (WORK-106). Reconciles on foreground,
+     * sign-in and server or user switch; pushes each local change.
+     */
+    lateinit var settingsSync: SettingsSyncService
         private set
 
     /**
@@ -243,10 +261,17 @@ object ServiceLocator {
                 if (auth) refreshAdminGate() else adminGate.signedOut()
             }
         }
-        homeRowSettings = HomeRowSettings(PrefsHomeRowStore(app))
+        val homeRowStore = PrefsHomeRowStore(app)
+        homeRowSettings =
+            HomeRowSettings(
+                SyncingHomeRowStore(homeRowStore) {
+                    if (::settingsSync.isInitialized) settingsSync.localChanged(SettingsSyncSchema.HOME_ROWS)
+                },
+            )
         continueWatchingHides = ContinueWatchingHides(PrefsHiddenSeriesStore(app))
         recentSearchStore = RecentSearchStore(PrefsRecentSearchStore(app))
         appSettings = AppSettings(app)
+        startSettingsSync(app, homeRowStore)
         val seerrSettings = PrefsSeerrSettingsStore(app)
         val plexFactory = { id: String -> PlexPinClient(id, BuildConfig.VERSION_NAME) }
         plexSignIn = PlexPinSignIn(seerrSettings, plexFactory)
@@ -317,6 +342,38 @@ object ServiceLocator {
                 tierEncodes = PrefsTierEncodeLedger(app),
             )
         startKeepNextEpisodes(app)
+    }
+
+    /**
+     * Settings sync: a change in the app is pushed; the app coming to the
+     * foreground, signing in and switching server or user reconcile.
+     */
+    private fun startSettingsSync(
+        app: Context,
+        homeRowStore: PrefsHomeRowStore,
+    ) {
+        settingsSync =
+            SettingsSyncService(
+                transport = JellyfinSettingsSyncTransport(client),
+                local = AppSyncedSettings(appSettings, homeRowSettings, homeRowStore::load),
+                state = PrefsSettingsSyncState(app),
+                scope = appScope,
+            )
+        appSettings.onSyncedSettingChanged = { key -> settingsSync.localChanged(key) }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    if (session.isAuthenticated.value) settingsSync.reconcileInBackground()
+                }
+            },
+        )
+        appScope.launch {
+            combine(session.isAuthenticated, session.activeServerId, session.currentUser) { auth, server, user ->
+                Triple(auth, server, user?.id)
+            }.distinctUntilChanged().collectLatest { (auth, _, _) ->
+                if (auth) runCatchingCancellable { settingsSync.reconcile() }
+            }
+        }
     }
 
     /**
