@@ -94,7 +94,8 @@ import dev.bitstorm.sashimi.ui.util.rememberImageWidth
 @Composable
 fun WatchlistScreen(
     isCompact: Boolean,
-    onBack: () -> Unit,
+    /** Null when it is a primary destination (side menu, phone bar): no Back arrow. */
+    onBack: (() -> Unit)?,
     onOpenDetail: (String) -> Unit,
     onPlay: (String) -> Unit,
     onOpenSeerrTarget: (SeerrTarget) -> Unit,

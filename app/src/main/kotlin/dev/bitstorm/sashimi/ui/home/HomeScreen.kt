@@ -172,7 +172,7 @@ fun HomeScreen(
                         HomeRowConfig.Kind.REQUESTS ->
                             dev.bitstorm.sashimi.ui.requests
                                 .SeerrHomeRow(vm = requestsVm, onOpenTarget = onOpenSeerrTarget)
-                        HomeRowConfig.Kind.LISTS, HomeRowConfig.Kind.DASHBOARD -> Unit
+                        HomeRowConfig.Kind.LISTS, HomeRowConfig.Kind.DASHBOARD, HomeRowConfig.Kind.WATCHLIST -> Unit
                         HomeRowConfig.Kind.LIST ->
                             ListRow(vm = vm, listId = row.listId ?: return@items, onOpenList = onOpenList, onOpenDetail = onOpenDetail)
                         HomeRowConfig.Kind.LIBRARY ->

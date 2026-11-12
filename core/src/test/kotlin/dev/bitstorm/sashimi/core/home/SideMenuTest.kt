@@ -24,7 +24,7 @@ class SideMenuTest {
     fun `libraries follow the Home row order between Home and Search`() {
         val rows = listOf(HomeRowConfig.continueWatching(), row(tv), row(movies))
         assertEquals(
-            listOf("home", "library:tv", "library:movies", "search", "downloads", "settings"),
+            listOf("home", "search", "watchlist", "library:tv", "library:movies", "downloads", "settings"),
             keys(SideMenu.items(rows, listOf(movies, tv))),
         )
     }
@@ -33,7 +33,7 @@ class SideMenuTest {
     fun `a row hidden from the side menu drops, and Home visibility has no say`() {
         val rows = listOf(row(movies), row(tv, menu = false), row(anime, home = false), row(kids, home = false, menu = false))
         assertEquals(
-            listOf("home", "library:movies", "library:anime", "search", "downloads", "settings"),
+            listOf("home", "search", "watchlist", "library:movies", "library:anime", "downloads", "settings"),
             keys(SideMenu.items(rows, listOf(movies, tv, anime, kids))),
         )
     }
@@ -42,7 +42,7 @@ class SideMenuTest {
     fun `a library added on the server since is shown, after the saved order`() {
         val rows = listOf(row(tv))
         assertEquals(
-            listOf("home", "library:tv", "library:movies", "search", "downloads", "settings"),
+            listOf("home", "search", "watchlist", "library:tv", "library:movies", "downloads", "settings"),
             keys(SideMenu.items(rows, listOf(movies, tv))),
         )
     }
@@ -50,12 +50,15 @@ class SideMenuTest {
     @Test
     fun `a row naming a library the server dropped is ignored`() {
         val rows = listOf(row(kids), row(movies))
-        assertEquals(listOf("home", "library:movies", "search", "downloads", "settings"), keys(SideMenu.items(rows, listOf(movies))))
+        assertEquals(
+            listOf("home", "search", "watchlist", "library:movies", "downloads", "settings"),
+            keys(SideMenu.items(rows, listOf(movies))),
+        )
     }
 
     @Test
-    fun `Home, Search, Downloads and Settings are always there, even with every library hidden`() {
-        val rows = listOf(row(movies, menu = false), row(tv, menu = false))
+    fun `Home, Search, Downloads and Settings are always there, even with everything else hidden`() {
+        val rows = listOf(row(movies, menu = false), row(tv, menu = false), HomeRowConfig.watchlist().copy(showInSideMenu = false))
         val items = SideMenu.items(rows, listOf(movies, tv))
         assertEquals(SideMenu.ALWAYS_SHOWN, items)
         assertFalse(items.any { it is SideMenuItem.Library })
@@ -92,7 +95,7 @@ class SideMenuTest {
     fun `Lists follows the libraries and can be hidden`() {
         val rows = listOf(row(movies), row(tv))
         assertEquals(
-            listOf("home", "library:movies", "library:tv", "lists", "search", "downloads", "settings"),
+            listOf("home", "search", "watchlist", "library:movies", "library:tv", "lists", "downloads", "settings"),
             keys(SideMenu.items(rows, listOf(movies, tv), showLists = true)),
         )
         assertFalse(keys(SideMenu.items(rows, listOf(movies, tv), showLists = false)).contains("lists"))

@@ -19,7 +19,8 @@ import dev.bitstorm.sashimi.ui.theme.SashimiBackground
 @Composable
 fun BackTopBar(
     title: String,
-    onBack: () -> Unit,
+    /** Null for a root screen: the bar keeps its height and has no arrow. */
+    onBack: (() -> Unit)?,
     /** Transparent lets a picture drawn behind the bar run to the top edge. */
     containerColor: Color = SashimiBackground,
     actions: @Composable RowScope.() -> Unit = {},
@@ -27,8 +28,10 @@ fun BackTopBar(
     TopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
             }
         },
         actions = actions,
