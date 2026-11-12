@@ -32,6 +32,8 @@ interface SyncedSettings {
     fun apply(
         key: String,
         v: JsonElement,
+        t: Long,
+        stamps: Map<String, Long>,
     )
 }
 
@@ -150,7 +152,7 @@ class SettingsSyncService(
     ) {
         val stamp = state.stamps()?.get(key)
         if (stamp != null && stamp >= entry.t) return
-        local.apply(key, entry.v)
+        local.apply(key, entry.v, entry.t, state.stamps().orEmpty())
         state.updateStamps { current -> (current ?: emptyMap()) + (key to entry.t) }
     }
 

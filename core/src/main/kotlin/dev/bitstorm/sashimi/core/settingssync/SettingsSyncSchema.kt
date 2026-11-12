@@ -36,6 +36,7 @@ object SettingsSyncSchema {
     const val USE_EPISODE_RATINGS = "useEpisodeRatings"
     const val USE_24_HOUR_TIME = "use24HourTime"
     const val HOME_ROWS = "homeRows"
+    const val SIDE_MENU = "sideMenu"
 
     /** Resume Threshold, the same list on every platform: Always, 10 s, 30 s, 1, 2, 5 and 10 min. */
     val RESUME_THRESHOLDS: List<Int> = listOf(0, 10, 30, 60, 120, 300, 600)
@@ -60,7 +61,7 @@ object SettingsSyncSchema {
             USE_24_HOUR_TIME,
         )
 
-    /** Every key Android syncs. `sideMenu` comes later, with side-menu-unify. */
+    /** Every key Android syncs. */
     val ANDROID_KEYS: List<String> =
         listOf(
             AUTO_PLAY_NEXT_EPISODE,
@@ -78,6 +79,7 @@ object SettingsSyncSchema {
             USE_EPISODE_RATINGS,
             USE_24_HOUR_TIME,
             HOME_ROWS,
+            SIDE_MENU,
         )
 
     /**
@@ -95,6 +97,7 @@ object SettingsSyncSchema {
             TV_SHUFFLE_MODE -> v.asString() in TV_SHUFFLE_MODES
             DEFAULT_VIEW_MODE -> v.asString() in VIEW_MODES
             HOME_ROWS -> HomeRowsLayout.decode(v) != null
+            SIDE_MENU -> SideMenuLayout.decode(v) != null
             else -> false
         }
 

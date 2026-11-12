@@ -50,8 +50,18 @@ class AppSyncedSettings(
     override val keys: List<String> = SettingsSyncSchema.ANDROID_KEYS
 
     override fun explicitlySet(): Set<String> {
-        val set = keys.filter { it != SettingsSyncSchema.HOME_ROWS && settings.isStored(it) }.toMutableSet()
+        val set =
+            keys
+                .filter {
+                    it != SettingsSyncSchema.HOME_ROWS &&
+                        it != SettingsSyncSchema.SIDE_MENU &&
+                        settings.isStored(
+                            it,
+                        )
+                }.toMutableSet()
         if (savedRows()?.let(HomeRowsLayout::isCustomised) == true) set += SettingsSyncSchema.HOME_ROWS
+        val menuRows = HomeRowSettings.normalized(savedRows() ?: HomeRowSettings.DEFAULT_ROWS)
+        if (SideMenuLayout.isCustomised(menuRows, settings.showLists.value)) set += SettingsSyncSchema.SIDE_MENU
         return set
     }
 
@@ -76,6 +86,7 @@ class AppSyncedSettings(
                 USE_EPISODE_RATINGS -> JsonPrimitive(settings.useEpisodeRatings.value)
                 USE_24_HOUR_TIME -> JsonPrimitive(settings.use24HourTime.value)
                 HOME_ROWS -> HomeRowsLayout.write(homeRows.rows.value, remote)
+                SIDE_MENU -> SideMenuLayout.write(homeRows.rows.value, settings.showLists.value, remote)
                 else -> error("not a synced key: $key")
             }
         }
@@ -83,6 +94,8 @@ class AppSyncedSettings(
     override fun apply(
         key: String,
         v: JsonElement,
+        t: Long,
+        stamps: Map<String, Long>,
     ) = SettingsSyncSuppression.applyingRemote {
         with(SettingsSyncSchema) {
             when (key) {
@@ -100,7 +113,19 @@ class AppSyncedSettings(
                 SHOW_REVIEW_RATINGS -> v.asBool()?.let(settings::setShowReviewRatings)
                 USE_EPISODE_RATINGS -> v.asBool()?.let(settings::setUseEpisodeRatings)
                 USE_24_HOUR_TIME -> v.asBool()?.let(settings::setUse24HourTime)
-                HOME_ROWS -> HomeRowsLayout.entries(v)?.let { homeRows.setRows(HomeRowsLayout.apply(homeRows.rows.value, it)) }
+                // Both keys carry the rows' relative order: the one with the newer `t` decides it.
+                HOME_ROWS ->
+                    HomeRowsLayout.entries(v)?.let {
+                        val takeOrder = t >= (stamps[SIDE_MENU] ?: Long.MIN_VALUE)
+                        homeRows.setRows(HomeRowsLayout.apply(homeRows.rows.value, it, takeOrder))
+                    }
+                SIDE_MENU ->
+                    SideMenuLayout.entries(v)?.let {
+                        val keepRowOrder = (stamps[HOME_ROWS] ?: Long.MIN_VALUE) > t
+                        val applied = SideMenuLayout.apply(homeRows.rows.value, it, keepRowOrder)
+                        homeRows.setRows(applied.rows)
+                        applied.showLists?.let(settings::setShowLists)
+                    }
                 else -> Unit
             }
         }
@@ -109,13 +134,15 @@ class AppSyncedSettings(
 }
 
 /**
- * Wraps the Home row store to notice the user reordering or hiding rows
- * ([HomeRowsLayout.isUserChange]); automatic saves (a new library, a list
- * row's title) and remote applies are not reported.
+ * Wraps the Home row store to notice the user editing Home & Side Menu:
+ * reordering or hiding rows reports `homeRows` ([HomeRowsLayout.isUserChange]),
+ * moving any entry or flipping a menu switch reports `sideMenu`
+ * ([SideMenuLayout.isUserChange]). Automatic saves (a new library, a list
+ * row's title, the one-time Search migration) and remote applies are not reported.
  */
 class SyncingHomeRowStore(
     private val inner: HomeRowStore,
-    private val onUserChange: () -> Unit,
+    private val onUserChange: (String) -> Unit,
 ) : HomeRowStore {
     @Volatile private var last: List<HomeRowConfig>? = null
 
@@ -125,7 +152,9 @@ class SyncingHomeRowStore(
         val before = last ?: inner.load()
         inner.save(rows)
         last = rows
-        if (!SettingsSyncSuppression.isApplyingRemote && HomeRowsLayout.isUserChange(before, rows)) onUserChange()
+        if (SettingsSyncSuppression.isApplyingRemote) return
+        if (HomeRowsLayout.isUserChange(before, rows)) onUserChange(SettingsSyncSchema.HOME_ROWS)
+        if (SideMenuLayout.isUserChange(before, rows)) onUserChange(SettingsSyncSchema.SIDE_MENU)
     }
 }
 

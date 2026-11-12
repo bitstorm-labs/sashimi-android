@@ -62,7 +62,7 @@ class AppSyncedSettingsTest {
             .commit()
         settings = AppSettings(context).also { it.onSyncedSettingChanged = { key -> changes += key } }
         rowStore = MemoryRowStore(listOf(HomeRowConfig.continueWatching(), HomeRowConfig.requests(), HomeRowConfig.library("m", "Movies")))
-        rows = HomeRowSettings(SyncingHomeRowStore(rowStore) { changes += SettingsSyncSchema.HOME_ROWS })
+        rows = HomeRowSettings(SyncingHomeRowStore(rowStore) { key -> changes += key })
         synced = AppSyncedSettings(settings, rows) { rowStore.rows }
     }
 
@@ -97,11 +97,16 @@ class AppSyncedSettingsTest {
 
     @Test
     fun `applying a remote value updates the setting without reporting a change`() {
-        synced.apply("autoSkipIntro", JsonPrimitive(true))
-        synced.apply("resumeThresholdSeconds", JsonPrimitive(600))
-        synced.apply("defaultViewMode", JsonPrimitive("stretch"))
-        synced.apply("tvShuffleMode", JsonPrimitive("randomShowNextEpisode"))
-        synced.apply("homeRows", Json.parseToJsonElement("""[{"id":"library:m","on":false},{"id":"continueWatching","on":true}]"""))
+        synced.apply("autoSkipIntro", JsonPrimitive(true), 5, emptyMap())
+        synced.apply("resumeThresholdSeconds", JsonPrimitive(600), 5, emptyMap())
+        synced.apply("defaultViewMode", JsonPrimitive("stretch"), 5, emptyMap())
+        synced.apply("tvShuffleMode", JsonPrimitive("randomShowNextEpisode"), 5, emptyMap())
+        synced.apply(
+            "homeRows",
+            Json.parseToJsonElement("""[{"id":"library:m","on":false},{"id":"continueWatching","on":true}]"""),
+            5,
+            emptyMap(),
+        )
 
         assertTrue(settings.autoSkipIntro.value)
         assertEquals(600, settings.resumeThresholdSeconds.value)
@@ -128,7 +133,113 @@ class AppSyncedSettingsTest {
 
         rows.moveRow("s", "m")
 
+        assertEquals("a row move is an edit of both orders", listOf(SettingsSyncSchema.HOME_ROWS, SettingsSyncSchema.SIDE_MENU), changes)
+    }
+
+    @Test
+    fun `menu edits stamp sideMenu, Home switches stamp homeRows, row moves stamp both`() {
+        // The first save also migrates the saved order (Search on top): not an edit.
+        rows.updateLibraries(listOf(lib("m", "Movies"), lib("s", "Shows")))
+        assertTrue(changes.isEmpty())
+
+        rows.moveRow(HomeRowConfig.LISTS_ID, HomeRowConfig.SEARCH_ID)
+        assertEquals(listOf(SettingsSyncSchema.SIDE_MENU), changes)
+        changes.clear()
+
+        rows.toggleSideMenu("m")
+        assertEquals(listOf(SettingsSyncSchema.SIDE_MENU), changes)
+        changes.clear()
+
+        rows.toggleRow("m")
         assertEquals(listOf(SettingsSyncSchema.HOME_ROWS), changes)
+        changes.clear()
+
+        rows.moveRow("s", "m")
+        assertEquals(setOf(SettingsSyncSchema.HOME_ROWS, SettingsSyncSchema.SIDE_MENU), changes.toSet())
+        changes.clear()
+
+        settings.setShowLists(false)
+        assertEquals(listOf(SettingsSyncSchema.SIDE_MENU), changes)
+    }
+
+    @Test
+    fun `applying a remote sideMenu reorders the menu and sets the Lists switch without reporting a change`() {
+        rows.updateLibraries(listOf(lib("m", "Movies")))
+        synced.apply(
+            "sideMenu",
+            Json.parseToJsonElement(
+                """[{"id":"lists","menu":false},{"id":"library:m","menu":false},{"id":"search","menu":true},{"id":"podcasts","menu":true}]""",
+            ),
+            5,
+            emptyMap(),
+        )
+
+        val order = rows.rows.value.map { it.id }
+        assertEquals(
+            listOf(HomeRowConfig.LISTS_ID, "m", HomeRowConfig.SEARCH_ID),
+            order.filter {
+                it in
+                    setOf(HomeRowConfig.LISTS_ID, "m", HomeRowConfig.SEARCH_ID)
+            },
+        )
+        assertFalse(
+            rows.rows.value
+                .first { it.id == "m" }
+                .showInSideMenu,
+        )
+        assertTrue(
+            "Home visibility untouched",
+            rows.rows.value
+                .first { it.id == "m" }
+                .isEnabled,
+        )
+        assertFalse(settings.showLists.value)
+        assertTrue(changes.isEmpty())
+    }
+
+    @Test
+    fun `S4 through a reconcile, the newer homeRows orders the rows and sideMenu places the rest`() =
+        runTest {
+            rowStore.rows =
+                listOf(
+                    HomeRowConfig.search(),
+                    HomeRowConfig.library("m", "Movies"),
+                    HomeRowConfig.watchlist(),
+                    HomeRowConfig.library("s", "Shows"),
+                )
+            rows = HomeRowSettings(SyncingHomeRowStore(rowStore) { key -> changes += key })
+            synced = AppSyncedSettings(settings, rows) { rowStore.rows }
+            val state = PrefsSettingsSyncState(context)
+            val service = SettingsSyncService(JellyfinSettingsSyncTransport(client), synced, state, backgroundScope, now = { 7_000 })
+            val sideMenu =
+                """[{"id":"library:s","menu":true},{"id":"search","menu":true},""" +
+                    """{"id":"library:m","menu":true},{"id":"watchlist","menu":true}]"""
+            val homeRows = """[{"id":"library:m","on":true},{"id":"library:s","on":true}]"""
+            stub.routes[get] =
+                200 to """{"Id":"sashimi-settings","CustomPrefs":{"sideMenu":${entry(sideMenu, 400)},"homeRows":${entry(homeRows, 500)}}}"""
+            stub.routes[post] = 204 to ""
+
+            service.reconcile()
+
+            val named = setOf("m", "s", HomeRowConfig.SEARCH_ID, HomeRowConfig.WATCHLIST_ID)
+            assertEquals(
+                listOf("m", HomeRowConfig.SEARCH_ID, "s", HomeRowConfig.WATCHLIST_ID),
+                rows.rows.value
+                    .map { it.id }
+                    .filter { it in named },
+            )
+            assertEquals(400L, state.stamps()!!["sideMenu"])
+            assertEquals(500L, state.stamps()!!["homeRows"])
+            assertTrue(changes.isEmpty())
+        }
+
+    @Test
+    fun `seeding counts a customised side menu`() {
+        assertFalse(SettingsSyncSchema.SIDE_MENU in synced.explicitlySet())
+
+        settings.setShowLists(false)
+
+        assertTrue(SettingsSyncSchema.SIDE_MENU in synced.explicitlySet())
     }
 
     @Test
