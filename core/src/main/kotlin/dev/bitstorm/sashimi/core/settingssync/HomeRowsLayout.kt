@@ -12,8 +12,9 @@ import kotlinx.serialization.json.booleanOrNull
  * [HomeRowConfig] list (settings-sync schema, "Layout value").
  *
  * Android has no hero and no SashimiTV row, and its menu-only entries
- * (`menu:*`) are not part of the shared layout: they stay where they are
- * locally, and remote entries Android lacks are carried through on write.
+ * (`menu:*`) are not part of this layout but of `sideMenu` ([SideMenuLayout]):
+ * they keep their places here, and remote entries Android lacks are carried
+ * through on write.
  */
 object HomeRowsLayout {
     const val CONTINUE_WATCHING = "continueWatching"
@@ -57,30 +58,25 @@ object HomeRowsLayout {
      * 1. rows this device has and the layout names take the layout's order and `on` flag;
      * 2. a row the layout does not name stays right after the row it follows now;
      * 3. ids this device does not have are skipped.
+     *
+     * Menu-only entries keep their places; the rows fill the remaining slots.
+     * [takeOrder] false (this device's `sideMenu` is newer than the layout)
+     * applies only the `on` flags: the rows' relative order is `sideMenu`'s.
      */
     fun apply(
         local: List<HomeRowConfig>,
         remote: List<Entry>,
+        takeOrder: Boolean = true,
     ): List<HomeRowConfig> {
         val remoteOn = LinkedHashMap<String, Boolean>()
         remote.forEach { if (it.id !in remoteOn) remoteOn[it.id] = it.on }
-        val byShared = local.associateBy { sharedId(it) }
-        val result =
-            remoteOn
-                .mapNotNull { (id, on) -> byShared[id]?.copy(isEnabled = on) }
-                .toMutableList()
-        val placed = result.mapTo(HashSet()) { sharedId(it) }
-        local.forEachIndexed { index, row ->
-            if (sharedId(row)?.let { it in placed } == true) return@forEachIndexed
-            if (index == 0) {
-                result.add(0, row)
-            } else {
-                val predecessor = local[index - 1]
-                val at = result.indexOfFirst { it.id == predecessor.id && it.kind == predecessor.kind }
-                result.add(at + 1, row)
-            }
-        }
-        return result
+        val flagged = local.map { row -> sharedId(row)?.let { remoteOn[it] }?.let { row.copy(isEnabled = it) } ?: row }
+        if (!takeOrder) return flagged
+        val rows = flagged.filter { sharedId(it) != null }
+        val byShared = rows.associateBy { sharedId(it) }
+        val ordered = remoteOn.keys.mapNotNull { byShared[it] }.toMutableList()
+        val rowOrder = SideMenuLayout.placeUnnamed(rows, ordered) { row -> sharedId(row)?.let { it in remoteOn } == true }
+        return SideMenuLayout.fillRowSlots(flagged, rowOrder.map { it.id })
     }
 
     /**
@@ -91,9 +87,15 @@ object HomeRowsLayout {
     fun write(
         local: List<HomeRowConfig>,
         remote: JsonElement?,
+    ): JsonArray = carryThrough(project(local).map { it.toJson() }, remote?.let { decode(it) })
+
+    /** [own] entries, then each of [remoteEntries] whose id [own] lacks, after its remote predecessor. */
+    internal fun carryThrough(
+        own: List<JsonObject>,
+        remoteEntries: List<JsonObject>?,
     ): JsonArray {
-        val result: MutableList<JsonObject> = project(local).mapTo(mutableListOf()) { it.toJson() }
-        val remoteEntries = remote?.let { decode(it) } ?: return JsonArray(result)
+        val result = own.toMutableList()
+        if (remoteEntries == null) return JsonArray(result)
         val have = result.mapTo(HashSet()) { it.id() }
         remoteEntries.forEachIndexed { index, entry ->
             val id = entry.id()

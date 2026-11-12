@@ -67,13 +67,13 @@ class HomeRowsLayoutTest {
     }
 
     @Test
-    fun `menu-only entries are carried through untouched where they were`() {
+    fun `menu-only entries keep their places and the rows fill the rest in the layout's order`() {
         val local = listOf(watchlist, cw, requests, movies, menuLists, dashboard)
         val remote = listOf(Entry("library:m", true), Entry("requests", true), Entry("continueWatching", true))
 
         val applied = HomeRowsLayout.apply(local, remote)
 
-        assertEquals(listOf("menu:watchlist", "m", "menu:lists", "menu:dashboard", "requests", "continue_watching"), ids(applied))
+        assertEquals(listOf("menu:watchlist", "m", "requests", "continue_watching", "menu:lists", "menu:dashboard"), ids(applied))
     }
 
     @Test

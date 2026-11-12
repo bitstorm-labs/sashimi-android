@@ -38,6 +38,8 @@ internal class FakeSyncedSettings(
     override fun apply(
         key: String,
         v: JsonElement,
+        t: Long,
+        stamps: Map<String, Long>,
     ) {
         values[key] = v
         applied += key to v

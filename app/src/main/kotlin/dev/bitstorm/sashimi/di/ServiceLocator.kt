@@ -47,7 +47,6 @@ import dev.bitstorm.sashimi.core.settings.AppSettings
 import dev.bitstorm.sashimi.core.settingssync.AppSyncedSettings
 import dev.bitstorm.sashimi.core.settingssync.JellyfinSettingsSyncTransport
 import dev.bitstorm.sashimi.core.settingssync.PrefsSettingsSyncState
-import dev.bitstorm.sashimi.core.settingssync.SettingsSyncSchema
 import dev.bitstorm.sashimi.core.settingssync.SettingsSyncService
 import dev.bitstorm.sashimi.core.settingssync.SyncingHomeRowStore
 import dev.bitstorm.sashimi.core.util.runCatchingCancellable
@@ -264,8 +263,8 @@ object ServiceLocator {
         val homeRowStore = PrefsHomeRowStore(app)
         homeRowSettings =
             HomeRowSettings(
-                SyncingHomeRowStore(homeRowStore) {
-                    if (::settingsSync.isInitialized) settingsSync.localChanged(SettingsSyncSchema.HOME_ROWS)
+                SyncingHomeRowStore(homeRowStore) { key ->
+                    if (::settingsSync.isInitialized) settingsSync.localChanged(key)
                 },
             )
         continueWatchingHides = ContinueWatchingHides(PrefsHiddenSeriesStore(app))

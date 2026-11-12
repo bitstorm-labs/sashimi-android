@@ -3,6 +3,7 @@ package dev.bitstorm.sashimi.core.settings
 import android.content.Context
 import dev.bitstorm.sashimi.core.playback.VideoViewModeStore
 import dev.bitstorm.sashimi.core.playback.ViewModeDefaultPersistence
+import dev.bitstorm.sashimi.core.settingssync.SettingsSyncSchema
 import dev.bitstorm.sashimi.core.settingssync.SettingsSyncSuppression
 import dev.bitstorm.sashimi.core.shuffle.TvShuffleMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -184,7 +185,14 @@ class AppSettings(
     }
 
     private fun changed(key: String) {
-        if (key in SYNCED_KEYS && !SettingsSyncSuppression.isApplyingRemote) onSyncedSettingChanged?.invoke(key)
+        val shared =
+            when (key) {
+                in SYNCED_KEYS -> key
+                // The Lists menu switch is the `lists` entry's flag in the shared side menu.
+                KEY_SHOW_LISTS -> SettingsSyncSchema.SIDE_MENU
+                else -> return
+            }
+        if (!SettingsSyncSuppression.isApplyingRemote) onSyncedSettingChanged?.invoke(shared)
     }
 
     companion object {

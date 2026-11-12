@@ -52,7 +52,8 @@ class SettingsSyncSchemaTest {
         assertFalse(valid("tvShuffleMode", "\"shuffleAll\""))
         assertTrue(valid("defaultViewMode", "\"zoom\""))
         assertFalse(valid("defaultViewMode", "\"fill\""))
-        assertFalse(valid("sideMenu", "[]"))
+        assertTrue(valid("sideMenu", "[{\"id\":\"search\",\"menu\":false},{\"id\":\"hero\"}]"))
+        assertFalse(valid("sideMenu", "[{\"id\":\"search\",\"menu\":\"false\"}]"))
         assertFalse(valid("maxBitrate", "0"))
     }
 
