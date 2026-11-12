@@ -4,10 +4,11 @@ import dev.bitstorm.sashimi.core.model.JellyfinLibrary
 
 /**
  * What the side menu (the nav rail on wide layouts) lists, in order (#187,
- * parity with sashimi-apple RailOrder):
- * Home, Search, then each destination in the Home row order (the Watchlist
- * first by default), then Downloads and Settings. Pure, so the rule is
- * unit-tested; the rail is only a view of it.
+ * parity with sashimi-apple RailOrder, owner 2026-11-12): Home, then every
+ * destination in the Home row order (Search, Watchlist, libraries, Lists,
+ * Requests, Dashboard, Downloads by default), then Settings. Only Home and
+ * Settings are pinned. Pure, so the rule is unit-tested; the rail is only a
+ * view of it.
  */
 sealed interface SideMenuItem {
     /** Stable identity, for selection and list keys. */
@@ -59,21 +60,20 @@ sealed interface SideMenuItem {
 }
 
 object SideMenu {
-    /** Always in the menu; there is no way to hide them. */
-    val ALWAYS_SHOWN: List<SideMenuItem> = listOf(SideMenuItem.Home, SideMenuItem.Search, SideMenuItem.Downloads, SideMenuItem.Settings)
+    /** Always in the menu, first and last; there is no way to hide or move them. */
+    val ALWAYS_SHOWN: List<SideMenuItem> = listOf(SideMenuItem.Home, SideMenuItem.Settings)
 
     /** The settings footnote listing [ALWAYS_SHOWN]. */
-    const val ALWAYS_SHOWN_NOTE = "Always shown: Home, Search, Downloads, Settings"
+    const val ALWAYS_SHOWN_NOTE = "Always shown: Home, Settings"
 
     const val ONLY_FROM_SEARCH_NOTE = "Only reachable from Search"
 
     /**
      * The menu for [rows] (the user's Home row order and toggles) and
-     * [libraries] (what the server reports now, in its order). Every
-     * destination after Home and Search is listed in exactly the rows'
-     * relative order (2026-11-07 parity brief, A), then Downloads and
-     * Settings. Search sits right under Home, as on the Apple rail, so the
-     * Watchlist's default first place puts it directly under Search.
+     * [libraries] (what the server reports now, in its order). Home comes
+     * first and Settings last; every destination between them, Search and
+     * Downloads included, is listed in exactly the rows' relative order
+     * (2026-11-07 parity brief, A; 2026-11-12 for Search and Downloads).
      *
      * - A library row is listed where it sits; one the rows don't mention yet
      *   (added on the server since) follows the last listed library, shown.
@@ -85,13 +85,16 @@ object SideMenu {
      *   no say: hiding a row on Home is a statement about Home. Lists keeps its
      *   own switch, [showLists], which also drives the phone tab bar.
      * - A row naming a library the server no longer has is ignored.
-     * - The Watchlist row carries the Watchlist entry; its side-menu toggle
-     *   hides it ([showsWatchlist] also drives the phone tab bar).
+     * - The Watchlist, Search and Downloads rows carry their entries; each
+     *   side-menu toggle hides its entry ([showsWatchlist] also drives the
+     *   phone tab bar, which keeps Search and Downloads regardless).
      * - An entry the rows don't place (an order saved before it existed and
-     *   never normalised) trails, Lists then Requests then Dashboard; an
-     *   unplaced Watchlist leads, where a normalised order puts it.
+     *   never normalised) goes where a normalised order puts it: Search then
+     *   the Watchlist lead, Lists then Requests then Dashboard then Downloads
+     *   trail.
      * - [online] false (the offline library) lists Home, Downloads, Settings:
-     *   nothing else works without the server.
+     *   nothing else works without the server. Downloads is listed then even
+     *   when hidden, since it is the one thing that works offline.
      */
     fun items(
         rows: List<HomeRowConfig>,
@@ -123,6 +126,10 @@ object SideMenu {
                     if (placedKinds.add(row.kind) && showDashboard && row.showInSideMenu) shown += SideMenuItem.Dashboard
                 HomeRowConfig.Kind.WATCHLIST ->
                     if (placedKinds.add(row.kind) && row.showInSideMenu) shown += SideMenuItem.Watchlist
+                HomeRowConfig.Kind.SEARCH ->
+                    if (placedKinds.add(row.kind) && row.showInSideMenu) shown += SideMenuItem.Search
+                HomeRowConfig.Kind.DOWNLOADS ->
+                    if (placedKinds.add(row.kind) && row.showInSideMenu) shown += SideMenuItem.Downloads
                 HomeRowConfig.Kind.CONTINUE_WATCHING, HomeRowConfig.Kind.LIST -> Unit
             }
         }
@@ -131,8 +138,10 @@ object SideMenu {
         if (HomeRowConfig.Kind.LISTS !in placedKinds && showLists) shown += SideMenuItem.Lists
         if (HomeRowConfig.Kind.REQUESTS !in placedKinds && showRequests) shown += SideMenuItem.Requests
         if (HomeRowConfig.Kind.DASHBOARD !in placedKinds && showDashboard) shown += SideMenuItem.Dashboard
+        if (HomeRowConfig.Kind.DOWNLOADS !in placedKinds) shown += SideMenuItem.Downloads
         if (HomeRowConfig.Kind.WATCHLIST !in placedKinds) shown.add(0, SideMenuItem.Watchlist)
-        return listOf(SideMenuItem.Home, SideMenuItem.Search) + shown + listOf(SideMenuItem.Downloads, SideMenuItem.Settings)
+        if (HomeRowConfig.Kind.SEARCH !in placedKinds) shown.add(0, SideMenuItem.Search)
+        return listOf(SideMenuItem.Home) + shown + listOf(SideMenuItem.Settings)
     }
 
     /**

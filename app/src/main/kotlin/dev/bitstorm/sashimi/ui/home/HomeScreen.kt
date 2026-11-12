@@ -155,7 +155,7 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // Menu-only entries (Lists, Dashboard) hold a place in the order, not a row.
+                // Menu-only entries (Search, Watchlist, Lists, Dashboard, Downloads) hold a place in the order, not a row.
                 items(rows.filter { it.isEnabled && !it.isMenuOnly }, key = { it.id }) { row ->
                     when (row.kind) {
                         HomeRowConfig.Kind.CONTINUE_WATCHING ->
@@ -172,7 +172,12 @@ fun HomeScreen(
                         HomeRowConfig.Kind.REQUESTS ->
                             dev.bitstorm.sashimi.ui.requests
                                 .SeerrHomeRow(vm = requestsVm, onOpenTarget = onOpenSeerrTarget)
-                        HomeRowConfig.Kind.LISTS, HomeRowConfig.Kind.DASHBOARD, HomeRowConfig.Kind.WATCHLIST -> Unit
+                        HomeRowConfig.Kind.LISTS,
+                        HomeRowConfig.Kind.DASHBOARD,
+                        HomeRowConfig.Kind.WATCHLIST,
+                        HomeRowConfig.Kind.SEARCH,
+                        HomeRowConfig.Kind.DOWNLOADS,
+                        -> Unit
                         HomeRowConfig.Kind.LIST ->
                             ListRow(vm = vm, listId = row.listId ?: return@items, onOpenList = onOpenList, onOpenDetail = onOpenDetail)
                         HomeRowConfig.Kind.LIBRARY ->

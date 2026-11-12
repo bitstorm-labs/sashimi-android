@@ -25,7 +25,7 @@ data class HomeRowConfig(
     val isEnabled: Boolean = true,
     /**
      * Listed in the side menu (the nav rail on wide layouts, #187). Only a
-     * library row is a side-menu destination; independent of [isEnabled].
+     * row with [isSideMenuDestination] uses it; independent of [isEnabled].
      * Defaults to shown, so saved rows from before the setting existed and
      * libraries added later are in the menu.
      */
@@ -37,15 +37,17 @@ data class HomeRowConfig(
 ) {
     /** Whether this row has a side-menu toggle at all ("—" otherwise). */
     val isSideMenuDestination: Boolean
-        get() = kind == Kind.LIBRARY || kind == Kind.REQUESTS || kind == Kind.LISTS || kind == Kind.DASHBOARD || kind == Kind.WATCHLIST
+        get() = kind == Kind.LIBRARY || kind == Kind.REQUESTS || isMenuOnly
 
     /**
-     * A side-menu entry Home draws no row for (Lists, the admin Dashboard, the
-     * Watchlist): it
-     * is in this list only for its place in the one order Home & Side Menu
-     * edits, and its Home toggle is "—" (Apple SideMenuOrder parity).
+     * A side-menu entry Home draws no row for (Search, the Watchlist, Lists,
+     * the admin Dashboard, Downloads): it is in this list only for its place in
+     * the one order Home & Side Menu edits, and its Home toggle is "—" (Apple
+     * SideMenuOrder parity).
      */
-    val isMenuOnly: Boolean get() = kind == Kind.LISTS || kind == Kind.DASHBOARD || kind == Kind.WATCHLIST
+    val isMenuOnly: Boolean
+        get() =
+            kind == Kind.LISTS || kind == Kind.DASHBOARD || kind == Kind.WATCHLIST || kind == Kind.SEARCH || kind == Kind.DOWNLOADS
 
     /** Hidden from both Home and the side menu: only Search can reach it. */
     val isOnlyReachableFromSearch: Boolean get() = kind == Kind.LIBRARY && !isEnabled && !showInSideMenu
@@ -53,9 +55,10 @@ data class HomeRowConfig(
     /**
      * Names are what is saved: never rename one once shipped. REQUESTS is the
      * Seerr requests row (a Home row and the Requests menu entry); LISTS,
-     * DASHBOARD and WATCHLIST are menu-only.
+     * DASHBOARD, WATCHLIST, SEARCH and DOWNLOADS are menu-only. Append new
+     * kinds at the end.
      */
-    enum class Kind { CONTINUE_WATCHING, LIBRARY, LIST, REQUESTS, LISTS, DASHBOARD, WATCHLIST }
+    enum class Kind { CONTINUE_WATCHING, LIBRARY, LIST, REQUESTS, LISTS, DASHBOARD, WATCHLIST, SEARCH, DOWNLOADS }
 
     /** Stable identity used for reordering + dedupe (matches the Swift `id`). */
     val id: String
@@ -68,6 +71,8 @@ data class HomeRowConfig(
                 Kind.LISTS -> LISTS_ID
                 Kind.DASHBOARD -> DASHBOARD_ID
                 Kind.WATCHLIST -> WATCHLIST_ID
+                Kind.SEARCH -> SEARCH_ID
+                Kind.DOWNLOADS -> DOWNLOADS_ID
             }
 
     val displayName: String
@@ -80,6 +85,8 @@ data class HomeRowConfig(
                 Kind.LISTS -> "Lists"
                 Kind.DASHBOARD -> "Dashboard"
                 Kind.WATCHLIST -> "Watchlist"
+                Kind.SEARCH -> "Search"
+                Kind.DOWNLOADS -> "Downloads"
             }
 
     companion object {
@@ -93,6 +100,8 @@ data class HomeRowConfig(
         const val LISTS_ID = "menu:lists"
         const val DASHBOARD_ID = "menu:dashboard"
         const val WATCHLIST_ID = "menu:watchlist"
+        const val SEARCH_ID = "menu:search"
+        const val DOWNLOADS_ID = "menu:downloads"
 
         /** Android Home has no hero row; the shared placement rule still takes its key. */
         const val HERO_ID = "hero"
@@ -111,6 +120,10 @@ data class HomeRowConfig(
         fun dashboard(): HomeRowConfig = HomeRowConfig(kind = Kind.DASHBOARD)
 
         fun watchlist(): HomeRowConfig = HomeRowConfig(kind = Kind.WATCHLIST)
+
+        fun search(): HomeRowConfig = HomeRowConfig(kind = Kind.SEARCH)
+
+        fun downloads(): HomeRowConfig = HomeRowConfig(kind = Kind.DOWNLOADS)
 
         fun library(
             id: String,
@@ -145,12 +158,11 @@ class HomeRowSettings(
     val rows: StateFlow<List<HomeRowConfig>> = _rows.asStateFlow()
 
     /**
-     * Load persisted rows, or the default (just Continue Watching) on first
-     * launch — libraries are appended dynamically by [updateLibraries]. This is
-     * the migration behaviour: an install with no saved order still gets the
-     * built-in row (port of Swift loadRows()).
+     * Load persisted rows, or [DEFAULT_ROWS] on first launch; libraries are
+     * added dynamically by [updateLibraries] (port of Swift loadRows()). A
+     * saved order goes through [normalized], which migrates it.
      */
-    private fun loadRows(): List<HomeRowConfig> = normalized(store.load() ?: listOf(HomeRowConfig.continueWatching()))
+    private fun loadRows(): List<HomeRowConfig> = normalized(store.load() ?: DEFAULT_ROWS)
 
     /**
      * Reconcile the row list against the current library set: append rows for
@@ -162,15 +174,20 @@ class HomeRowSettings(
         val current = _rows.value.toMutableList()
 
         // Add any library not already present: after the last library row,
-        // or (none yet) before the trailing menu-only entries, so Lists and the
-        // Dashboard keep following the libraries until the user moves them.
-        // The Watchlist leads the menu by default, so it is not one of them.
+        // or (none yet) before the first trailing menu-only entry below Search,
+        // so Lists, the Dashboard and Downloads keep following the libraries
+        // until the user moves them. Search and the Watchlist lead the menu by
+        // default, so neither is that anchor.
         for (library in libraries) {
             val present =
                 current.any { it.kind == HomeRowConfig.Kind.LIBRARY && it.libraryId == library.id }
             if (!present) {
                 val lastLibrary = current.indexOfLast { it.kind == HomeRowConfig.Kind.LIBRARY }
-                val firstMenuOnly = current.indexOfFirst { it.isMenuOnly && it.kind != HomeRowConfig.Kind.WATCHLIST }
+                val search = current.indexOfFirst { it.kind == HomeRowConfig.Kind.SEARCH }
+                val firstMenuOnly =
+                    current.indices.firstOrNull { i ->
+                        i > search && current[i].isMenuOnly && current[i].kind !in LEADING_KINDS
+                    } ?: -1
                 val at =
                     when {
                         lastLibrary >= 0 -> lastLibrary + 1
@@ -239,7 +256,7 @@ class HomeRowSettings(
         commit(list)
     }
 
-    /** Toggle a library row's side-menu visibility. Rows that are not destinations are left alone. */
+    /** Toggle a row's side-menu visibility. Rows that are not destinations are left alone. */
     fun toggleSideMenu(id: String) {
         val list =
             _rows.value.map {
@@ -251,14 +268,37 @@ class HomeRowSettings(
     fun setRows(rows: List<HomeRowConfig>) = commit(normalized(rows))
 
     companion object {
+        private val LEADING_KINDS = setOf(HomeRowConfig.Kind.SEARCH, HomeRowConfig.Kind.WATCHLIST)
+
+        /**
+         * A fresh install's order (owner, 2026-11-12; the same on every
+         * Sashimi platform): Search, Watchlist, then the libraries (added by
+         * [updateLibraries] before Lists), Lists, Requests, Dashboard,
+         * Downloads. Continue Watching is a Home-only row and sits near the top.
+         */
+        val DEFAULT_ROWS: List<HomeRowConfig> =
+            listOf(
+                HomeRowConfig.search(),
+                HomeRowConfig.watchlist(),
+                HomeRowConfig.continueWatching(),
+                HomeRowConfig.lists(),
+                HomeRowConfig.requests(),
+                HomeRowConfig.dashboard(),
+                HomeRowConfig.downloads(),
+            )
+
         /**
          * Adds the built-in entries a saved order is missing, without moving
-         * anything already there: the requests row right after Continue
+         * anything the user placed: the requests row right after Continue
          * Watching (where Apple drew it before it was a row; the start if
          * there is none), then Lists and the Dashboard at the end, which is
-         * where the side menu has always listed Lists. The Watchlist goes
-         * first: its default place is directly under Search, which leads the
-         * side menu's ordered entries (owner, 2026-11-11).
+         * where the side menu has always listed Lists.
+         *
+         * An order with no Search entry predates the side-menu parity change
+         * (2026-11-12): Search goes first with the Watchlist directly under
+         * it, as the side menu has always drawn them, and everything else
+         * keeps its relative order. Once Search is saved nothing moves again.
+         * Downloads, when missing, goes last, where the menu has always drawn it.
          */
         fun normalized(rows: List<HomeRowConfig>): List<HomeRowConfig> {
             val result = rows.toMutableList()
@@ -268,7 +308,14 @@ class HomeRowSettings(
             }
             if (result.none { it.kind == HomeRowConfig.Kind.LISTS }) result.add(HomeRowConfig.lists())
             if (result.none { it.kind == HomeRowConfig.Kind.DASHBOARD }) result.add(HomeRowConfig.dashboard())
-            if (result.none { it.kind == HomeRowConfig.Kind.WATCHLIST }) result.add(0, HomeRowConfig.watchlist())
+            if (result.none { it.kind == HomeRowConfig.Kind.SEARCH }) {
+                val watchlist = result.firstOrNull { it.kind == HomeRowConfig.Kind.WATCHLIST } ?: HomeRowConfig.watchlist()
+                result.removeAll { it.kind == HomeRowConfig.Kind.WATCHLIST }
+                result.addAll(0, listOf(HomeRowConfig.search(), watchlist))
+            } else if (result.none { it.kind == HomeRowConfig.Kind.WATCHLIST }) {
+                result.add(result.indexOfFirst { it.kind == HomeRowConfig.Kind.SEARCH } + 1, HomeRowConfig.watchlist())
+            }
+            if (result.none { it.kind == HomeRowConfig.Kind.DOWNLOADS }) result.add(HomeRowConfig.downloads())
             return result
         }
     }

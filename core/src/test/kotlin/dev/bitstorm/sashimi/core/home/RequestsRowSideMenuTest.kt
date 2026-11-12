@@ -45,11 +45,21 @@ class RequestsRowSideMenuTest {
     }
 
     @Test
-    fun `a new install puts Requests right after Continue Watching, and Lists and Dashboard after the libraries`() {
+    fun `a new install puts Lists, Requests and the Dashboard after the libraries`() {
         val settings = HomeRowSettings(MemoryRowStore(saved = null))
         settings.updateLibraries(listOf(movies, tv))
         assertEquals(
-            listOf("menu:watchlist", "continue_watching", "requests", "movies", "tv", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "continue_watching",
+                "movies",
+                "tv",
+                "menu:lists",
+                "requests",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
     }
@@ -65,7 +75,18 @@ class RequestsRowSideMenuTest {
             )
         val settings = HomeRowSettings(MemoryRowStore(saved))
         assertEquals(
-            listOf("menu:watchlist", "tv", "continue_watching", "requests", "list:p1", "movies", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "tv",
+                "continue_watching",
+                "requests",
+                "list:p1",
+                "movies",
+                "menu:lists",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
         // And the menu reads exactly as before for what was there already.
@@ -84,25 +105,25 @@ class RequestsRowSideMenuTest {
                 "home",
                 "search",
                 "watchlist",
-                "requests",
                 "library:movies",
                 "library:tv",
                 "lists",
+                "requests",
                 "dashboard",
                 "downloads",
                 "settings",
             ),
             keys(all(settings.rows.value)),
         )
-        settings.moveRow(fromId = "requests", toId = "tv")
+        settings.moveRow(fromId = "requests", toId = "movies")
         assertEquals(
             listOf(
                 "home",
                 "search",
                 "watchlist",
+                "requests",
                 "library:movies",
                 "library:tv",
-                "requests",
                 "lists",
                 "dashboard",
                 "downloads",
@@ -123,11 +144,11 @@ class RequestsRowSideMenuTest {
                 "home",
                 "search",
                 "watchlist",
-                "dashboard",
-                "requests",
                 "lists",
                 "library:movies",
                 "library:tv",
+                "dashboard",
+                "requests",
                 "downloads",
                 "settings",
             ),
@@ -141,14 +162,16 @@ class RequestsRowSideMenuTest {
             listOf(
                 HomeRowConfig.lists(),
                 HomeRowConfig.library("tv", "TV Shows"),
+                HomeRowConfig.downloads(),
                 HomeRowConfig.continueWatching(),
                 HomeRowConfig.dashboard(),
                 HomeRowConfig.list("p1", "Christmas"),
                 HomeRowConfig.requests(),
+                HomeRowConfig.search(),
                 HomeRowConfig.watchlist(),
                 HomeRowConfig.library("movies", "Movies"),
             )
-        val menu = keys(all(rows)).filterNot { it in setOf("home", "search", "downloads", "settings") }
+        val menu = keys(all(rows)).filterNot { it in setOf("home", "settings") }
         val fromRows =
             rows.mapNotNull {
                 when (it.kind) {
@@ -157,6 +180,8 @@ class RequestsRowSideMenuTest {
                     HomeRowConfig.Kind.LISTS -> "lists"
                     HomeRowConfig.Kind.DASHBOARD -> "dashboard"
                     HomeRowConfig.Kind.WATCHLIST -> "watchlist"
+                    HomeRowConfig.Kind.SEARCH -> "search"
+                    HomeRowConfig.Kind.DOWNLOADS -> "downloads"
                     HomeRowConfig.Kind.CONTINUE_WATCHING, HomeRowConfig.Kind.LIST -> null
                 }
             }
@@ -201,7 +226,17 @@ class RequestsRowSideMenuTest {
         settings.updateLibraries(listOf(movies))
         settings.updateLibraries(listOf(movies, tv))
         assertEquals(
-            listOf("menu:watchlist", "continue_watching", "requests", "movies", "tv", "menu:lists", "menu:dashboard"),
+            listOf(
+                "menu:search",
+                "menu:watchlist",
+                "continue_watching",
+                "movies",
+                "tv",
+                "menu:lists",
+                "requests",
+                "menu:dashboard",
+                "menu:downloads",
+            ),
             settings.rows.value.map { it.id },
         )
     }
