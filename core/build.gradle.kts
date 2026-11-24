@@ -61,3 +61,24 @@ kotlin {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
+
+// Robolectric downloads its Android framework jar at test time with plain HttpURLConnection, and
+// on GitHub's runners that download started failing (IOException, 2026-11-23) though the jar is on
+// Maven Central. Gradle resolves the same jar instead (cached, retried), and Robolectric runs offline
+// from that copy. Keep the version in step with the robolectric library (4.17: SDK 34 = ...-i7) and
+// with the tests' @Config(sdk = [34]).
+val robolectricJars: Configuration by configurations.creating
+dependencies {
+    robolectricJars("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
+}
+val robolectricDepsDir = layout.buildDirectory.dir("robolectric-deps")
+val robolectricDeps =
+    tasks.register<Copy>("robolectricDeps") {
+        from(robolectricJars)
+        into(robolectricDepsDir)
+    }
+tasks.withType<Test>().configureEach {
+    dependsOn(robolectricDeps)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricDepsDir.get().asFile.absolutePath)
+}
