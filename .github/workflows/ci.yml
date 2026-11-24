@@ -76,6 +76,10 @@ jobs:
     # GitHub Release and deploying the AAB to the Play internal track. The gate
     # that matters is the tag, so the tag is exactly where the checks must hold.
     needs: build
+    # Signing keys and the Play service-account key live in the "release"
+    # environment, which only v* tags can use, so a workflow on any other
+    # branch can't read them.
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release + attach the APK
